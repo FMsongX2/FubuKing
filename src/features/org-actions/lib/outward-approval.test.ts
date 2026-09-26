@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { outwardApprovalOf } from "./outward-approval";
+import { outwardApprovalOf, outwardPreparingOf } from "./outward-approval";
 
 /** The body of a long reply: shortening it anywhere would show. */
 const LONG = Array.from({ length: 300 }, (_, i) => `line ${i}: renamed the theme keys`).join("\n");
@@ -34,5 +34,31 @@ describe("an outward action's approval card", () => {
   it("keeps the plain card when the host could not say whom it reaches", () => {
     expect(outwardApprovalOf(replyCard({ content: undefined }))).toBeNull();
     expect(outwardApprovalOf(replyCard({ content: ["only one block"] }))).toBeNull();
+  });
+});
+
+describe("an outward action's card while it is prepared", () => {
+  const preparingCard = (overrides: Record<string, unknown> = {}) =>
+    replyCard({
+      title: "Preparing the approval…",
+      content: ["Looking up who this reaches and the exact words it will post."],
+      ...overrides,
+    });
+
+  /// The native seam raises it with only Decline; the described card, with
+  /// Allow, replaces it.
+  it("is an organisation tool's card that offers nothing to allow", () => {
+    expect(outwardPreparingOf(preparingCard(), [{ kind: "reject_once" }])).toEqual({
+      title: "Preparing the approval…",
+      note: "Looking up who this reaches and the exact words it will post.",
+    });
+  });
+
+  it("is not the described card, nor any other tool's", () => {
+    const described = [{ kind: "allow_once" }, { kind: "reject_once" }];
+    expect(outwardPreparingOf(preparingCard(), described)).toBeNull();
+    expect(
+      outwardPreparingOf(preparingCard({ toolName: "git push" }), [{ kind: "reject_once" }]),
+    ).toBeNull();
   });
 });

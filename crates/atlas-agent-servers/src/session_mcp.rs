@@ -196,6 +196,10 @@ type Settle = Box<dyn FnOnce(Option<&acp::SessionId>) + Send>;
 pub struct AskFirst {
     /// `(server, tool)`, in the order they were declared.
     tools: Vec<(String, String)>,
+    /// The subset that asks on **every** call: the card for one offers no
+    /// "Allow for this session", because an allowance would cover any
+    /// arguments — for a message, any recipient and any words — with no card.
+    every_time: Vec<(String, String)>,
 }
 
 impl AskFirst {
@@ -211,9 +215,38 @@ impl AskFirst {
         self
     }
 
+    /// `tools` on `server` ask first on every call, with no allowance for
+    /// the rest of the session (see [`asks_every_time`](Self::asks_every_time)).
+    /// Declaring one also declares it as asking first.
+    #[must_use]
+    pub fn every_time(mut self, server: &str, tools: &[&str]) -> Self {
+        for tool in tools {
+            let pair = (server.to_string(), (*tool).to_string());
+            if !self.tools.contains(&pair) {
+                self.tools.push(pair.clone());
+            }
+            if !self.every_time.contains(&pair) {
+                self.every_time.push(pair);
+            }
+        }
+        self
+    }
+
     /// The tools on `server` that ask first.
     pub fn tools_on<'a>(&'a self, server: &'a str) -> impl Iterator<Item = &'a str> + 'a {
         self.tools.iter().filter(move |(s, _)| s == server).map(|(_, tool)| tool.as_str())
+    }
+
+    /// Every `(server, tool)` that asks on every call.
+    pub fn every_time_tools(&self) -> impl Iterator<Item = (&str, &str)> + '_ {
+        self.every_time.iter().map(|(s, t)| (s.as_str(), t.as_str()))
+    }
+
+    /// Whether `server`'s `tool` asks on every call — its card offers no
+    /// "Allow for this session" (ADR-0014: a message's recipient and words
+    /// are approved one call at a time).
+    pub fn asks_every_time(&self, server: &str, tool: &str) -> bool {
+        self.every_time.iter().any(|(s, t)| s == server && t == tool)
     }
 }
 
@@ -386,6 +419,19 @@ mod tests {
         assert_eq!(offer.ask_first().tools_on("b").collect::<Vec<_>>(), ["send", "reply"]);
         assert_eq!(offer.ask_first().tools_on("a").count(), 0);
         assert_eq!(SessionMcpOffer::none().ask_first(), &AskFirst::none());
+    }
+
+    /// A tool that asks every time also asks first, once, and is the only one
+    /// whose card may not be allowed for the rest of the session.
+    #[test]
+    fn a_tool_declared_every_time_asks_first_and_has_no_session_allowance() {
+        let ask = AskFirst::none().on("b", &["send", "reply"]).every_time("b", &["send", "post"]);
+        assert_eq!(ask.tools_on("b").collect::<Vec<_>>(), ["send", "reply", "post"]);
+        assert!(ask.asks_every_time("b", "send"));
+        assert!(ask.asks_every_time("b", "post"));
+        assert!(!ask.asks_every_time("b", "reply"));
+        assert!(!ask.asks_every_time("a", "send"), "per server");
+        assert_eq!(ask.every_time_tools().collect::<Vec<_>>(), [("b", "send"), ("b", "post")]);
     }
 
     #[test]

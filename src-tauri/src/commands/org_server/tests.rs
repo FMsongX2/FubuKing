@@ -3949,6 +3949,10 @@ async fn the_offer_declares_the_org_servers_outward_actions_as_asking_first() {
     let host = running_host(chatting()).await;
     let offer = offers(host.clone(), true, FakeSessionOrgs::new(true, Some(acme()))).offer(&session_request(true));
     assert_eq!(offer.ask_first().tools_on(ORG_SERVER_NAME).collect::<Vec<_>>(), ["org_comment_reply", "org_send"]);
+    // A message is approved one call at a time: its card offers no "Allow
+    // for this session". A reply keeps it.
+    assert!(offer.ask_first().asks_every_time(ORG_SERVER_NAME, "org_send"));
+    assert!(!offer.ask_first().asks_every_time(ORG_SERVER_NAME, "org_comment_reply"));
     assert_eq!(offer.ask_first().tools_on("atlas_memory").count(), 0);
     assert_eq!(offer.ask_first().tools_on(UI_SERVER_NAME).count(), 0);
 

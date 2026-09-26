@@ -129,6 +129,10 @@ pub struct EngineSessions {
     /// What tells the engine's own approval for a call to one of them from a
     /// tool server's elicitation (`engine::tool_approvals`).
     host_servers: Mutex<HashMap<String, std::collections::HashSet<String>>>,
+    /// Per engine thread, the host's `(server, tool)`s that ask on every call
+    /// ([`atlas_agent_servers::AskFirst::every_time`]): their card offers no
+    /// "Allow for this session", and no allowance is ever kept for them.
+    every_time: Mutex<HashMap<String, std::collections::HashSet<(String, String)>>>,
 }
 
 /// How long a turn waits for its thread's host MCP servers to finish starting.
@@ -213,6 +217,25 @@ impl EngineSessions {
         for server in servers {
             entry.entry(server).or_insert(false);
         }
+    }
+
+    /// Records the host's tools that ask `thread_id` on every call.
+    pub fn expect_every_time<'a>(&self, thread_id: &str, tools: impl IntoIterator<Item = (&'a str, &'a str)>) {
+        self.every_time
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .entry(thread_id.to_string())
+            .or_default()
+            .extend(tools.into_iter().map(|(s, t)| (s.to_string(), t.to_string())));
+    }
+
+    /// Whether `server`'s `tool` asks `thread_id` on every call.
+    pub fn asks_every_time(&self, thread_id: &str, server: &str, tool: &str) -> bool {
+        self.every_time
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .get(thread_id)
+            .is_some_and(|tools| tools.contains(&(server.to_string(), tool.to_string())))
     }
 
     /// Whether `server` is one the host offered `thread_id`.

@@ -93,6 +93,14 @@ one.";
 /// approval of that exact call. A new outward tool is one more name here.
 pub const OUTWARD_TOOLS: &[&str] = &["org_comment_reply", "org_send"];
 
+/// The outward actions whose card never offers "Allow for this session": each
+/// call is approved on its own card. An allowance would cover every later call
+/// to the tool with no card — for a message, **any** recipient and any words,
+/// including a new DM — and the model reads teammate-written text (comments,
+/// session titles, the inbox) that could ask it to post. A reply stays
+/// allowable: it can only land on a thread the model already names by id.
+pub const EVERY_TIME_TOOLS: &[&str] = &["org_send"];
+
 /// The tools only an organisation **admin** is offered: left out of the
 /// `tools/list` answer for a session whose caller holds any other role (read
 /// from the access token's organisation claim, through the organisation

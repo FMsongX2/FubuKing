@@ -1,7 +1,7 @@
 import { memo, useEffect, useRef, useState } from "react";
 import { Dialog } from "@base-ui/react/dialog";
 import { DialogOverlay } from "@/ui/dialog";
-import { CheckCircle2, XCircle, AlertTriangle, ClipboardList } from "lucide-react";
+import { CheckCircle2, XCircle, AlertTriangle, ClipboardList, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { useChatStore } from "../stores/chat-store";
 import { agents } from "../lib/agents-api";
@@ -17,7 +17,9 @@ import { type AgentType } from "@/types/agent";
 import { agentMeta } from "@/features/agents/lib/agent-meta";
 import {
   outwardApprovalOf,
+  outwardPreparingOf,
   type OutwardApproval,
+  type OutwardPreparing,
 } from "@/features/org-actions/lib/outward-approval";
 
 function isAllow(kind: string) {
@@ -199,6 +201,7 @@ function PermissionModalImpl({ tabId, onSendMessage }: PermissionModalProps) {
   const planMarkdown = extractPlanMarkdown(current.toolCall);
   const questions = extractQuestions(current.toolCall);
   const outward = outwardApprovalOf(current.toolCall);
+  const preparing = outward ? null : outwardPreparingOf(current.toolCall, current.options);
   const queueNote = queueLength > 1 ? `${queueLength - 1} more pending after this` : null;
 
   // Numbered option list — shared by both layouts.
@@ -339,7 +342,9 @@ function PermissionModalImpl({ tabId, onSendMessage }: PermissionModalProps) {
       >
         <div className="flex items-start gap-2 px-3 pt-3">
           <div className="flex-1 min-w-0">
-            {outward ? (
+            {preparing ? (
+              <OutwardPreparingHeading preparing={preparing} />
+            ) : outward ? (
               <OutwardActionHeading approval={outward} />
             ) : (
               <div className="text-base font-medium leading-snug text-foreground">
@@ -352,7 +357,7 @@ function PermissionModalImpl({ tabId, onSendMessage }: PermissionModalProps) {
           </div>
         </div>
 
-        {outward ? (
+        {preparing ? null : outward ? (
           <OutwardActionBody approval={outward} />
         ) : (
           <ToolCallPreview tc={current.toolCall} />
@@ -448,6 +453,23 @@ export function OutwardActionHeading({ approval }: { approval: OutwardApproval }
       <div className="text-base font-medium leading-snug text-foreground">{approval.title}</div>
       <div className="mt-0.5 text-xs text-secondary-foreground">{approval.recipient}</div>
     </>
+  );
+}
+
+/**
+ * An outward action's card while the host is still describing it (ADR-0014):
+ * a loading heading and what is being looked up. The only option below is
+ * Decline; the described card replaces this one when it is ready.
+ */
+export function OutwardPreparingHeading({ preparing }: { preparing: OutwardPreparing }) {
+  return (
+    <div role="status" aria-live="polite" data-testid="outward-preparing">
+      <div className="flex items-center gap-2 text-base font-medium leading-snug text-foreground">
+        <Loader2 className="size-4 shrink-0 animate-spin text-secondary-foreground" aria-hidden />
+        <span>{preparing.title}</span>
+      </div>
+      <div className="mt-0.5 text-xs text-secondary-foreground">{preparing.note}</div>
+    </div>
   );
 }
 

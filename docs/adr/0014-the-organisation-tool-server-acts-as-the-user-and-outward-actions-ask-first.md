@@ -62,3 +62,22 @@ server does not.
   outward action is refused and nothing is sent.
 - Reversed the same way as ADR-0012: if per-session consent is ever needed, the flag moves onto
   the session request, still never onto agent identity.
+
+## Amendment (2026-09-27): the card is prepared, and a message is never allowed for the session
+
+Two decisions from the 0.3.4 hardening pass (`docs/qa/0.3.4-hardening-report.md`, O1 and O2):
+
+- **The card waits for its description.** Describing a call can take several network reads; the
+  first version raised the card after five seconds with the call's bare arguments (truncated to
+  4000 characters, no resolved recipient), so the user could approve words they did not see. Now a
+  **preparing** card goes up at once — "Preparing the approval…", with only Decline — and is replaced
+  by the described card when the host answers. There is no fallback to the arguments: a host that
+  cannot describe the call, or is still silent after two minutes, ends the ask with a refusal and
+  nothing is sent (`crates/atlas-native-agent/src/engine/tool_approvals.rs`).
+- **A message asks every time.** "Allow for this session" on `org_send` covered every later
+  message — any recipient, any words, a new DM — with no card, while the model reads text other
+  people wrote (comments, session titles, the inbox). The host now declares tools that ask **every
+  time** (`AskFirst::every_time`, `EVERY_TIME_TOOLS`): their card offers Allow and Decline only, and
+  no allowance is kept for them. A reply keeps "Allow for this session": it can only land on a
+  thread the model names by id.
+

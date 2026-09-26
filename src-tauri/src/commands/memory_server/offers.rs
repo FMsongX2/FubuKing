@@ -15,7 +15,7 @@ use atlas_agent_servers::{AskFirst, SessionMcpOffer, SessionMcpRequest, SessionM
 
 use super::host::{MemoryServerHost, SharingGate};
 use super::MEMORY_SERVER_NAME;
-use crate::commands::org_server::{OrgOffer, OrgOfferDecision, ORG_PATH, ORG_SERVER_NAME, OUTWARD_TOOLS};
+use crate::commands::org_server::{OrgOffer, OrgOfferDecision, EVERY_TIME_TOOLS, ORG_PATH, ORG_SERVER_NAME, OUTWARD_TOOLS};
 use crate::commands::ui_server::{UiOffer, UiOfferDecision, UI_PATH, UI_SERVER_NAME};
 
 /// Whether one session request is handed the memory tool server.
@@ -189,9 +189,10 @@ impl SessionMcpServers for MemorySessionOffers {
             })
             .collect();
         // The organisation server's outward actions ask first (ADR-0014);
-        // the host declares them, the connection projects them.
+        // the host declares them, the connection projects them. A message asks
+        // on every call: no "Allow for this session" on its card.
         let ask_first = if org_included {
-            AskFirst::none().on(ORG_SERVER_NAME, OUTWARD_TOOLS)
+            AskFirst::none().on(ORG_SERVER_NAME, OUTWARD_TOOLS).every_time(ORG_SERVER_NAME, EVERY_TIME_TOOLS)
         } else {
             AskFirst::none()
         };

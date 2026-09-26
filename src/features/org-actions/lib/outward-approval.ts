@@ -42,3 +42,36 @@ export function outwardApprovalOf(toolCall: ToolCallRef): OutwardApproval | null
   const [recipient, ...body] = content;
   return { title, recipient, body: body.join("\n") };
 }
+
+/** An outward action's card while it is still being prepared. */
+export interface OutwardPreparing {
+  /** "Preparing the approval…" — the native seam's title for it. */
+  title: string;
+  /** What is being looked up, and that Decline works already. */
+  note: string;
+}
+
+/**
+ * The card that is up while the host describes an outward action, or `null`.
+ * The native seam raises it at once with **only Decline** and replaces it with
+ * the described card when the recipient and body are known
+ * (`tool_approvals.rs`, "Preparing, then the card"): an organisation tool's
+ * card that offers nothing to allow is that card. Never shown with the call's
+ * arguments — there is nothing to approve yet.
+ */
+export function outwardPreparingOf(
+  toolCall: ToolCallRef,
+  options: ReadonlyArray<{ kind: string }>,
+): OutwardPreparing | null {
+  const toolName = typeof toolCall.toolName === "string" ? toolCall.toolName : "";
+  if (orgToolOf(toolName) === null) return null;
+  if (options.some((o) => o.kind === "allow_once" || o.kind === "allow_always")) return null;
+  const content = Array.isArray(toolCall.content)
+    ? toolCall.content.filter((c): c is string => typeof c === "string")
+    : [];
+  const title = typeof toolCall.title === "string" && toolCall.title.trim() ? toolCall.title : "";
+  return {
+    title: title || "Preparing the approval…",
+    note: content[0] ?? "Looking up who this reaches and the exact words it will post.",
+  };
+}

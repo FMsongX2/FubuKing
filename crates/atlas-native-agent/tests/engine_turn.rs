@@ -840,10 +840,12 @@ async fn answer_first_authorization(
                     panic!("the engine's prompts are a flat option list");
                 };
                 let kinds: Vec<_> = options.iter().map(|o| o.kind).collect();
-                let chosen = options
-                    .iter()
-                    .find(|o| o.kind == pick)
-                    .unwrap_or_else(|| panic!("no {pick:?} option was offered"));
+                // An outward action's card is up first as "preparing", with
+                // only Decline, and is replaced by the described card: wait
+                // for the card that offers the answer being given.
+                let Some(chosen) = options.iter().find(|o| o.kind == pick) else {
+                    continue;
+                };
                 h.thread()
                     .lock()
                     .unwrap_or_else(std::sync::PoisonError::into_inner)
@@ -1327,7 +1329,24 @@ impl atlas_agent_servers::SessionMcpServers for OfferingOrg {
             *session.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = id.map(ToString::to_string);
         })
         // As the app's offer declares them: the host names its outward tools.
-        .asking_first(atlas_agent_servers::AskFirst::none().on("atlas_org", &["org_comment_reply", "org_send"]))
+        .asking_first(
+            atlas_agent_servers::AskFirst::none()
+                .on("atlas_org", &["org_comment_reply", "org_send"])
+                .every_time("atlas_org", &["org_send"]),
+        )
+    }
+
+    /// As the app's offer does: whom the call reaches, and its full body. A
+    /// call the host cannot describe is never put to the user.
+    fn describe_call(
+        &self,
+        call: atlas_agent_servers::CallToApprove<'_>,
+    ) -> futures::future::BoxFuture<'static, Option<atlas_agent_servers::CallDescription>> {
+        let body = call.arguments["body"].as_str().unwrap_or_default().to_string();
+        let title = format!("{} in the organisation", call.tool);
+        Box::pin(async move {
+            Some(atlas_agent_servers::CallDescription { title, recipient: "the test recipient".into(), body })
+        })
     }
 
     fn approved_call(&self, call: atlas_agent_servers::CallToApprove<'_>) {
