@@ -113,6 +113,24 @@ describe("ui_open", () => {
     });
   });
 
+  /// Reading a UNC path on Windows opens an SMB connection to that host (and
+  /// offers it the user's NTLM credentials), so nothing may touch one.
+  it.each([
+    "//attacker.example/share/x.ts",
+    "\\\\attacker.example\\share\\x.ts",
+    "\\\\?\\UNC\\attacker.example\\share\\x.ts",
+    "/\\attacker.example/share/x.ts",
+  ])("refuses the network path %s without reading it", async (path) => {
+    invokeMock.mockClear();
+    expect(error(await act("ui_open", { target: "file", path }))).toMatch(/network path/);
+    expect(error(await act("ui_focus", { target: "explorer", path }))).toMatch(/network path/);
+    // Only the Logs audit row may cross; nothing that touches the path.
+    const touched = invokeMock.mock.calls.filter(([, args]) =>
+      JSON.stringify(args ?? {}).includes("attacker.example"),
+    );
+    expect(touched.filter(([cmd]) => cmd !== "append_project_log")).toEqual([]);
+  });
+
   /// The agent thinks in its own working directory, which can be a worktree
   /// or subfolder of the project.
   it("resolves a relative path against the session's cwd first", async () => {

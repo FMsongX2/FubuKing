@@ -39,6 +39,12 @@ const join = (base: string, rel: string) =>
  *  session's working directory when that is inside the active project and
  *  the path exists there, else against the project root. */
 export async function resolvePath(path: string, cwd: string): Promise<string> {
+  // A network path (`//host/share`, `\\host\share`, `\\?\UNC\…`) is refused
+  // before anything touches it: on Windows merely reading one opens an SMB
+  // connection, which hands the user's NTLM credentials to that host.
+  if (/^[\\/]{2}/.test(path)) {
+    return refuse(`${path} is a network path; UI actions open files on this machine only`);
+  }
   if (path.startsWith("/")) return path;
   const project = activeProject().path;
   const cwdInProject = cwd !== project && cwd.startsWith(`${project}/`);
