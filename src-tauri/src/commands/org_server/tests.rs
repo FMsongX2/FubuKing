@@ -538,7 +538,7 @@ fn conversation(id: &str, kind: ConversationKind, name: Option<&str>, members: O
         id: id.into(),
         kind,
         name: name.map(Into::into),
-        member_ids: members.map(|ids| ids.iter().map(|s| s.to_string()).collect()),
+        member_ids: members.map(|ids| ids.iter().map(ToString::to_string).collect()),
         caller_is_member: joined,
     }
 }
@@ -1178,7 +1178,7 @@ async fn a_created_page_is_one_audit_record_naming_the_conversation_and_the_page
         .unwrap();
     let args = json!({ "conversation": "#general", "name": "Architecture" });
     let (_, answer) = call(&client, "org_page_create", args.clone()).await;
-    let records = records.lock();
+    let records = records.lock().clone();
     assert_eq!(records.len(), 1);
     assert_eq!(records[0].tool, "org_page_create");
     assert_eq!(records[0].arguments, args);
@@ -1187,7 +1187,6 @@ async fn a_created_page_is_one_audit_record_naming_the_conversation_and_the_page
     let answered: Value = serde_json::from_str(&records[0].text).unwrap();
     assert_eq!(answered["conversation"]["name"], json!("general"));
     assert_eq!(answered["page_id"], json!("page-1"));
-    drop(records);
     client.cancel().await.ok();
 }
 
@@ -2012,9 +2011,8 @@ async fn org_comment_reply_posts_under_the_thread_on_its_anchor_as_the_caller_an
 
     // It is on the thread for everyone who reads it.
     let (_, threads) = call_json(&client, "org_comments", json!({})).await;
-    let replies_on_k1: Vec<&str> =
-        threads["threads"][0]["replies"].as_array().unwrap().iter().map(|r| r["id"].as_str().unwrap()).collect();
-    assert!(replies_on_k1.contains(&posted[0].id.as_str()));
+    let mut replies_on_k1 = threads["threads"][0]["replies"].as_array().unwrap().iter().map(|r| r["id"].as_str().unwrap());
+    assert!(replies_on_k1.any(|id| id == posted[0].id));
     client.cancel().await.ok();
 }
 
@@ -3665,7 +3663,7 @@ fn org_server_prefix_bytes_are_measured() {
         per_tool.iter().filter(|(_, n)| admin || !ADMIN_TOOLS.contains(&n.as_str())).map(|(b, _)| b).sum()
     };
     let (member_wire, admin_wire) = (wire_total(false), wire_total(true));
-    per_tool.sort_by(|a, b| b.0.cmp(&a.0));
+    per_tool.sort_by_key(|a| std::cmp::Reverse(a.0));
 
     println!("tools/list JSON: member {member_list} B, admin {admin_list} B");
     println!("Chat wire tools: member {member_wire} B, admin {admin_wire} B");
@@ -3737,13 +3735,12 @@ async fn every_org_call_writes_one_audit_record_naming_the_session_the_tool_its_
     }
 
     let (_, answer) = call(&client, "org_members", json!({ "name": "Grace Hopper" })).await;
-    let records = records.lock();
+    let records = records.lock().clone();
     assert_eq!(records.len(), 2, "each call adds exactly one record");
     assert_eq!(records[1].tool, "org_members");
     assert_eq!(records[1].arguments, json!({ "name": "Grace Hopper" }));
     assert!(records[1].ok);
     assert_eq!(records[1].text, answer);
-    drop(records);
     client.cancel().await.ok();
 }
 
@@ -3758,12 +3755,11 @@ async fn a_call_that_fails_is_one_audit_record_that_says_why() {
 
     let (err, answer) = call(&client, "org_members", json!({ "name": "Sam Lee" })).await;
     assert!(err);
-    let records = records.lock();
+    let records = records.lock().clone();
     assert_eq!(records.len(), 1);
     assert!(!records[0].ok);
     assert_eq!(records[0].text, answer);
     assert!(records[0].text.contains("ask the user which one"), "{}", records[0].text);
-    drop(records);
     client.cancel().await.ok();
 }
 
@@ -3781,7 +3777,7 @@ async fn a_refused_call_is_one_audit_record_that_says_why() {
     let no_org = connect(&server.url_at(ORG_PATH), &tokens.mint("s2", "atlas-agent", "/q")).await.unwrap();
     assert!(call(&no_org, "org_conversations", json!({})).await.0);
 
-    let records = records.lock();
+    let records = records.lock().clone();
     assert_eq!(records.len(), 2, "one record per refused call");
     assert_eq!(records[0].tool, "org_whoami");
     assert!(!records[0].ok);
@@ -3790,7 +3786,6 @@ async fn a_refused_call_is_one_audit_record_that_says_why() {
     assert_eq!(records[1].tool, "org_conversations");
     assert!(!records[1].ok);
     assert!(records[1].text.contains("not given access to an organisation"), "{}", records[1].text);
-    drop(records);
     client.cancel().await.ok();
     no_org.cancel().await.ok();
 }
