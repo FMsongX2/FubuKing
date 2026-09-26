@@ -110,6 +110,27 @@ describe("ui_chat", () => {
     );
   });
 
+  /// A stale session entry for the same ACP session (its tab long closed) can
+  /// sort before the live one; the refusal must still recognise the live tab.
+  it("refuses send on its own chat even when a stale entry shares its session", async () => {
+    useChatStore.setState({
+      sessions: {
+        "chat-old": { acpSessionId: "sess-1", status: "idle", messages: [] },
+        "chat-1": { acpSessionId: "sess-1", status: "running", messages: [] },
+        "chat-2": { acpSessionId: "sess-2", status: "idle", messages: [] },
+      } as never,
+    });
+    const send = await heard(async () =>
+      expect(error(await act("ui_chat", { op: "send", tabId: "chat-1", text: "go" }))).toMatch(
+        /prefill/,
+      ),
+    );
+    expect(send.filter(([n]) => n === "atlas:chat-send")).toEqual([]);
+    expect(
+      error(await act("ui_chat", { op: "switch_agent", tabId: "chat-1", agent: "claude-acp" })),
+    ).toMatch(/your own/);
+  });
+
   it("sends into another chat in the active project", async () => {
     const events = await heard(() =>
       act("ui_chat", { op: "send", tabId: "chat-2", text: "status?" }),

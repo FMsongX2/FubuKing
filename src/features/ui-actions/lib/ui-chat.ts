@@ -21,14 +21,19 @@ const emit = (name: string, detail: unknown) =>
 export function performChat(request: UiActionRequest): unknown {
   const a = readArgs("ui_chat", request.args);
   const op = a.oneOf("op", OPS);
-  const own = findTabByAcpSession(useChatStore.getState().sessions, request.sessionId);
+  const sessions = useChatStore.getState().sessions;
+  const own = findTabByAcpSession(sessions, request.sessionId);
   const tabId =
     a.optStr("tabId") ??
     own ??
     refuse("ui_chat: you have no chat tab of your own here; pass tabId (ui_state lists tabs)");
   const tab = tabInScope(tabId);
   if (tab.type !== "chat") return refuse(`tab ${tabId} is not a chat`);
-  const isOwn = tabId === own;
+  // By the tab's own session, not by equality with the first match: a stale
+  // session entry for the same ACP session can precede the live tab's.
+  const isOwn =
+    tabId === own ||
+    (request.sessionId !== "" && sessions[tabId]?.acpSessionId === request.sessionId);
 
   // Read every argument before touching the window, so a malformed call
   // changes nothing.
