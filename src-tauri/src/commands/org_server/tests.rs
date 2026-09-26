@@ -2254,16 +2254,16 @@ async fn the_card_names_the_threads_author_where_it_is_and_the_full_body_as_it_w
     assert!(nothing_posted(&org), "describing posts nothing");
 }
 
+/// A reply whose thread cannot be read is not described: the native seam then
+/// refuses the call instead of asking the user to allow a reply to a thread
+/// nobody could name (ADR-0014 amendment).
 #[tokio::test(flavor = "multi_thread")]
-async fn a_card_the_organisation_cannot_describe_still_shows_the_comment_and_the_body() {
+async fn a_reply_whose_thread_cannot_be_read_is_not_described() {
     let org = commented();
     org.comments_fail.store(true, Ordering::SeqCst);
     let offers = describing_offer(org).await;
-    let said = describe(&offers, ORG_SERVER_NAME, "org_comment_reply", json!({ "comment": "k1", "body": "hi" }))
-        .await
-        .expect("still described");
-    assert_eq!(said.title, "Reply to comment k1");
-    assert_eq!(said.body, "hi");
+    let said = describe(&offers, ORG_SERVER_NAME, "org_comment_reply", json!({ "comment": "k1", "body": "hi" })).await;
+    assert!(said.is_none(), "{said:?}");
 }
 
 /// The card and the call read the arguments through one parser and rewrite
@@ -2287,24 +2287,13 @@ async fn the_cards_body_is_the_posted_body() {
     client.cancel().await.ok();
 }
 
-/// When the thread cannot be read for the card, it still shows the body as it
-/// will be posted, mentions rewritten; when the roster cannot be read either,
-/// a mention keeps its `<@id>` on both.
+/// When the roster cannot be read for the card, a mention keeps its `<@id>`
+/// on the card and in the posted comment alike.
 #[tokio::test(flavor = "multi_thread")]
-async fn a_card_the_organisation_cannot_describe_still_shows_the_posted_body() {
+async fn a_card_whose_roster_cannot_be_read_shows_the_posted_body() {
     let org = commented();
     let offers = describing_offer(org.clone()).await;
     let (_server, client, consent) = consenting_client(org.clone()).await;
-
-    let args = json!({ "comment": "k1", "body": " thanks ", "mention": ["Grace Hopper"] });
-    org.comments_fail.store(true, Ordering::SeqCst);
-    let said = describe(&offers, ORG_SERVER_NAME, "org_comment_reply", args.clone()).await.expect("described");
-    assert_eq!(said.title, "Reply to comment k1");
-    org.comments_fail.store(false, Ordering::SeqCst);
-    let (err, answer) = call_json(&client, "org_comment_reply", approved(&consent, args)).await;
-    assert!(!err, "{answer}");
-    assert_eq!(json!(said.body), answer["comment"]["body"]);
-    assert_eq!(said.body, "@Grace Hopper thanks");
 
     let args = json!({ "comment": "k1", "body": "<@u-grace> see above" });
     org.roster_fail.store(true, Ordering::SeqCst);
@@ -2578,8 +2567,12 @@ async fn the_card_for_a_message_names_the_channel_the_dm_the_group_or_the_new_dm
         (said.title.as_str(), said.recipient.as_str()),
         ("Message the group with Sam Lee and u-ghost", "Everyone in your group DM with Sam Lee and u-ghost"),
     );
-    let said = card("Nobody Here").await.expect("still described");
-    assert_eq!((said.title.as_str(), said.recipient.as_str(), said.body.as_str()), ("Send to Nobody Here", "Nobody Here", "hi"));
+    // A recipient that matches nothing — a name, or a link written without its
+    // kind (seen live: the model wrote `atlas-org://<conversation id>`) — is
+    // not described, so the seam refuses it instead of offering Allow on it.
+    assert!(card("Nobody Here").await.is_none());
+    assert!(card("atlas-org://c-general").await.is_none());
+    assert!(card("atlas-org://conversation/c-general").await.is_some(), "the well-formed link is");
 }
 
 /// The card and the call read the arguments through one parser and rewrite

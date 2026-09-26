@@ -20,10 +20,15 @@ impl OrgTools {
     /// The body is read from the arguments by the same parser the call uses
     /// ([`ReplyArgs`], [`SendArgs`]) and rewritten the same way
     /// ([`OrgTools::post_body`]), then read back as a person reads it — exactly what
-    /// the posted comment or message will say. When what it goes to cannot be
-    /// read the card still shows what the call named and that body; when the
-    /// roster cannot be read either, mentions keep their `<@id>`. `None` for
-    /// a tool that does not ask.
+    /// the posted comment or message will say. When the roster cannot be read,
+    /// mentions keep their `<@id>`.
+    ///
+    /// `None` when what the call goes to cannot be found — a thread that
+    /// cannot be read, a recipient that matches nothing (a name, or a
+    /// malformed `atlas-org://` link) — and for a tool that does not ask.
+    /// The native seam then refuses the call rather than put a card with
+    /// Allow in front of the user for a recipient nobody could name (ADR-0014
+    /// amendment: an outward action is approved on what it reaches).
     ///
     /// [`SessionMcpServers::describe_call`]: atlas_agent_servers::SessionMcpServers::describe_call
     pub async fn describe(&self, grant: &Grant, tool: &str, arguments: &Value) -> Option<CallDescription> {
@@ -59,13 +64,7 @@ impl OrgTools {
         };
         let roster = roster.as_deref();
         let body = named_mentions(posted.as_deref().unwrap_or(body), roster);
-        let Some((target, root)) = thread else {
-            return Some(CallDescription {
-                title: format!("Reply to comment {comment_id}"),
-                recipient: format!("The thread of comment {comment_id}"),
-                body,
-            });
-        };
+        let (target, root) = thread?;
         let author = root
             .guest_name
             .clone()
@@ -143,13 +142,7 @@ impl OrgTools {
             None => recipient,
         };
         let body = named_mentions(&posted, roster);
-        let Some(recipient) = recipient else {
-            return Some(CallDescription {
-                title: format!("Send to {to}"),
-                recipient: with_reference(to.to_string()),
-                body,
-            });
-        };
+        let recipient = recipient?;
         // A DM is named by who else is in it, so the card needs to know who
         // the caller is; a channel and a new DM do not.
         let caller = match (&recipient, &scope) {
