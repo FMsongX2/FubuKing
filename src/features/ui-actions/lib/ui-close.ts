@@ -1,7 +1,8 @@
 /**
  * `ui_close`: close a tab through the app's own close path, so a busy chat
  * still asks the user first. Unsaved work is never closed by an agent: an
- * editor with changes is refused outright, with no override.
+ * editor (or a PDF with annotations) with changes is refused outright, with
+ * no override.
  */
 
 import { useLayoutStore } from "@/features/layout/stores/layout-store";
@@ -22,7 +23,8 @@ export async function performClose(request: UiActionRequest): Promise<unknown> {
   const filePath = typeof tab.data.filePath === "string" ? tab.data.filePath : undefined;
   const unsaved =
     tab.dirty || (filePath !== undefined && useEditorStore.getState().buffers[filePath]?.dirty);
-  if (tab.type === "editor" && unsaved) {
+  // Any tab type: a PDF with unsaved annotations marks its tab dirty too.
+  if (unsaved) {
     return refuse(`${tab.title} has unsaved changes; ask the user to save or close it`);
   }
   const busy =

@@ -372,6 +372,19 @@ describe("ui_close", () => {
     expect(layout().tabs.some((t) => t.id === "editor:/p/src/App.tsx")).toBe(true);
   });
 
+  /// Not only editors hold unsaved work: the PDF viewer marks its tab dirty
+  /// while annotations are unsaved.
+  it("refuses to close any tab marked dirty, such as an annotated PDF", async () => {
+    const pdf = tab("pdf:/p/spec.pdf", "pdf", "main", {
+      title: "spec.pdf",
+      dirty: true,
+      data: { filePath: "/p/spec.pdf" },
+    });
+    useLayoutStore.setState({ tabs: [...layout().tabs, pdf] });
+    expect(error(await act("ui_close", { tabId: "pdf:/p/spec.pdf" }))).toMatch(/unsaved/);
+    expect(layout().tabs.some((t) => t.id === "pdf:/p/spec.pdf")).toBe(true);
+  });
+
   it("refuses a tab another project owns", async () => {
     expect(error(await act("ui_close", { tabId: "chat-w" }))).toMatch(/website/);
   });
