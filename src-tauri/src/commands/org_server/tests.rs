@@ -4478,3 +4478,78 @@ async fn a_consent_refused_while_signed_out_is_spent_too() {
     drop(server);
     client.cancel().await.ok();
 }
+
+/// Smoke rows 13/14: refusals are not sticky. Switching the setting back on,
+/// or signing back in, lets the same running session answer again.
+#[tokio::test(flavor = "multi_thread")]
+async fn access_resumes_after_the_setting_is_back_on_and_after_signing_in_again() {
+    let org = FakeOrganisation::with_member("Ada Lovelace", Some(Role::Developer));
+    let (gate, on) = switchable(true);
+    let orgs = bound_to_acme();
+    let tokens = Arc::new(MemoryTokens::default());
+    let server = serve_tools(tokens.clone(), OrgTools::new(org.clone(), gate, orgs.clone())).await;
+    let client = connect(&server.url_at(ORG_PATH), &offered_token(&tokens, "s1", "/p", Some(acme())))
+        .await
+        .unwrap();
+
+    on.store(false, Ordering::SeqCst);
+    assert!(call(&client, "org_whoami", json!({})).await.0);
+    on.store(true, Ordering::SeqCst);
+    let (err, text) = call(&client, "org_whoami", json!({})).await;
+    assert!(!err, "answers again once switched back on: {text}");
+
+    orgs.sign_out();
+    assert!(call(&client, "org_whoami", json!({})).await.0);
+    orgs.sign_in();
+    let (err, text) = call(&client, "org_whoami", json!({})).await;
+    assert!(!err, "answers again once signed back in: {text}");
+    drop(server);
+    client.cancel().await.ok();
+}
+
+/// The role is read per call: an admin demoted while the session runs is
+/// refused member activity on the next call, not served from the offer's view.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_demoted_admin_is_refused_org_member_activity_on_the_next_call() {
+    let org = boarded_as(Some(Role::Admin));
+    let (_server, client) = org_client(org.clone()).await;
+    let (err, text) = call(&client, "org_member_activity", json!({ "member": "Grace Hopper" })).await;
+    assert!(!err, "{text}");
+    if let Some(caller) = org.caller.lock().as_mut() {
+        caller.role = Some(Role::Developer);
+    }
+    let reads = org.board_reads();
+    let (err, text) = call(&client, "org_member_activity", json!({ "member": "Grace Hopper" })).await;
+    assert!(err && text.contains("Only an organisation admin"), "{text}");
+    assert_eq!(org.board_reads(), reads, "nothing more was read");
+    client.cancel().await.ok();
+}
+
+/// Chat is on another organisation than the Project's: every tool that goes
+/// through chat refuses, nothing is sent or created, and every read that does
+/// not need chat still acts in the grant's organisation — never the window's.
+#[tokio::test(flavor = "multi_thread")]
+async fn with_chat_on_another_organisation_chat_tools_refuse_and_nothing_acts_there() {
+    let org = chatting();
+    *org.chat_org.lock() = Some("org-globex".into());
+    let (_server, client, consent) = consenting_client(org.clone()).await;
+
+    let (err, text) = call(&client, "org_conversations", json!({})).await;
+    assert!(err, "{text}");
+    let args = approved_for(&consent, "org_send", json!({ "to": "general", "body": "hi" }));
+    let (err, text) = call(&client, "org_send", args).await;
+    assert!(err, "{text}");
+    let (err, text) = call(&client, "org_page_create", json!({ "conversation": "#general", "name": "Arch" })).await;
+    assert!(err, "{text}");
+    assert!(nothing_sent(&org));
+    assert!(pages_created(&org).is_empty());
+
+    let (err, text) = call(&client, "org_whoami", json!({})).await;
+    assert!(!err, "{text}");
+    assert!(
+        org.asked().iter().all(|(o, _)| o == "org-acme"),
+        "every call acted in the grant's organisation: {:?}",
+        org.asked()
+    );
+    client.cancel().await.ok();
+}
