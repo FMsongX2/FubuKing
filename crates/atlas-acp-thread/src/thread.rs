@@ -1675,6 +1675,42 @@ impl AcpThread {
         })
     }
 
+    /// Asks again about a call already waiting for confirmation, with a new
+    /// card: `tool_call` and `options` replace the ones showing. The card
+    /// showing is resolved on the wire and the new one announced, in that
+    /// order and under the one borrow, so nothing can be raised between them;
+    /// the row keeps the status it had before it was first asked about.
+    ///
+    /// For a card that has to be up before everything it will say is known —
+    /// an outward action's approval, shown as "preparing" while the host
+    /// describes whom the call reaches (ADR-0014). The first card's waiter
+    /// must be dropped, not awaited: it would resolve `Cancelled` and announce
+    /// a second resolution for this call.
+    pub fn reraise_tool_call_authorization(
+        &mut self,
+        tool_call: acp::ToolCallUpdate,
+        options: PermissionOptions,
+        kind: AuthorizationKind,
+    ) -> Result<impl std::future::Future<Output = RequestPermissionOutcome> + Send, acp::Error>
+    {
+        let id = tool_call.tool_call_id.clone();
+        let was_waiting = match self.tool_call_mut(&id) {
+            Some((_, call)) => match &call.status {
+                ToolCallStatus::WaitingForConfirmation { current_status, .. } => {
+                    // Dropping the old responder here is what retires it.
+                    call.status = (*current_status).into();
+                    true
+                }
+                _ => false,
+            },
+            None => false,
+        };
+        if was_waiting {
+            self.emit(AcpThreadEvent::ToolAuthorizationReceived(id));
+        }
+        self.request_tool_call_authorization(tool_call, options, kind)
+    }
+
     pub fn cancel_tool_call_authorization(&mut self, id: &acp::ToolCallId) {
         let Some((ix, call)) = self.tool_call_mut(id) else {
             return;
