@@ -61,6 +61,16 @@ export function useSessionComments(
 
   const shared = remoteProjectId !== null && sessionId !== null;
 
+  // A different Session starts empty, in the same render: the previous one's
+  // threads would otherwise show under it (badge, panel, pills) until its own
+  // list answered — indefinitely on a hung or offline read.
+  const identity = shared ? `${remoteProjectId}\u0000${sessionId}` : null;
+  const [threadsFor, setThreadsFor] = useState(identity);
+  if (threadsFor !== identity) {
+    setThreadsFor(identity);
+    setThreads(EMPTY_THREADS);
+  }
+
   // Follow this Session. Rust opens a socket subscribed to exactly it (or
   // shares the one another surface already holds — the Timeline and a chat
   // tab on one Session are one socket), and closes it when the last watcher
