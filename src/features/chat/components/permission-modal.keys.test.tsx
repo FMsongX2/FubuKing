@@ -65,6 +65,23 @@ describe("keys on the permission card", () => {
     expect(screen.queryByText("↵")).toBeNull();
   });
 
+  /// Found in the live run: with Enter no longer taken as Allow, it fell
+  /// through to the composer, where Enter on an empty field is Stop — the
+  /// card was cancelled and the turn ended. The card keeps its keys.
+  it("an outward card's Enter and Allow digit never reach the composer", () => {
+    pending("atlas_org.org_send", "Message #general");
+    const composer = document.createElement("textarea");
+    document.body.appendChild(composer);
+    const reached = vi.fn();
+    composer.addEventListener("keydown", reached);
+    composer.focus();
+    expect(fireEvent.keyDown(composer, { key: "Enter" })).toBe(false);
+    expect(fireEvent.keyDown(composer, { key: "1" })).toBe(false);
+    expect(reached).not.toHaveBeenCalled();
+    expect(respondPermission).not.toHaveBeenCalled();
+    composer.remove();
+  });
+
   it("an outward card is allowed by a click, and declined by its digit", () => {
     pending("atlas_org.org_send", "Message #general");
     fireEvent.keyDown(window, { key: "2" });

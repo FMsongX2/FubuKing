@@ -16,6 +16,7 @@ import type { PermissionOptionRef, PendingPermission } from "@/types/acp";
 import { type AgentType } from "@/types/agent";
 import { agentMeta } from "@/features/agents/lib/agent-meta";
 import {
+  isOutwardCall,
   keyMayPick,
   outwardApprovalOf,
   outwardPreparingOf,
@@ -124,18 +125,28 @@ function PermissionModalImpl({ tabId, onSendMessage }: PermissionModalProps) {
       // resolve a possibly-mismatched option here.
       if (extractQuestions(current.toolCall)) return;
       if (inText) return; // let the field handle digits / Enter
+      // A key the card takes is the card's alone: it must not also reach the
+      // composer, where Enter on an empty field is Stop.
+      const consume = () => {
+        e.preventDefault();
+        e.stopPropagation();
+      };
       if (e.key === "Enter") {
         if (primaryId) {
-          e.preventDefault();
+          consume();
           send({ kind: "selected", option_id: primaryId });
+        } else if (isOutwardCall(current.toolCall)) {
+          // An outward action's Allow is a click. Its Enter does nothing —
+          // it neither posts nor stops the turn under the card.
+          consume();
         }
         return;
       }
       const n = parseInt(e.key, 10);
       if (!Number.isNaN(n) && n >= 1 && n <= current.options.length) {
         const picked = current.options[n - 1];
+        consume();
         if (!keyMayPick(current.toolCall, picked.kind)) return;
-        e.preventDefault();
         send({ kind: "selected", option_id: picked.optionId });
       }
     };
