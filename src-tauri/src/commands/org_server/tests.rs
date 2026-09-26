@@ -3839,6 +3839,11 @@ impl FakeSessionOrgs {
         self.signed_in.store(false, Ordering::SeqCst);
     }
 
+    /// The user signs back in.
+    fn sign_in(&self) {
+        self.signed_in.store(true, Ordering::SeqCst);
+    }
+
     /// The Project's binding changes while a session runs.
     fn rebind(&self, bound: Option<OrgScope>) {
         *self.bound.lock() = bound;
@@ -4420,4 +4425,56 @@ fn none_of_atlas_tool_servers_ever_sends_an_elicitation() {
         }
     }
     assert!(read >= 9, "the three servers' sources were read ({read})");
+}
+
+// ── 0.3.4 hardening ──────────────────────────────────────────────────────────
+
+/// An approval the server refused for another reason (the setting was off)
+/// must not survive to post the same call later with no card: after a switch
+/// to bypass, the engine would run the identical call unasked, and a consent
+/// left in the store would let it through.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_consent_the_server_refused_for_another_reason_is_spent_not_kept() {
+    let org = chatting();
+    let (gate, on) = switchable(false);
+    let tools = OrgTools::new(org.clone(), gate, bound_to_acme());
+    let consent = tools.consent().clone();
+    let tokens = Arc::new(MemoryTokens::default());
+    let server = serve_tools(tokens.clone(), tools).await;
+    let client = connect(&server.url_at(ORG_PATH), &offered_token(&tokens, "s1", "/p", Some(acme())))
+        .await
+        .unwrap();
+
+    let args = approved_for(&consent, "org_send", json!({ "to": "general", "body": "ship it" }));
+    let (err, text) = call(&client, "org_send", args.clone()).await;
+    assert!(err && text.contains("switched off"), "{text}");
+
+    on.store(true, Ordering::SeqCst);
+    let (err, text) = call(&client, "org_send", args).await;
+    assert!(err, "the earlier approval was spent by the refused call: {text}");
+    assert!(nothing_sent(&org));
+    drop(server);
+    client.cancel().await.ok();
+}
+
+/// The same for a call refused because nobody was signed in.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_consent_refused_while_signed_out_is_spent_too() {
+    let org = chatting();
+    let orgs = bound_to_acme();
+    let tools = OrgTools::new(org.clone(), setting(true), orgs.clone());
+    let consent = tools.consent().clone();
+    let tokens = Arc::new(MemoryTokens::default());
+    let server = serve_tools(tokens.clone(), tools).await;
+    let client = connect(&server.url_at(ORG_PATH), &offered_token(&tokens, "s1", "/p", Some(acme())))
+        .await
+        .unwrap();
+    orgs.sign_out();
+    let args = approved_for(&consent, "org_send", json!({ "to": "general", "body": "later" }));
+    assert!(call(&client, "org_send", args.clone()).await.0);
+    orgs.sign_in();
+    assert!(call(&client, "org_send", args).await.0);
+    assert!(nothing_sent(&org));
+    drop(server);
+    client.cancel().await.ok();
 }

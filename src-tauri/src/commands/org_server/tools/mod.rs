@@ -537,6 +537,17 @@ impl OrgTools {
     }
 
     async fn answer(&self, grant: &Grant, request: &CallToolRequestParams) -> CallToolResult {
+        // An outward action posts only the call the user approved — on its
+        // card, or under "Allow for this session" — never one the engine ran
+        // unasked (bypass). The consent is taken before any other check, so
+        // a call refused for another reason (setting off, signed out) still
+        // spends it: a consent left behind could otherwise post the same
+        // call later with no card, after a switch to bypass.
+        let outward = OUTWARD_TOOLS.contains(&request.name.as_ref());
+        let consented = outward && {
+            let arguments = request.arguments.clone().map_or(Value::Null, Value::Object);
+            self.consent.take(&grant.session_id, ORG_SERVER_NAME, &request.name, &arguments)
+        };
         if !(self.gate)() {
             return tool_error(OFF_NOTE);
         }
@@ -550,14 +561,8 @@ impl OrgTools {
         if self.orgs.bound_to(&grant.cwd).as_ref() != Some(&scope) {
             return tool_error(UNBOUND_NOTE);
         }
-        // An outward action posts only the call the user approved — on its
-        // card, or under "Allow for this session" — never one the engine ran
-        // unasked (bypass).
-        if OUTWARD_TOOLS.contains(&request.name.as_ref()) {
-            let arguments = request.arguments.clone().map_or(Value::Null, Value::Object);
-            if !self.consent.take(&grant.session_id, ORG_SERVER_NAME, &request.name, &arguments) {
-                return tool_error(UNAPPROVED_NOTE);
-            }
+        if outward && !consented {
+            return tool_error(UNAPPROVED_NOTE);
         }
         match request.name.as_ref() {
             "org_whoami" => self.whoami(grant, &scope).await,
