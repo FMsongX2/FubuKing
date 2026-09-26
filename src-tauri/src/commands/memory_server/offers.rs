@@ -161,8 +161,10 @@ impl SessionMcpServers for MemorySessionOffers {
         if let (OfferDecision::Included, Some(url)) = (decision, url) {
             entries.push((MEMORY_SERVER_NAME, url));
         }
+        let mut ui_included = false;
         if let (Some(UiOfferDecision::Included), Some(url)) = (ui, ui_url) {
             entries.push((UI_SERVER_NAME, url));
+            ui_included = true;
         }
         let mut org_included = false;
         if let (Some(OrgOfferDecision::Included), Some(url)) = (org, org_url) {
@@ -176,7 +178,7 @@ impl SessionMcpServers for MemorySessionOffers {
         // organisation only when the organisation server is among them (the
         // org decision names none otherwise).
         let tokens = self.host.tokens().clone();
-        let token = tokens.mint_unbound(&agent, &cwd, scope);
+        let token = tokens.mint_unbound(&agent, &cwd, scope, ui_included);
         let servers = entries
             .into_iter()
             .map(|(name, url)| {

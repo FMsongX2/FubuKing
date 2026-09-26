@@ -643,7 +643,7 @@ fn approved_for(consent: &atlas_agent_servers::OutwardConsent, tool: &str, argum
 /// A token as an offer mints one: carrying the organisation, bound to the
 /// chat's session id once the agent answers.
 fn offered_token(tokens: &MemoryTokens, session: &str, cwd: &str, scope: Option<OrgScope>) -> String {
-    let token = tokens.mint_unbound("atlas-agent", cwd, scope);
+    let token = tokens.mint_unbound("atlas-agent", cwd, scope, false);
     tokens.bind(&token, session);
     token
 }
