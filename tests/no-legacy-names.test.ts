@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it } from "vitest";
 import { existsSync, readFileSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import path from "node:path";
@@ -158,17 +158,33 @@ function tracked(): string[] {
     .filter(Boolean);
 }
 
+/**
+ * Every tracked file's text, read once. Three assertions below scan the whole
+ * tree; re-reading it each time put them over vitest's 5s default whenever a
+ * build loaded the machine (a pre-commit run beside `cargo test`), a timeout
+ * that looked like a naming regression. The read happens in `beforeAll`, with
+ * a budget of its own, so each test's 5s covers only its assertion.
+ */
+const texts = new Map<string, string | null>();
 function readText(rel: string): string | null {
-  if (BINARY.has(path.extname(rel))) return null;
-  try {
-    return readFileSync(path.join(REPO_ROOT, rel), "utf8");
-  } catch {
-    return null;
+  if (texts.has(rel)) return texts.get(rel) ?? null;
+  let text: string | null = null;
+  if (!BINARY.has(path.extname(rel))) {
+    try {
+      text = readFileSync(path.join(REPO_ROOT, rel), "utf8");
+    } catch {
+      text = null;
+    }
   }
+  texts.set(rel, text);
+  return text;
 }
 
 describe("the retired names stay out of the tree", () => {
   const files = tracked();
+  beforeAll(() => {
+    for (const rel of files) readText(rel);
+  }, 120_000);
 
   it("the engine no longer lives under its upstream name", () => {
     expect(existsSync(path.join(REPO_ROOT, "vendor", "codex"))).toBe(false);
