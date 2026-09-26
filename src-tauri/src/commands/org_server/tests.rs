@@ -2184,6 +2184,31 @@ fn mention_rewriting_takes_the_longest_spelling_and_never_doubles_a_mention() {
     );
 }
 
+/// A mention is rewritten only where it stands alone: an address that
+/// contains the spelling, or a longer name that starts with it, is someone
+/// else. Rewriting `bob@Sample.com` for "Sam" would notify Sam and break the
+/// address, and the card — which reads `<@id>` back as `@Name` — could not show
+/// the difference.
+#[test]
+fn mention_rewriting_leaves_addresses_and_longer_names_alone() {
+    let roster = vec![
+        member("u-sam", "Sam", "sam@acme.dev", None),
+        member("u-samantha", "Samantha Jones", "samantha@acme.dev", None),
+    ];
+    assert_eq!(
+        tools::with_mentions("cc @Samantha Jones, mail bob@Sample.com", &["Sam".into()], &roster).ok(),
+        Some("<@u-sam> cc @Samantha Jones, mail bob@Sample.com".to_string()),
+    );
+    assert_eq!(
+        tools::with_mentions("thanks @Sam! and (@Sam)", &["Sam".into()], &roster).ok(),
+        Some("thanks <@u-sam>! and (<@u-sam>)".to_string()),
+    );
+    assert_eq!(
+        tools::with_mentions("@Sam_old and @Sam", &["Sam".into()], &roster).ok(),
+        Some("@Sam_old and <@u-sam>".to_string()),
+    );
+}
+
 // ── The approval card's words for an outward call ────────────────────────────
 
 /// The offer the native seam asks to describe a waiting call, bound to chat
