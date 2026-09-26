@@ -161,4 +161,33 @@ describe("ui_terminal", () => {
       /one line/,
     );
   });
+
+  /// The text reaches the PTY as raw keystrokes, so a control key is a way to
+  /// run the line (Ctrl-O, Ctrl-X Ctrl-E, Esc-#) or to act on the shell.
+  it.each([
+    ["CR", "ls\r"],
+    ["CRLF", "ls\r\n"],
+    ["Ctrl-O (operate-and-get-next)", "rm -rf build\u000f"],
+    ["Ctrl-X Ctrl-E (edit-and-execute)", "rm -rf build\u0018\u0005"],
+    ["Esc-# (insert-comment accepts)", "rm -rf build\u001b#"],
+    ["Ctrl-D", "\u0004"],
+    ["Ctrl-C", "ls\u0003"],
+    ["Tab", "ls\t"],
+    ["DEL", "ls\u007f"],
+    ["NEL", "ls\u0085rm"],
+    ["line separator", "ls\u2028rm"],
+    ["paragraph separator", "ls\u2029rm"],
+    ["bracketed-paste end", "\u001b[201~ls"],
+  ])("refuses a %s in the text, and types nothing", async (_name, text) => {
+    const before = { ...useTerminalStore.getState().pendingCommands };
+    expect(error(await act("ui_terminal", { op: "type", text }))).toMatch(/one line/);
+    expect(useTerminalStore.getState().pendingCommands).toEqual(before);
+  });
+
+  it("still types printable unicode", async () => {
+    const r = result(await act("ui_terminal", { op: "type", text: "echo 'héllo — ✓'" }));
+    expect(useTerminalStore.getState().pendingCommands[r.terminalId as string]).toBe(
+      "echo 'héllo — ✓'",
+    );
+  });
 });
