@@ -41,6 +41,7 @@ for. Results are JSON from the app; an error names what was not found or why it 
 
 /// What a tool answers while the user has switched agent navigation off.
 const OFF_NOTE: &str = "Atlas Agent navigation is switched off in Settings → General; ask the user to turn it on.";
+const NOT_OFFERED_NOTE: &str = "the Atlas window's UI tools were not offered to this session; nothing was done.";
 
 fn schema(value: Value) -> Arc<JsonObject> {
     match value {
@@ -197,6 +198,12 @@ impl UiTools {
 
     async fn dispatch(&self, grant: Grant, request: CallToolRequestParams) -> CallToolResult {
         let name = request.name.to_string();
+        // The listener's one token opens every service, so a session whose
+        // offer did not include this server (an ACP connection, which never
+        // carries UI control) could still reach `/ui` with its memory token.
+        if !grant.ui {
+            return tool_error(NOT_OFFERED_NOTE);
+        }
         if !(self.gate)() {
             return tool_error(OFF_NOTE);
         }

@@ -58,8 +58,8 @@ pub(in crate::commands::org_server) fn with_mentions(body: &str, mentions: &[Str
         spellings.sort_by_key(|s| std::cmp::Reverse(s.len()));
         for spelling in spellings.iter().filter(|s| !s.is_empty()) {
             let at = format!("@{spelling}");
-            if out.contains(&at) {
-                out = out.replace(&at, &token);
+            if let Some(replaced) = replace_standalone(&out, &at, &token) {
+                out = replaced;
                 found = true;
             }
         }
@@ -72,6 +72,39 @@ pub(in crate::commands::org_server) fn with_mentions(body: &str, mentions: &[Str
     } else {
         Ok(format!("{} {out}", leading.join(" ")))
     }
+}
+
+/// `text` with every `needle` that stands alone replaced by `with`, or `None`
+/// when there is none. Standalone means not glued to a word on either side: in
+/// `bob@Sample.com` and `@Samantha` there is no `@Sam` to rewrite — the first is
+/// an address, the second someone else, and rewriting either would notify the
+/// wrong person in words the approval card (which reads mentions back as
+/// names) could not show.
+fn replace_standalone(text: &str, needle: &str, with: &str) -> Option<String> {
+    let is_word = |c: char| c.is_alphanumeric() || c == '_';
+    let mut out = String::with_capacity(text.len());
+    let mut rest = text;
+    let mut prev: Option<char> = None;
+    let mut replaced = false;
+    while let Some(at) = rest.find(needle) {
+        let before = rest[..at].chars().next_back().or(if at == 0 { prev } else { None });
+        let after = rest[at + needle.len()..].chars().next();
+        out.push_str(&rest[..at]);
+        if before.is_some_and(is_word) || after.is_some_and(is_word) {
+            // Not this one: keep its first character and look again after it.
+            let first = rest[at..].chars().next().expect("a match is non-empty");
+            out.push(first);
+            prev = Some(first);
+            rest = &rest[at + first.len_utf8()..];
+        } else {
+            out.push_str(with);
+            prev = with.chars().next_back();
+            rest = &rest[at + needle.len()..];
+            replaced = true;
+        }
+    }
+    out.push_str(rest);
+    replaced.then_some(out)
 }
 
 impl OrgTools {

@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it } from "vitest";
 import { readFileSync, readdirSync, existsSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import path from "node:path";
@@ -116,7 +116,17 @@ const SHALLOW = "<shallow-clone>";
  * edits it. A file with no counterpart in the fork tree was renamed, and a
  * rename changed its contents too, so it is modified.
  */
+/** Hashing the ~4k vendored files is the slow part; two tests need the
+ *  answer and the tree cannot change mid-run, so it is computed once, in the
+ *  describe's `beforeAll` with a budget of its own (a concurrent build pushed
+ *  a per-test 5s past its limit on a pre-commit run). */
+let modifiedCache: string[] | null = null;
 function modifiedVendoredFiles(): string[] {
+  modifiedCache ??= computeModifiedVendoredFiles();
+  return modifiedCache;
+}
+
+function computeModifiedVendoredFiles(): string[] {
   const forkBlobs = new Map<string, string>();
   for (const line of git("ls-tree", "-r", `${vendoringCommit()}:${VENDORED_AT}`).split("\n")) {
     if (!line) continue;
@@ -251,6 +261,10 @@ describe("§4(a) and §4(d) — the licence and NOTICE reach recipients", () => 
 });
 
 describe("§4(b) — modified files say they were modified", () => {
+  beforeAll(() => {
+    modifiedVendoredFiles();
+  }, 120_000);
+
   it("has the history it needs — a shallow clone cannot run this suite", () => {
     // On a depth-1 clone the oldest commit touching the vendored path IS HEAD, so
     // the diff against it is empty and the rule below holds vacuously. Name

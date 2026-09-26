@@ -813,6 +813,35 @@ impl Store {
         Ok(())
     }
 
+    /// Mark this Session's last `count` turns that are not already rewound as
+    /// rewound: the agent took them back (a retry). Returns how many were
+    /// marked. The rows are kept; only the chat's view of them changes.
+    pub fn mark_turns_rewound(&self, session_id: &str, count: i64) -> Result<usize> {
+        self.require_writer()?;
+        if count <= 0 {
+            return Ok(0);
+        }
+        Ok(self.conn.execute(
+            "UPDATE turn SET state = 'rewound', ended_at = COALESCE(ended_at, ?3)
+              WHERE session_id = ?1
+                AND turn_seq IN (SELECT turn_seq FROM turn
+                                  WHERE session_id = ?1 AND state != 'rewound'
+                                  ORDER BY turn_seq DESC LIMIT ?2)",
+            rusqlite::params![session_id, count, Utc::now().to_rfc3339()],
+        )?)
+    }
+
+    /// The turn numbers of this Session that were rewound.
+    pub fn rewound_turns(&self, session_id: &str) -> Result<std::collections::HashSet<i64>> {
+        let mut stmt = self
+            .conn
+            .prepare("SELECT turn_seq FROM turn WHERE session_id = ?1 AND state = 'rewound'")?;
+        let rows = stmt
+            .query_map([session_id], |row| row.get::<_, i64>(0))?
+            .collect::<rusqlite::Result<std::collections::HashSet<_>>>()?;
+        Ok(rows)
+    }
+
     /// The highest turn number this Session has ever used.
     ///
     /// Seeds the in-memory counter after a restart, so a resumed conversation

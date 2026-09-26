@@ -175,3 +175,78 @@ describe("structureKey", () => {
     expect(structureKey(undefined)).toBe("0");
   });
 });
+
+/**
+ * Known gaps, pinned with `it.fails` (0.3.4 hardening report): each asserts
+ * the CORRECT mapping and currently fails. When a fix lands, the `.fails`
+ * flips red and should be dropped. C1 is fixed at the recorder.
+ */
+describe("buildAnchorMap — known gaps", () => {
+  /// C1 (fixed). A retry rewinds the last turn and re-sends its prompt as a
+  /// new turn. The recorder marks the rewound turn and leaves its rows out of
+  /// the anchors (`atlas-checkpoint` `anchors`, `HistoryRewound` in capture),
+  /// so after a reload the chat's two exchanges pair with the two live turns
+  /// and nothing shifts onto the turn that was taken back.
+  it("pairs a reloaded retried chat with the live turns the recorder keeps", () => {
+    const messages = [
+      msg({ id: "m1", role: "user", content: "one" }),
+      msg({ id: "m2", role: "assistant", content: "a1", mode: "text" }),
+      msg({ id: "m3", role: "user", content: "two" }),
+      msg({ id: "m4", role: "assistant", content: "a2 (retried)", mode: "text" }),
+    ];
+    // Turn 2 was rewound: its rows are not among the entries.
+    const entries = [
+      entry({ rowId: "p1", kind: "prompt", turnSeq: 1, nativeId: "prompt-1-a" }),
+      entry({ rowId: "r1", kind: "response", turnSeq: 1 }),
+      entry({ rowId: "p2", kind: "prompt", turnSeq: 3, nativeId: "prompt-3-b" }),
+      entry({ rowId: "r2", kind: "response", turnSeq: 3 }),
+    ];
+    const map = buildAnchorMap(messages, entries);
+    expect(map.rowIdByChatKey.get("m1")?.rowId).toBe("p1");
+    expect(map.rowIdByChatKey.get("m2")?.rowId).toBe("r1");
+    expect(map.rowIdByChatKey.get("m3")?.rowId).toBe("p2");
+    expect(map.rowIdByChatKey.get("m4")?.rowId).toBe("r2");
+  });
+
+  /// C2. Entries refresh only on resolve (turn end, capture-changed). Once a
+  /// new turn's first assistant message streams in, the map rebuilds against
+  /// the old entries; the trailing exchange is no longer "in flight", so every
+  /// reloaded exchange shifts back by one until the next resolve.
+  it.fails("stale entries while a new turn streams do not shift earlier rows", () => {
+    const messages = [
+      msg({ id: "m1", role: "user", content: "one" }),
+      msg({ id: "m2", role: "assistant", content: "a1", mode: "text" }),
+      msg({ id: "m3", role: "user", content: "two" }),
+      msg({ id: "m4", role: "assistant", content: "a2", mode: "text" }),
+      msg({ id: "m5", role: "user", content: "three" }),
+      msg({ id: "m6", role: "assistant", content: "", thinking: "hmm", mode: "thinking" }),
+    ];
+    const entries = [
+      entry({ rowId: "p1", kind: "prompt", turnSeq: 1 }),
+      entry({ rowId: "r1", kind: "response", turnSeq: 1 }),
+      entry({ rowId: "p2", kind: "prompt", turnSeq: 2 }),
+      entry({ rowId: "r2", kind: "response", turnSeq: 2 }),
+    ];
+    const map = buildAnchorMap(messages, entries);
+    expect(map.rowIdByChatKey.get("m1")?.rowId).toBe("p1");
+    expect(map.rowIdByChatKey.get("m3")?.rowId).toBe("p2");
+    expect(map.rowIdByChatKey.has("m5")).toBe(false);
+  });
+
+  /// Checkpoint rows are never in the chat; a comment on one is an orphan
+  /// there by design (listed last in the panel). Pinned as passing.
+  it("never maps a checkpoint entry onto a chat message", () => {
+    const messages = [
+      msg({ id: "m1", role: "user", content: "one" }),
+      msg({ id: "m2", role: "assistant", content: "a1", mode: "text" }),
+    ];
+    const entries = [
+      entry({ rowId: "p1", kind: "prompt", turnSeq: 1 }),
+      entry({ rowId: "r1", kind: "response", turnSeq: 1 }),
+      entry({ rowId: "cp1", kind: "checkpoint", turnSeq: 1 }),
+    ];
+    const map = buildAnchorMap(messages, entries);
+    expect(map.chatKeyByRowId.has("cp1")).toBe(false);
+    expect(map.rowIdByChatKey.get("m2")?.rowId).toBe("r1");
+  });
+});

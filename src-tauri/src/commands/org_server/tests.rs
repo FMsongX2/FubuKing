@@ -538,7 +538,7 @@ fn conversation(id: &str, kind: ConversationKind, name: Option<&str>, members: O
         id: id.into(),
         kind,
         name: name.map(Into::into),
-        member_ids: members.map(|ids| ids.iter().map(|s| s.to_string()).collect()),
+        member_ids: members.map(|ids| ids.iter().map(ToString::to_string).collect()),
         caller_is_member: joined,
     }
 }
@@ -643,7 +643,7 @@ fn approved_for(consent: &atlas_agent_servers::OutwardConsent, tool: &str, argum
 /// A token as an offer mints one: carrying the organisation, bound to the
 /// chat's session id once the agent answers.
 fn offered_token(tokens: &MemoryTokens, session: &str, cwd: &str, scope: Option<OrgScope>) -> String {
-    let token = tokens.mint_unbound("atlas-agent", cwd, scope);
+    let token = tokens.mint_unbound("atlas-agent", cwd, scope, false);
     tokens.bind(&token, session);
     token
 }
@@ -1178,7 +1178,7 @@ async fn a_created_page_is_one_audit_record_naming_the_conversation_and_the_page
         .unwrap();
     let args = json!({ "conversation": "#general", "name": "Architecture" });
     let (_, answer) = call(&client, "org_page_create", args.clone()).await;
-    let records = records.lock();
+    let records = records.lock().clone();
     assert_eq!(records.len(), 1);
     assert_eq!(records[0].tool, "org_page_create");
     assert_eq!(records[0].arguments, args);
@@ -1187,7 +1187,6 @@ async fn a_created_page_is_one_audit_record_naming_the_conversation_and_the_page
     let answered: Value = serde_json::from_str(&records[0].text).unwrap();
     assert_eq!(answered["conversation"]["name"], json!("general"));
     assert_eq!(answered["page_id"], json!("page-1"));
-    drop(records);
     client.cancel().await.ok();
 }
 
@@ -2012,9 +2011,8 @@ async fn org_comment_reply_posts_under_the_thread_on_its_anchor_as_the_caller_an
 
     // It is on the thread for everyone who reads it.
     let (_, threads) = call_json(&client, "org_comments", json!({})).await;
-    let replies_on_k1: Vec<&str> =
-        threads["threads"][0]["replies"].as_array().unwrap().iter().map(|r| r["id"].as_str().unwrap()).collect();
-    assert!(replies_on_k1.contains(&posted[0].id.as_str()));
+    let mut replies_on_k1 = threads["threads"][0]["replies"].as_array().unwrap().iter().map(|r| r["id"].as_str().unwrap());
+    assert!(replies_on_k1.any(|id| id == posted[0].id));
     client.cancel().await.ok();
 }
 
@@ -2184,6 +2182,31 @@ fn mention_rewriting_takes_the_longest_spelling_and_never_doubles_a_mention() {
     );
 }
 
+/// A mention is rewritten only where it stands alone: an address that
+/// contains the spelling, or a longer name that starts with it, is someone
+/// else. Rewriting `bob@Sample.com` for "Sam" would notify Sam and break the
+/// address, and the card — which reads `<@id>` back as `@Name` — could not show
+/// the difference.
+#[test]
+fn mention_rewriting_leaves_addresses_and_longer_names_alone() {
+    let roster = vec![
+        member("u-sam", "Sam", "sam@acme.dev", None),
+        member("u-samantha", "Samantha Jones", "samantha@acme.dev", None),
+    ];
+    assert_eq!(
+        tools::with_mentions("cc @Samantha Jones, mail bob@Sample.com", &["Sam".into()], &roster).ok(),
+        Some("<@u-sam> cc @Samantha Jones, mail bob@Sample.com".to_string()),
+    );
+    assert_eq!(
+        tools::with_mentions("thanks @Sam! and (@Sam)", &["Sam".into()], &roster).ok(),
+        Some("thanks <@u-sam>! and (<@u-sam>)".to_string()),
+    );
+    assert_eq!(
+        tools::with_mentions("@Sam_old and @Sam", &["Sam".into()], &roster).ok(),
+        Some("@Sam_old and <@u-sam>".to_string()),
+    );
+}
+
 // ── The approval card's words for an outward call ────────────────────────────
 
 /// The offer the native seam asks to describe a waiting call, bound to chat
@@ -2231,16 +2254,16 @@ async fn the_card_names_the_threads_author_where_it_is_and_the_full_body_as_it_w
     assert!(nothing_posted(&org), "describing posts nothing");
 }
 
+/// A reply whose thread cannot be read is not described: the native seam then
+/// refuses the call instead of asking the user to allow a reply to a thread
+/// nobody could name (ADR-0014 amendment).
 #[tokio::test(flavor = "multi_thread")]
-async fn a_card_the_organisation_cannot_describe_still_shows_the_comment_and_the_body() {
+async fn a_reply_whose_thread_cannot_be_read_is_not_described() {
     let org = commented();
     org.comments_fail.store(true, Ordering::SeqCst);
     let offers = describing_offer(org).await;
-    let said = describe(&offers, ORG_SERVER_NAME, "org_comment_reply", json!({ "comment": "k1", "body": "hi" }))
-        .await
-        .expect("still described");
-    assert_eq!(said.title, "Reply to comment k1");
-    assert_eq!(said.body, "hi");
+    let said = describe(&offers, ORG_SERVER_NAME, "org_comment_reply", json!({ "comment": "k1", "body": "hi" })).await;
+    assert!(said.is_none(), "{said:?}");
 }
 
 /// The card and the call read the arguments through one parser and rewrite
@@ -2264,24 +2287,13 @@ async fn the_cards_body_is_the_posted_body() {
     client.cancel().await.ok();
 }
 
-/// When the thread cannot be read for the card, it still shows the body as it
-/// will be posted, mentions rewritten; when the roster cannot be read either,
-/// a mention keeps its `<@id>` on both.
+/// When the roster cannot be read for the card, a mention keeps its `<@id>`
+/// on the card and in the posted comment alike.
 #[tokio::test(flavor = "multi_thread")]
-async fn a_card_the_organisation_cannot_describe_still_shows_the_posted_body() {
+async fn a_card_whose_roster_cannot_be_read_shows_the_posted_body() {
     let org = commented();
     let offers = describing_offer(org.clone()).await;
     let (_server, client, consent) = consenting_client(org.clone()).await;
-
-    let args = json!({ "comment": "k1", "body": " thanks ", "mention": ["Grace Hopper"] });
-    org.comments_fail.store(true, Ordering::SeqCst);
-    let said = describe(&offers, ORG_SERVER_NAME, "org_comment_reply", args.clone()).await.expect("described");
-    assert_eq!(said.title, "Reply to comment k1");
-    org.comments_fail.store(false, Ordering::SeqCst);
-    let (err, answer) = call_json(&client, "org_comment_reply", approved(&consent, args)).await;
-    assert!(!err, "{answer}");
-    assert_eq!(json!(said.body), answer["comment"]["body"]);
-    assert_eq!(said.body, "@Grace Hopper thanks");
 
     let args = json!({ "comment": "k1", "body": "<@u-grace> see above" });
     org.roster_fail.store(true, Ordering::SeqCst);
@@ -2555,8 +2567,12 @@ async fn the_card_for_a_message_names_the_channel_the_dm_the_group_or_the_new_dm
         (said.title.as_str(), said.recipient.as_str()),
         ("Message the group with Sam Lee and u-ghost", "Everyone in your group DM with Sam Lee and u-ghost"),
     );
-    let said = card("Nobody Here").await.expect("still described");
-    assert_eq!((said.title.as_str(), said.recipient.as_str(), said.body.as_str()), ("Send to Nobody Here", "Nobody Here", "hi"));
+    // A recipient that matches nothing — a name, or a link written without its
+    // kind (seen live: the model wrote `atlas-org://<conversation id>`) — is
+    // not described, so the seam refuses it instead of offering Allow on it.
+    assert!(card("Nobody Here").await.is_none());
+    assert!(card("atlas-org://c-general").await.is_none());
+    assert!(card("atlas-org://conversation/c-general").await.is_some(), "the well-formed link is");
 }
 
 /// The card and the call read the arguments through one parser and rewrite
@@ -3640,7 +3656,7 @@ fn org_server_prefix_bytes_are_measured() {
         per_tool.iter().filter(|(_, n)| admin || !ADMIN_TOOLS.contains(&n.as_str())).map(|(b, _)| b).sum()
     };
     let (member_wire, admin_wire) = (wire_total(false), wire_total(true));
-    per_tool.sort_by(|a, b| b.0.cmp(&a.0));
+    per_tool.sort_by_key(|a| std::cmp::Reverse(a.0));
 
     println!("tools/list JSON: member {member_list} B, admin {admin_list} B");
     println!("Chat wire tools: member {member_wire} B, admin {admin_wire} B");
@@ -3712,13 +3728,12 @@ async fn every_org_call_writes_one_audit_record_naming_the_session_the_tool_its_
     }
 
     let (_, answer) = call(&client, "org_members", json!({ "name": "Grace Hopper" })).await;
-    let records = records.lock();
+    let records = records.lock().clone();
     assert_eq!(records.len(), 2, "each call adds exactly one record");
     assert_eq!(records[1].tool, "org_members");
     assert_eq!(records[1].arguments, json!({ "name": "Grace Hopper" }));
     assert!(records[1].ok);
     assert_eq!(records[1].text, answer);
-    drop(records);
     client.cancel().await.ok();
 }
 
@@ -3733,12 +3748,11 @@ async fn a_call_that_fails_is_one_audit_record_that_says_why() {
 
     let (err, answer) = call(&client, "org_members", json!({ "name": "Sam Lee" })).await;
     assert!(err);
-    let records = records.lock();
+    let records = records.lock().clone();
     assert_eq!(records.len(), 1);
     assert!(!records[0].ok);
     assert_eq!(records[0].text, answer);
     assert!(records[0].text.contains("ask the user which one"), "{}", records[0].text);
-    drop(records);
     client.cancel().await.ok();
 }
 
@@ -3756,7 +3770,7 @@ async fn a_refused_call_is_one_audit_record_that_says_why() {
     let no_org = connect(&server.url_at(ORG_PATH), &tokens.mint("s2", "atlas-agent", "/q")).await.unwrap();
     assert!(call(&no_org, "org_conversations", json!({})).await.0);
 
-    let records = records.lock();
+    let records = records.lock().clone();
     assert_eq!(records.len(), 2, "one record per refused call");
     assert_eq!(records[0].tool, "org_whoami");
     assert!(!records[0].ok);
@@ -3765,7 +3779,6 @@ async fn a_refused_call_is_one_audit_record_that_says_why() {
     assert_eq!(records[1].tool, "org_conversations");
     assert!(!records[1].ok);
     assert!(records[1].text.contains("not given access to an organisation"), "{}", records[1].text);
-    drop(records);
     client.cancel().await.ok();
     no_org.cancel().await.ok();
 }
@@ -3812,6 +3825,11 @@ impl FakeSessionOrgs {
     /// The user signs out while a session runs.
     fn sign_out(&self) {
         self.signed_in.store(false, Ordering::SeqCst);
+    }
+
+    /// The user signs back in.
+    fn sign_in(&self) {
+        self.signed_in.store(true, Ordering::SeqCst);
     }
 
     /// The Project's binding changes while a session runs.
@@ -3924,6 +3942,10 @@ async fn the_offer_declares_the_org_servers_outward_actions_as_asking_first() {
     let host = running_host(chatting()).await;
     let offer = offers(host.clone(), true, FakeSessionOrgs::new(true, Some(acme()))).offer(&session_request(true));
     assert_eq!(offer.ask_first().tools_on(ORG_SERVER_NAME).collect::<Vec<_>>(), ["org_comment_reply", "org_send"]);
+    // A message is approved one call at a time: its card offers no "Allow
+    // for this session". A reply keeps it.
+    assert!(offer.ask_first().asks_every_time(ORG_SERVER_NAME, "org_send"));
+    assert!(!offer.ask_first().asks_every_time(ORG_SERVER_NAME, "org_comment_reply"));
     assert_eq!(offer.ask_first().tools_on("atlas_memory").count(), 0);
     assert_eq!(offer.ask_first().tools_on(UI_SERVER_NAME).count(), 0);
 
@@ -4395,4 +4417,131 @@ fn none_of_atlas_tool_servers_ever_sends_an_elicitation() {
         }
     }
     assert!(read >= 9, "the three servers' sources were read ({read})");
+}
+
+// ── 0.3.4 hardening ──────────────────────────────────────────────────────────
+
+/// An approval the server refused for another reason (the setting was off)
+/// must not survive to post the same call later with no card: after a switch
+/// to bypass, the engine would run the identical call unasked, and a consent
+/// left in the store would let it through.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_consent_the_server_refused_for_another_reason_is_spent_not_kept() {
+    let org = chatting();
+    let (gate, on) = switchable(false);
+    let tools = OrgTools::new(org.clone(), gate, bound_to_acme());
+    let consent = tools.consent().clone();
+    let tokens = Arc::new(MemoryTokens::default());
+    let server = serve_tools(tokens.clone(), tools).await;
+    let client = connect(&server.url_at(ORG_PATH), &offered_token(&tokens, "s1", "/p", Some(acme())))
+        .await
+        .unwrap();
+
+    let args = approved_for(&consent, "org_send", json!({ "to": "general", "body": "ship it" }));
+    let (err, text) = call(&client, "org_send", args.clone()).await;
+    assert!(err && text.contains("switched off"), "{text}");
+
+    on.store(true, Ordering::SeqCst);
+    let (err, text) = call(&client, "org_send", args).await;
+    assert!(err, "the earlier approval was spent by the refused call: {text}");
+    assert!(nothing_sent(&org));
+    drop(server);
+    client.cancel().await.ok();
+}
+
+/// The same for a call refused because nobody was signed in.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_consent_refused_while_signed_out_is_spent_too() {
+    let org = chatting();
+    let orgs = bound_to_acme();
+    let tools = OrgTools::new(org.clone(), setting(true), orgs.clone());
+    let consent = tools.consent().clone();
+    let tokens = Arc::new(MemoryTokens::default());
+    let server = serve_tools(tokens.clone(), tools).await;
+    let client = connect(&server.url_at(ORG_PATH), &offered_token(&tokens, "s1", "/p", Some(acme())))
+        .await
+        .unwrap();
+    orgs.sign_out();
+    let args = approved_for(&consent, "org_send", json!({ "to": "general", "body": "later" }));
+    assert!(call(&client, "org_send", args.clone()).await.0);
+    orgs.sign_in();
+    assert!(call(&client, "org_send", args).await.0);
+    assert!(nothing_sent(&org));
+    drop(server);
+    client.cancel().await.ok();
+}
+
+/// Smoke rows 13/14: refusals are not sticky. Switching the setting back on,
+/// or signing back in, lets the same running session answer again.
+#[tokio::test(flavor = "multi_thread")]
+async fn access_resumes_after_the_setting_is_back_on_and_after_signing_in_again() {
+    let org = FakeOrganisation::with_member("Ada Lovelace", Some(Role::Developer));
+    let (gate, on) = switchable(true);
+    let orgs = bound_to_acme();
+    let tokens = Arc::new(MemoryTokens::default());
+    let server = serve_tools(tokens.clone(), OrgTools::new(org.clone(), gate, orgs.clone())).await;
+    let client = connect(&server.url_at(ORG_PATH), &offered_token(&tokens, "s1", "/p", Some(acme())))
+        .await
+        .unwrap();
+
+    on.store(false, Ordering::SeqCst);
+    assert!(call(&client, "org_whoami", json!({})).await.0);
+    on.store(true, Ordering::SeqCst);
+    let (err, text) = call(&client, "org_whoami", json!({})).await;
+    assert!(!err, "answers again once switched back on: {text}");
+
+    orgs.sign_out();
+    assert!(call(&client, "org_whoami", json!({})).await.0);
+    orgs.sign_in();
+    let (err, text) = call(&client, "org_whoami", json!({})).await;
+    assert!(!err, "answers again once signed back in: {text}");
+    drop(server);
+    client.cancel().await.ok();
+}
+
+/// The role is read per call: an admin demoted while the session runs is
+/// refused member activity on the next call, not served from the offer's view.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_demoted_admin_is_refused_org_member_activity_on_the_next_call() {
+    let org = boarded_as(Some(Role::Admin));
+    let (_server, client) = org_client(org.clone()).await;
+    let (err, text) = call(&client, "org_member_activity", json!({ "member": "Grace Hopper" })).await;
+    assert!(!err, "{text}");
+    if let Some(caller) = org.caller.lock().as_mut() {
+        caller.role = Some(Role::Developer);
+    }
+    let reads = org.board_reads();
+    let (err, text) = call(&client, "org_member_activity", json!({ "member": "Grace Hopper" })).await;
+    assert!(err && text.contains("Only an organisation admin"), "{text}");
+    assert_eq!(org.board_reads(), reads, "nothing more was read");
+    client.cancel().await.ok();
+}
+
+/// Chat is on another organisation than the Project's: every tool that goes
+/// through chat refuses, nothing is sent or created, and every read that does
+/// not need chat still acts in the grant's organisation — never the window's.
+#[tokio::test(flavor = "multi_thread")]
+async fn with_chat_on_another_organisation_chat_tools_refuse_and_nothing_acts_there() {
+    let org = chatting();
+    *org.chat_org.lock() = Some("org-globex".into());
+    let (_server, client, consent) = consenting_client(org.clone()).await;
+
+    let (err, text) = call(&client, "org_conversations", json!({})).await;
+    assert!(err, "{text}");
+    let args = approved_for(&consent, "org_send", json!({ "to": "general", "body": "hi" }));
+    let (err, text) = call(&client, "org_send", args).await;
+    assert!(err, "{text}");
+    let (err, text) = call(&client, "org_page_create", json!({ "conversation": "#general", "name": "Arch" })).await;
+    assert!(err, "{text}");
+    assert!(nothing_sent(&org));
+    assert!(pages_created(&org).is_empty());
+
+    let (err, text) = call(&client, "org_whoami", json!({})).await;
+    assert!(!err, "{text}");
+    assert!(
+        org.asked().iter().all(|(o, _)| o == "org-acme"),
+        "every call acted in the grant's organisation: {:?}",
+        org.asked()
+    );
+    client.cancel().await.ok();
 }

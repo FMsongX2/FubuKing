@@ -113,6 +113,24 @@ describe("ui_open", () => {
     });
   });
 
+  /// Reading a UNC path on Windows opens an SMB connection to that host (and
+  /// offers it the user's NTLM credentials), so nothing may touch one.
+  it.each([
+    "//attacker.example/share/x.ts",
+    "\\\\attacker.example\\share\\x.ts",
+    "\\\\?\\UNC\\attacker.example\\share\\x.ts",
+    "/\\attacker.example/share/x.ts",
+  ])("refuses the network path %s without reading it", async (path) => {
+    invokeMock.mockClear();
+    expect(error(await act("ui_open", { target: "file", path }))).toMatch(/network path/);
+    expect(error(await act("ui_focus", { target: "explorer", path }))).toMatch(/network path/);
+    // Only the Logs audit row may cross; nothing that touches the path.
+    const touched = invokeMock.mock.calls.filter(([, args]) =>
+      JSON.stringify(args ?? {}).includes("attacker.example"),
+    );
+    expect(touched.filter(([cmd]) => cmd !== "append_project_log")).toEqual([]);
+  });
+
   /// The agent thinks in its own working directory, which can be a worktree
   /// or subfolder of the project.
   it("resolves a relative path against the session's cwd first", async () => {
@@ -370,6 +388,19 @@ describe("ui_close", () => {
     });
     expect(error(await act("ui_close", { tabId: "editor:/p/src/App.tsx" }))).toMatch(/unsaved/);
     expect(layout().tabs.some((t) => t.id === "editor:/p/src/App.tsx")).toBe(true);
+  });
+
+  /// Not only editors hold unsaved work: the PDF viewer marks its tab dirty
+  /// while annotations are unsaved.
+  it("refuses to close any tab marked dirty, such as an annotated PDF", async () => {
+    const pdf = tab("pdf:/p/spec.pdf", "pdf", "main", {
+      title: "spec.pdf",
+      dirty: true,
+      data: { filePath: "/p/spec.pdf" },
+    });
+    useLayoutStore.setState({ tabs: [...layout().tabs, pdf] });
+    expect(error(await act("ui_close", { tabId: "pdf:/p/spec.pdf" }))).toMatch(/unsaved/);
+    expect(layout().tabs.some((t) => t.id === "pdf:/p/spec.pdf")).toBe(true);
   });
 
   it("refuses a tab another project owns", async () => {

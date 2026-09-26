@@ -4,8 +4,12 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
 
 import { cleanup, render, screen } from "@testing-library/react";
-import { OutwardActionBody, OutwardActionHeading } from "./permission-modal";
-import { outwardApprovalOf } from "@/features/org-actions/lib/outward-approval";
+import {
+  OutwardActionBody,
+  OutwardActionHeading,
+  OutwardPreparingHeading,
+} from "./permission-modal";
+import { outwardApprovalOf, outwardPreparingOf } from "@/features/org-actions/lib/outward-approval";
 
 afterEach(cleanup);
 
@@ -35,5 +39,29 @@ describe("the outward action's approval card", () => {
     expect(body.textContent).toBe(LONG);
     expect(body.className).toContain("overflow-auto");
     expect(body.className).toContain("whitespace-pre-wrap");
+  });
+});
+
+describe("the outward action's card while it is prepared", () => {
+  /// The card that is up while the host describes the call: a loading
+  /// heading, what is being looked up, and never the call's arguments.
+  it("shows a loading status and what is being looked up", () => {
+    const preparing = outwardPreparingOf(
+      {
+        toolCallId: "call-1",
+        title: "Preparing the approval…",
+        kind: "other",
+        toolName: "atlas_org.org_send",
+        rawInput: { to: "general", body: "secret words" },
+        content: ["Looking up who this reaches and the exact words it will post."],
+      },
+      [{ kind: "reject_once" }],
+    )!;
+    render(<OutwardPreparingHeading preparing={preparing} />);
+    const status = screen.getByTestId("outward-preparing");
+    expect(status.getAttribute("role")).toBe("status");
+    expect(status.textContent).toContain("Preparing the approval…");
+    expect(status.textContent).toContain("Looking up who this reaches");
+    expect(status.textContent).not.toContain("secret words");
   });
 });

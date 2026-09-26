@@ -1057,10 +1057,13 @@ fn handle_server_request(
 /// reaches, and the full body ([`tool_approvals`]).
 ///
 /// A tool the user allowed for the rest of this session is answered yes at
-/// once, with no card. Otherwise the card joins the session's line here, on
-/// the pump, and is raised once the host has described the call — at most
-/// [`DESCRIBE_WITHIN`] later, after which it shows the call's own arguments
-/// rather than hold the turn on the cloud.
+/// once, with no card — never one the host declared asks every time. Otherwise
+/// the card joins the session's line here, on the pump. With a host to
+/// describe the call it goes up as a **preparing** card (Decline only) and is
+/// replaced by the described card when the host answers; the call is never
+/// put to the user on its bare arguments ([`ask_outward`]). With no host —
+/// nothing that could describe it — the plain card asks on the row's own
+/// title.
 fn ask_tool_approval(
     sessions: &Arc<EngineSessions>,
     host: Option<Arc<dyn SessionMcpServers>>,
@@ -1087,8 +1090,9 @@ fn ask_tool_approval(
     let (item_id, tool) = waiting.unwrap_or_else(|| {
         (acp::ToolCallId::new(format!("{server}-approval-{request_id:?}")), String::new())
     });
+    let every_time = !tool.is_empty() && sessions.asks_every_time(params.thread_id.as_str(), &server, &tool);
 
-    if !tool.is_empty() && sessions.allowed_for_session(&session_id, &server, &tool) {
+    if !tool.is_empty() && !every_time && sessions.allowed_for_session(&session_id, &server, &tool) {
         record_consent(host.as_ref(), &session_id, &server, &tool, &arguments);
         tracing::info!(
             target: "atlas::approvals",
@@ -1108,39 +1112,37 @@ fn ask_tool_approval(
     let sessions = sessions.clone();
     let answers = answers.clone();
     tokio::spawn(async move {
-        let description = match host.as_ref().filter(|_| !tool.is_empty()) {
-            Some(host) => {
-                let call = atlas_agent_servers::CallToApprove {
-                    session_id: &session_id,
-                    server: &server,
-                    tool: &tool,
-                    arguments: &arguments,
-                };
-                tokio::time::timeout(DESCRIBE_WITHIN, host.describe_call(call))
+        let answered = match host.clone().filter(|_| !tool.is_empty()) {
+            Some(describer) => {
+                ask_outward(place, thread, describer, &session_id, &server, &tool, &arguments, item_id.clone(), every_time)
                     .await
-                    .ok()
-                    .flatten()
             }
-            None => None,
+            None => {
+                let update = tool_approvals::card(item_id.clone(), &server, &tool, None);
+                raise_in_turn(place, thread, move |thread| {
+                    thread.request_tool_call_authorization(
+                        update,
+                        tool_approvals::options(every_time),
+                        AuthorizationKind::PermissionGrant,
+                    )
+                })
+                .await
+                .map(|outcome| outcome.map(|outcome| approvals::decision_for(&outcome)))
+            }
         };
-        let update = tool_approvals::card(item_id.clone(), &server, &tool, description);
-        let answered = raise_in_turn(place, thread, |thread| {
-            thread.request_tool_call_authorization(
-                update,
-                approvals::options(),
-                AuthorizationKind::PermissionGrant,
-            )
-        });
-        let decision = match answered.await {
-            Ok(Some(outcome)) => approvals::decision_for(&outcome),
+        let decision = match answered {
+            Ok(Some(decision)) => decision,
             Ok(None) => approvals::Decision::Cancel,
             Err(e) => {
-                let _ = answers.send(ServerAnswer {
-                    request_id,
-                    result: Err(format!("the approval could not be raised: {e}")),
-                });
+                let _ = answers.send(ServerAnswer { request_id, result: Err(e) });
                 return;
             }
+        };
+        // Allow for this session is only ever a plain allow for a tool that
+        // asks every time — its card never offers it, and none is kept.
+        let decision = match decision {
+            approvals::Decision::AcceptForSession if every_time => approvals::Decision::Accept,
+            other => other,
         };
         if decision == approvals::Decision::AcceptForSession && !tool.is_empty() {
             sessions.allow_for_session(&session_id, &server, &tool);
@@ -1162,6 +1164,89 @@ fn ask_tool_approval(
     });
 }
 
+/// An outward action's card, prepared: up at once as "Preparing the
+/// approval…" with only Decline, while the host describes the call; then, in
+/// its place and in the same place in the line, the described card with its
+/// options. The user's answer to whichever card was showing.
+///
+/// Never the bare arguments: a host that cannot describe the call, or is
+/// still silent after [`tool_approvals::PREPARE_WITHIN`], ends the ask with an
+/// error (the card withdrawn, the row saying why), so nothing is approved that
+/// the user could not read. `Ok(None)` when the turn stopped before the card
+/// could go up.
+#[allow(clippy::too_many_arguments)]
+async fn ask_outward(
+    mut place: PromptPlace,
+    thread: AcpThreadHandle,
+    host: Arc<dyn SessionMcpServers>,
+    session_id: &acp::SessionId,
+    server: &str,
+    tool: &str,
+    arguments: &serde_json::Value,
+    item_id: acp::ToolCallId,
+    every_time: bool,
+) -> std::result::Result<Option<approvals::Decision>, String> {
+    fn lock(thread: &AcpThreadHandle) -> std::sync::MutexGuard<'_, AcpThread> {
+        thread.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
+    let queued = place.is_queued();
+    place.wait().await;
+    let preparing = {
+        let mut thread = lock(&thread);
+        // A card that waited for a turn that is over is not raised at all.
+        if queued && !thread.is_generating() {
+            return Ok(None);
+        }
+        thread
+            .request_tool_call_authorization(
+                tool_approvals::preparing_card(item_id.clone(), server, tool),
+                tool_approvals::preparing_options(),
+                AuthorizationKind::PermissionGrant,
+            )
+            .map_err(|e| e.to_string())?
+    };
+    let describe = tokio::time::timeout(
+        tool_approvals::PREPARE_WITHIN,
+        host.describe_call(atlas_agent_servers::CallToApprove { session_id, server, tool, arguments }),
+    );
+
+    let described = tokio::select! {
+        // Declined (or the turn stopped) while it was preparing. There was
+        // nothing to allow, so an allow can only be a stray one: declined.
+        outcome = preparing => {
+            let decision = match approvals::decision_for(&outcome) {
+                approvals::Decision::Cancel => approvals::Decision::Cancel,
+                _ => approvals::Decision::Decline,
+            };
+            return Ok(Some(decision));
+        }
+        described = describe => described.ok().flatten(),
+    };
+
+    let Some(description) = described else {
+        let mut thread = lock(&thread);
+        let _ = thread.update_tool_call(tool_approvals::not_prepared(item_id.clone()));
+        thread.cancel_tool_call_authorization(&item_id);
+        drop(thread);
+        tracing::info!(target: "atlas::approvals", surface = "mcp_tool", item_id = %item_id, "approval not prepared");
+        return Err(tool_approvals::NOT_PREPARED.to_string());
+    };
+
+    let card = {
+        let mut thread = lock(&thread);
+        thread
+            .reraise_tool_call_authorization(
+                tool_approvals::card(item_id, server, tool, Some(description)),
+                tool_approvals::options(every_time),
+                AuthorizationKind::PermissionGrant,
+            )
+            .map_err(|e| e.to_string())?
+    };
+    let outcome = card.await;
+    drop(place);
+    Ok(Some(approvals::decision_for(&outcome)))
+}
+
 /// Tells the host the user approved this call
 /// ([`SessionMcpServers::approved_call`]), just before the engine hears yes.
 /// The server that answers an outward call posts only an approved one, so a
@@ -1180,10 +1265,6 @@ fn record_consent(
         host.approved_call(atlas_agent_servers::CallToApprove { session_id, server, tool, arguments });
     }
 }
-
-/// How long an outward action's card waits on the host to say whom the call
-/// reaches before it is raised with the call's own arguments instead.
-const DESCRIBE_WITHIN: std::time::Duration = std::time::Duration::from_secs(5);
 
 /// Puts the model's clarifying question to the user (ADR-0013).
 ///
@@ -1366,6 +1447,7 @@ impl AgentConnection for EngineConnection {
             let session_id = acp::SessionId::new(response.thread.id.as_str());
             self.sessions
                 .expect_mcp_servers(&response.thread.id, mcp::server_names(mcp_offer.servers()));
+            self.sessions.expect_every_time(&response.thread.id, mcp_offer.ask_first().every_time_tools());
             mcp_offer.bind(&session_id);
             let thread = self.new_thread(session_id.clone(), work_dirs, None);
             self.sessions.insert(
@@ -1545,6 +1627,8 @@ impl AgentConnection for EngineConnection {
                 &engine_session_id.to_string(),
                 mcp::server_names(mcp_offer.servers()),
             );
+            self.sessions
+                .expect_every_time(&engine_session_id.to_string(), mcp_offer.ask_first().every_time_tools());
             mcp_offer.bind(&engine_session_id);
             let thread = self.new_thread(engine_session_id.clone(), work_dirs, title);
             {
@@ -2945,6 +3029,202 @@ mod tests {
             assert!(is_answer_to(&seam.engine_hears().await, 1));
             settle().await;
             assert!(seam.approval_card("call-1"), "the outward card is next in line");
+        }
+
+        /// A host whose description the test hands over when it chooses —
+        /// or never, or as "cannot describe" (`None`).
+        struct GatedHost {
+            answer: std::sync::Mutex<Option<tokio::sync::oneshot::Receiver<Option<atlas_agent_servers::CallDescription>>>>,
+            consent: Arc<atlas_agent_servers::OutwardConsent>,
+        }
+
+        impl SessionMcpServers for GatedHost {
+            fn offer(&self, _request: &SessionMcpRequest) -> SessionMcpOffer {
+                SessionMcpOffer::none()
+            }
+
+            fn describe_call(
+                &self,
+                _call: atlas_agent_servers::CallToApprove<'_>,
+            ) -> BoxFuture<'static, Option<atlas_agent_servers::CallDescription>> {
+                let answer = self.answer.lock().unwrap_or_else(std::sync::PoisonError::into_inner).take();
+                async move {
+                    match answer {
+                        Some(answer) => answer.await.ok().flatten(),
+                        None => std::future::pending().await,
+                    }
+                }
+                .boxed()
+            }
+
+            fn approved_call(&self, call: atlas_agent_servers::CallToApprove<'_>) {
+                self.consent.record(call);
+            }
+        }
+
+        fn description(body: &str) -> atlas_agent_servers::CallDescription {
+            atlas_agent_servers::CallDescription {
+                title: "Message #general".into(),
+                recipient: "#general, a channel with 5 members".into(),
+                body: body.into(),
+            }
+        }
+
+        fn send_args(body: &str) -> serde_json::Value {
+            json!({ "to": "general", "body": body })
+        }
+
+        impl Seam {
+            /// [`with_org`](Self::with_org), with a host that describes only
+            /// when the returned sender is used; `org_send` asks every time,
+            /// as the app declares it.
+            fn with_gated_org() -> (Self, tokio::sync::oneshot::Sender<Option<atlas_agent_servers::CallDescription>>) {
+                let mut seam = Self::open();
+                seam.sessions.expect_mcp_servers(THREAD, ["atlas_org".to_string()]);
+                seam.sessions.expect_every_time(THREAD, [("atlas_org", "org_send")]);
+                let (tx, rx) = tokio::sync::oneshot::channel();
+                seam.host = Some(Arc::new(GatedHost {
+                    answer: std::sync::Mutex::new(Some(rx)),
+                    consent: seam.consent.clone(),
+                }));
+                (seam, tx)
+            }
+
+            /// The kinds of the options on the card showing for `item`.
+            fn card_options(&self, item: &str) -> Vec<acp::PermissionOptionKind> {
+                let thread = lock(&self.thread);
+                let Some((_, call)) = thread.tool_call(&acp::ToolCallId::new(item)) else {
+                    return Vec::new();
+                };
+                match &call.status {
+                    ToolCallStatus::WaitingForConfirmation {
+                        options: atlas_acp_thread::PermissionOptions::Flat(options),
+                        ..
+                    } => options.iter().map(|o| o.kind).collect(),
+                    _ => Vec::new(),
+                }
+            }
+
+            fn sent_consent(&self, arguments: &serde_json::Value) -> bool {
+                self.consent.take(THREAD, "atlas_org", "org_send", arguments)
+            }
+        }
+
+        /// O1: the card is never raised on the bare arguments. While the host
+        /// describes the call a preparing card is up with only Decline — for
+        /// as long as it takes, not five seconds — and the described card
+        /// replaces it, recipient and full body, before anything can be
+        /// allowed.
+        #[tokio::test(start_paused = true)]
+        async fn an_outward_card_prepares_with_only_decline_until_the_host_has_described_it() {
+            use acp::PermissionOptionKind::{AllowOnce, RejectOnce};
+            let (mut seam, describe) = Seam::with_gated_org();
+            seam.model_calls("call-1", "org_send", send_args("deploy is green"));
+            seam.engine_asks(tool_approval(1, "atlas_org", send_args("deploy is green")));
+            settle().await;
+
+            assert_eq!(seam.card_options("call-1"), [RejectOnce], "nothing to allow yet");
+            let (title, content, _) = seam.row("call-1");
+            assert_eq!(title, tool_approvals::PREPARING_TITLE);
+            assert_eq!(content, [tool_approvals::PREPARING_NOTE.to_string()]);
+
+            // A slow cloud is waited for: no fallback to the arguments.
+            tokio::time::advance(Duration::from_secs(30)).await;
+            settle().await;
+            assert_eq!(seam.card_options("call-1"), [RejectOnce], "still preparing, not raw arguments");
+            assert!(seam.engine_heard_nothing().await);
+
+            describe.send(Some(description("deploy is green"))).expect("the host answers");
+            settle().await;
+            assert_eq!(seam.card_options("call-1"), [AllowOnce, RejectOnce], "a message asks every time");
+            let (title, content, tool_name) = seam.row("call-1");
+            assert_eq!(title, "Message #general");
+            assert_eq!(content, ["#general, a channel with 5 members".to_string(), "deploy is green".to_string()]);
+            assert_eq!(tool_name.as_deref(), Some("atlas_org.org_send"));
+
+            seam.answer("call-1", AllowOnce, "allow-once");
+            let answer = seam.engine_hears().await;
+            assert!(is_answer_to(&answer, 1));
+            assert_eq!(action(answer), "accept");
+            assert!(seam.sent_consent(&send_args("deploy is green")), "approved on the described card");
+        }
+
+        /// Declining while it prepares is a decline: nothing is approved and
+        /// the host's description, when it comes, raises nothing.
+        #[tokio::test]
+        async fn declining_while_the_card_prepares_declines_the_call() {
+            let (mut seam, describe) = Seam::with_gated_org();
+            seam.model_calls("call-1", "org_send", send_args("x"));
+            seam.engine_asks(tool_approval(1, "atlas_org", send_args("x")));
+            settle().await;
+            seam.answer("call-1", acp::PermissionOptionKind::RejectOnce, "reject");
+            assert_eq!(action(seam.engine_hears().await), "decline");
+            let _ = describe.send(Some(description("x")));
+            settle().await;
+            assert!(!seam.approval_card("call-1"), "no card after the answer");
+            assert!(!seam.sent_consent(&send_args("x")));
+        }
+
+        /// A host that cannot say whom the call reaches: the call is refused,
+        /// the preparing card withdrawn, the row says why — never a card the
+        /// user could allow on the bare arguments.
+        #[tokio::test]
+        async fn a_call_the_host_cannot_describe_is_refused_and_never_put_to_the_user() {
+            let (mut seam, describe) = Seam::with_gated_org();
+            seam.model_calls("call-1", "org_send", send_args("x"));
+            seam.engine_asks(tool_approval(1, "atlas_org", send_args("x")));
+            settle().await;
+            describe.send(None).expect("the host answers");
+            let answer = seam.engine_hears().await;
+            assert!(is_answer_to(&answer, 1));
+            let error = answer.result.expect_err("refused");
+            assert!(error.contains("could not prepare the approval"), "{error}");
+            assert!(!seam.approval_card("call-1"));
+            assert_eq!(seam.row("call-1").0, "Could not prepare the approval");
+            assert!(!seam.sent_consent(&send_args("x")));
+        }
+
+        /// O2: a message's card has no "Allow for this session", and a
+        /// session allowance picked anyway (a stale or forged option) is one
+        /// allow: the next message still asks.
+        #[tokio::test]
+        async fn a_message_is_never_allowed_for_the_session() {
+            let mut seam = Seam::with_org();
+            seam.sessions.expect_every_time(THREAD, [("atlas_org", "org_send")]);
+            seam.model_calls("call-1", "org_send", send_args("one"));
+            seam.engine_asks(tool_approval(1, "atlas_org", send_args("one")));
+            settle().await;
+            assert_eq!(
+                seam.card_options("call-1"),
+                [acp::PermissionOptionKind::AllowOnce, acp::PermissionOptionKind::RejectOnce]
+            );
+            seam.answer("call-1", acp::PermissionOptionKind::AllowAlways, "allow-always");
+            assert_eq!(action(seam.engine_hears().await), "accept");
+
+            seam.model_calls("call-2", "org_send", send_args("two"));
+            seam.engine_asks(tool_approval(2, "atlas_org", send_args("two")));
+            settle().await;
+            assert!(seam.approval_card("call-2"), "the next message asks again");
+            assert!(seam.engine_heard_nothing().await);
+        }
+
+        /// The allowance is per tool: a reply allowed for the session does not
+        /// cover a message.
+        #[tokio::test]
+        async fn a_reply_allowed_for_the_session_does_not_cover_a_message() {
+            let mut seam = Seam::with_org();
+            seam.sessions.expect_every_time(THREAD, [("atlas_org", "org_send")]);
+            seam.model_calls("call-1", "org_comment_reply", reply_args("first"));
+            seam.engine_asks(tool_approval(1, "atlas_org", reply_args("first")));
+            settle().await;
+            assert!(seam.card_options("call-1").contains(&acp::PermissionOptionKind::AllowAlways), "a reply keeps it");
+            seam.answer("call-1", acp::PermissionOptionKind::AllowAlways, "allow-always");
+            assert_eq!(action(seam.engine_hears().await), "accept");
+
+            seam.model_calls("call-2", "org_send", send_args("hi"));
+            seam.engine_asks(tool_approval(2, "atlas_org", send_args("hi")));
+            settle().await;
+            assert!(seam.approval_card("call-2"), "a message is not a reply");
         }
 
         #[tokio::test]

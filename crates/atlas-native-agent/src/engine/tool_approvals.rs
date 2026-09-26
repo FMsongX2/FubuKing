@@ -38,9 +38,25 @@
 //! card attaches to the call's own row, as a command approval does to its
 //! command, and keeps the row's tool name so the row still reads as the call.
 //!
+//! # Preparing, then the card
+//!
+//! Describing a call can take several network reads, and the card must never
+//! be raised without its description: an outward action is approved on
+//! exactly the recipient and words that will be posted. So a **preparing**
+//! card goes up at once — the call's row, "Preparing the approval…", and only
+//! Decline — and is replaced by the described card (the same call, re-raised
+//! with its options, `AcpThread::reraise_tool_call_authorization`) when the
+//! host answers. No timeout turns it into anything else: the user can decline
+//! while it prepares. Only a host that says it cannot describe the call, or
+//! is still silent after [`PREPARE_WITHIN`], ends the ask — refused, with
+//! nothing sent.
+//!
 //! # Allow for this session
 //!
-//! The engine keeps no session approval for a `prompt` tool — its session key
+//! Not for a tool the host declares asks **every time**
+//! ([`atlas_agent_servers::AskFirst::every_time`]): a message's card has no
+//! such option, since an allowance would cover any later recipient and body.
+//! For the others, the engine keeps no session approval for a `prompt` tool — its session key
 //! exists only for `auto` tools, and it folds "allow for session" into a plain
 //! allow for `prompt` (`normalize_approval_decision_for_mode`). So the seam
 //! remembers it: after "Allow for this session", the next call to the same
@@ -70,7 +86,24 @@ use atlas_agent_servers::CallDescription;
 use atlas_engine_app_server_protocol as v2;
 use serde_json::{json, Value as JsonValue};
 
-use super::approvals::Decision;
+use atlas_acp_thread::PermissionOptions;
+
+use super::approvals::{self, Decision};
+
+/// How long a preparing card waits on the host before the ask ends, refused,
+/// rather than spin for good on a cloud that never answers. The user can
+/// decline long before this.
+pub const PREPARE_WITHIN: std::time::Duration = std::time::Duration::from_secs(120);
+
+/// The preparing card's title and its one line of content.
+pub const PREPARING_TITLE: &str = "Preparing the approval…";
+pub const PREPARING_NOTE: &str = "Looking up who this reaches and the exact words it will post. \
+Allow appears once they are ready; you can decline now.";
+
+/// Why an ask ended without a card to approve: the host could not say whom
+/// the call reaches, so nothing can be approved and nothing is sent.
+pub const NOT_PREPARED: &str = "Atlas could not prepare the approval for this call (it could not look up \
+who it reaches), so it was not sent. Nothing was posted; try again, or ask the user.";
 
 /// The engine's marker for its own approval of an MCP tool call
 /// (`atlas_engine_protocol::mcp_approval_meta`), spelled out because the
@@ -148,6 +181,50 @@ pub fn card(id: acp::ToolCallId, server: &str, tool: &str, description: Option<C
     let mut meta = acp::Meta::new();
     meta.insert(atlas_acp_thread::TOOL_NAME_META_KEY.to_string(), json!(format!("{server}.{tool}")));
     acp::ToolCallUpdate::new(id, fields).meta(meta)
+}
+
+/// The card that is up while the host describes the call: the row keeps the
+/// call's tool name, the title says it is preparing, and the one option is
+/// Decline ([`preparing_options`]).
+pub fn preparing_card(id: acp::ToolCallId, server: &str, tool: &str) -> acp::ToolCallUpdate {
+    let fields = acp::ToolCallUpdateFields::new()
+        .title(PREPARING_TITLE)
+        .content(vec![text_content(PREPARING_NOTE)]);
+    let mut meta = acp::Meta::new();
+    meta.insert(atlas_acp_thread::TOOL_NAME_META_KEY.to_string(), json!(format!("{server}.{tool}")));
+    acp::ToolCallUpdate::new(id, fields).meta(meta)
+}
+
+/// What the row says when the ask ended without a card to approve.
+pub fn not_prepared(id: acp::ToolCallId) -> acp::ToolCallUpdate {
+    acp::ToolCallUpdate::new(
+        id,
+        acp::ToolCallUpdateFields::new()
+            .title("Could not prepare the approval")
+            .content(vec![text_content(NOT_PREPARED)]),
+    )
+}
+
+fn text_content(text: &str) -> acp::ToolCallContent {
+    acp::ToolCallContent::Content(acp::Content::new(acp::ContentBlock::Text(acp::TextContent::new(text))))
+}
+
+/// The described card's options: Allow, Allow for this session, Decline —
+/// without the session allowance for a tool that asks every time.
+pub fn options(every_time: bool) -> PermissionOptions {
+    keep(|kind| !(every_time && kind == acp::PermissionOptionKind::AllowAlways))
+}
+
+/// The preparing card's one option: Decline. There is nothing to allow yet.
+pub fn preparing_options() -> PermissionOptions {
+    keep(|kind| kind == acp::PermissionOptionKind::RejectOnce)
+}
+
+fn keep(wanted: impl Fn(acp::PermissionOptionKind) -> bool) -> PermissionOptions {
+    match approvals::options() {
+        PermissionOptions::Flat(all) => PermissionOptions::Flat(all.into_iter().filter(|o| wanted(o.kind)).collect()),
+        other => other,
+    }
 }
 
 /// The engine's answer for what the user chose. Allow for this session is a
@@ -253,6 +330,31 @@ mod tests {
         assert_eq!(wire["content"][0]["content"]["text"], "Sam Lee, on their comment");
         assert_eq!(wire["content"][1]["content"]["text"], body.as_str(), "never shortened");
         assert_eq!(wire["_meta"]["tool_name"], "atlas_org.org_comment_reply");
+    }
+
+    fn kinds(options: PermissionOptions) -> Vec<acp::PermissionOptionKind> {
+        match options {
+            PermissionOptions::Flat(all) => all.into_iter().map(|o| o.kind).collect(),
+            _ => panic!("flat options"),
+        }
+    }
+
+    #[test]
+    fn a_tool_that_asks_every_time_offers_no_session_allowance() {
+        use acp::PermissionOptionKind::{AllowAlways, AllowOnce, RejectOnce};
+        assert_eq!(kinds(options(false)), [AllowOnce, AllowAlways, RejectOnce]);
+        assert_eq!(kinds(options(true)), [AllowOnce, RejectOnce]);
+    }
+
+    #[test]
+    fn the_preparing_card_offers_only_decline_and_says_it_is_preparing() {
+        assert_eq!(kinds(preparing_options()), [acp::PermissionOptionKind::RejectOnce]);
+        let wire = serde_json::to_value(preparing_card(acp::ToolCallId::new("call-1"), "atlas_org", "org_send"))
+            .expect("serialises");
+        assert_eq!(wire["title"], PREPARING_TITLE);
+        assert_eq!(wire["content"][0]["content"]["text"], PREPARING_NOTE);
+        assert_eq!(wire["content"].as_array().map(Vec::len), Some(1), "no recipient, no body: nothing to approve");
+        assert_eq!(wire["_meta"]["tool_name"], "atlas_org.org_send");
     }
 
     #[test]

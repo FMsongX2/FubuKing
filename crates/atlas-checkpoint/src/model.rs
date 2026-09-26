@@ -197,6 +197,11 @@ pub enum TurnState {
     Completed,
     /// Was open when the store was last closed. Reconciled on next open.
     Aborted,
+    /// Taken back by the agent (a retry rewinds the last turn, then re-sends
+    /// its prompt as a new one). The rows stay — it happened, and the
+    /// Timeline keeps it — but the live chat no longer shows it, so nothing
+    /// that pairs chat messages with recorded turns may count it.
+    Rewound,
 }
 
 impl TurnState {
@@ -205,6 +210,7 @@ impl TurnState {
             Self::Open => "open",
             Self::Completed => "completed",
             Self::Aborted => "aborted",
+            Self::Rewound => "rewound",
         }
     }
 
@@ -213,6 +219,7 @@ impl TurnState {
             "open" => Some(Self::Open),
             "completed" => Some(Self::Completed),
             "aborted" => Some(Self::Aborted),
+            "rewound" => Some(Self::Rewound),
             _ => None,
         }
     }

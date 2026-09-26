@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it } from "vitest";
 import { readFileSync, readdirSync, existsSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -56,7 +56,9 @@ function walk(dir = VENDOR): string[] {
  * file, which put individual tests over vitest's 5s default whenever enough
  * suites ran in parallel — a timeout that looked like a phone-home regression.
  * The traversal and the file contents are immutable for the run, so both are
- * read once and shared. Nothing about what is asserted changes.
+ * read once and shared, up front in `beforeAll` with a budget of its own (a
+ * build beside the pre-commit run still pushed the first reader past 5s).
+ * Nothing about what is asserted changes.
  */
 let walked: string[] | null = null;
 function sourceFiles(): string[] {
@@ -73,6 +75,10 @@ function textOf(file: string): string {
   }
   return text;
 }
+
+beforeAll(() => {
+  for (const file of sourceFiles()) textOf(file);
+}, 120_000);
 
 /**
  * Test code, which is held to a different rule than shipping code.

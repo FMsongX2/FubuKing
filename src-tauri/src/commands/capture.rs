@@ -185,6 +185,11 @@ enum Job {
     FinishTurn {
         binding: SessionBinding,
     },
+    /// The agent took back the Session's last `turns` turns (a retry).
+    RewindTurns {
+        binding: SessionBinding,
+        turns: i64,
+    },
     Usage {
         binding: SessionBinding,
         totals: TokenTotals,
@@ -2779,6 +2784,7 @@ fn process_job(
         | Job::Turn { binding, .. }
         | Job::ToolCall { binding, .. }
         | Job::FinishTurn { binding }
+        | Job::RewindTurns { binding, .. }
         | Job::Usage { binding, .. } => (Some(binding.clone()), binding.project_root.clone()),
         Job::EndSession { .. } => unreachable!("handled above"),
     };
@@ -2993,6 +2999,10 @@ fn process_job(
         },
         Job::FinishTurn { .. } => match session_ids.get(&binding.native_session_id) {
             Some(session_id) => capture.finish_turn(session_id, binding.turn_seq),
+            None => Ok(()),
+        },
+        Job::RewindTurns { turns, .. } => match session_ids.get(&binding.native_session_id) {
+            Some(session_id) => capture.rewind_turns(session_id, turns),
             None => Ok(()),
         },
         Job::Usage { totals, .. } => match session_ids.get(&binding.native_session_id) {
@@ -3632,6 +3642,13 @@ impl OutboundMiddleware<SessionDeltaEnvelope> for CaptureMiddleware {
                 // The streamed bodies are complete now — record them, then
                 // close the turn.
                 state.flush_turn(&envelope.session_id, &binding);
+            }
+
+            SessionDelta::HistoryRewound { turns } => {
+                // A retry took the last turn back before re-sending its
+                // prompt. Marked in the store so the chat's comment anchors
+                // stop counting it; queued behind the turn it takes back.
+                state.submit(Job::RewindTurns { binding: binding.clone(), turns: i64::from(*turns) });
             }
 
             SessionDelta::AgentDisconnected { .. } => {

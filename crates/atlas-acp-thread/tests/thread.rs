@@ -385,6 +385,58 @@ async fn a_status_update_does_not_close_an_open_permission_request() {
     assert_eq!(status_of(&thread, "t1"), "In Progress");
 }
 
+/// A card re-raised on a call already waiting (an outward action's approval,
+/// shown as "preparing" while the host describes the call, ADR-0014) resolves
+/// the card showing and announces the new one, in that order and nothing in
+/// between; the row keeps the status it had before it was asked about, and an
+/// answer to the new card lands as usual.
+#[tokio::test]
+async fn reraising_a_card_resolves_the_one_showing_and_announces_the_new_one() {
+    let (mut thread, mut events, _conn) = new_thread();
+
+    thread
+        .upsert_tool_call(tool_call("t1", "send", acp::ToolCallStatus::InProgress))
+        .unwrap();
+    let first = thread
+        .request_tool_call_authorization(
+            tool_call_update("t1", None),
+            PermissionOptions::Flat(Vec::new()),
+            AuthorizationKind::PermissionGrant,
+        )
+        .unwrap();
+    while events.try_recv().is_ok() {}
+
+    let second = thread
+        .reraise_tool_call_authorization(
+            tool_call_update("t1", None),
+            PermissionOptions::Flat(Vec::new()),
+            AuthorizationKind::PermissionGrant,
+        )
+        .unwrap();
+    drop(first);
+
+    let mut order = Vec::new();
+    while let Ok(event) = events.try_recv() {
+        match event {
+            AcpThreadEvent::ToolAuthorizationReceived(id) => order.push(format!("resolved {id}")),
+            AcpThreadEvent::ToolAuthorizationRequested { id, .. } => order.push(format!("requested {id}")),
+            _ => {}
+        }
+    }
+    assert_eq!(order, ["resolved t1", "requested t1"]);
+    assert_eq!(status_of(&thread, "t1"), "Waiting for confirmation");
+
+    thread.authorize_tool_call(
+        acp::ToolCallId::new("t1"),
+        SelectedPermissionOutcome::new(
+            acp::PermissionOptionId::new("allow"),
+            acp::PermissionOptionKind::AllowOnce,
+        ),
+    );
+    assert!(matches!(second.await, RequestPermissionOutcome::Selected(_)));
+    assert_eq!(status_of(&thread, "t1"), "In Progress", "the status it had before the first card");
+}
+
 /// Adapted from `test_cancel_tool_call_authorization_resolves_permission_request`.
 #[tokio::test]
 async fn cancelling_an_authorization_resolves_the_waiter() {
