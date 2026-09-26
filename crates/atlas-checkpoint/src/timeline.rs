@@ -595,9 +595,17 @@ pub struct AnchorEntry {
 /// Every commentable row of a Session in **write order** — `(turn_seq, seq)`,
 /// not the timeline's rank order. The chat orders its own rows; what it needs
 /// from here is which captured rows exist in which turn.
+///
+/// Rows of a **rewound** turn are left out: a retry took the turn back, so
+/// the live chat has no message for it, and counting it would shift every
+/// earlier exchange onto the wrong turn when the chat pairs by position.
 pub fn anchors(store: &Store, session_id: &str) -> Result<Vec<AnchorEntry>> {
+    let rewound = store.rewound_turns(session_id)?;
     let mut out: Vec<(i64, i64, AnchorEntry)> = Vec::new();
     for m in store.message_anchor_rows(session_id)? {
+        if rewound.contains(&m.turn_seq) {
+            continue;
+        }
         let Some(kind) = entry_kind_for(m.role, m.mode) else { continue };
         out.push((
             m.turn_seq,
@@ -612,6 +620,9 @@ pub fn anchors(store: &Store, session_id: &str) -> Result<Vec<AnchorEntry>> {
         ));
     }
     for c in store.tool_call_anchor_rows(session_id)? {
+        if rewound.contains(&c.turn_seq) {
+            continue;
+        }
         out.push((
             c.turn_seq,
             c.seq,
@@ -773,6 +784,51 @@ mod tests {
         assert_eq!(got[3].tool_name.as_deref(), Some("Read"));
         assert!(got.iter().all(|e| e.turn_seq == 1));
         assert!(got.iter().all(|e| !e.row_id.is_empty()));
+    }
+
+    /// A retry rewinds the last turn and re-sends its prompt as a new one. The
+    /// rewound turn's rows stay in the store (and the Timeline), but the live
+    /// chat no longer shows that exchange, so the anchors the chat pairs with
+    /// must leave it out — or every earlier exchange shifts onto it (C1).
+    #[test]
+    fn a_rewound_turn_is_not_among_the_anchors_and_is_marked_once() {
+        use crate::capture::{Capture, SessionKey, TurnContent};
+        use crate::model::{ProjectMode, Source, TurnState};
+
+        let dir = tempfile::tempdir().unwrap();
+        let mut store = Store::open(dir.path().join(".atlas")).unwrap();
+        let mut capture = Capture::new(&mut store, ProjectMode::Local);
+        let key = SessionKey { workspace_id: "ws".into(), source: Source::Native, native_session_id: "native-1".into() };
+        let session_id = capture.ensure_session(&key, None, None, None, None).unwrap();
+        let reply = |turn: i64, native: &str, body: &str| TurnContent {
+            turn_seq: turn,
+            native_message_id: Some(native.into()),
+            role: Role::Assistant,
+            mode: Mode::Text,
+            body: body.into(),
+            created_at: None,
+        };
+        for (turn, prompt, native, body) in [(1, "one", "a1", "first"), (2, "two", "a2old", "tried")] {
+            capture.record_prompt(&key, prompt, turn, None, None, None).unwrap();
+            capture.record_turn(&session_id, reply(turn, native, body)).unwrap();
+            capture.finish_turn(&session_id, turn).unwrap();
+        }
+        // The retry: turn 2 is taken back, and its prompt re-sent as turn 3.
+        capture.rewind_turns(&session_id, 1).unwrap();
+        capture.record_prompt(&key, "two", 3, None, None, None).unwrap();
+        capture.record_turn(&session_id, reply(3, "a2", "retried")).unwrap();
+        capture.finish_turn(&session_id, 3).unwrap();
+
+        let turns: Vec<i64> = anchors(&store, &session_id).unwrap().iter().map(|e| e.turn_seq).collect();
+        assert_eq!(turns, [1, 1, 3, 3], "turn 2's prompt and reply are gone from the anchors");
+        assert_eq!(store.rewound_turns(&session_id).unwrap(), [2].into_iter().collect());
+        assert_eq!(store.turn_state(&session_id, 2).unwrap(), Some(TurnState::Rewound));
+        assert!(!store.messages_for_session(&session_id).unwrap().is_empty(), "the rows are kept");
+
+        // A second rewind takes the latest live turn, never turn 2 again.
+        assert_eq!(store.mark_turns_rewound(&session_id, 1).unwrap(), 1);
+        assert_eq!(store.rewound_turns(&session_id).unwrap(), [2, 3].into_iter().collect());
+        assert_eq!(store.mark_turns_rewound(&session_id, 0).unwrap(), 0);
     }
 
     fn entry(kind: EntryKind, turn: i64, at: &str, id: &str) -> TimelineEntry {

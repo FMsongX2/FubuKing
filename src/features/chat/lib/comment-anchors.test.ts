@@ -177,27 +177,27 @@ describe("structureKey", () => {
 });
 
 /**
- * Known gaps, pinned with `it.fails` (0.3.4 hardening report, C1-C3): each
- * asserts the CORRECT mapping and currently fails. When a fix lands, the
- * `.fails` flips red and should be dropped.
+ * Known gaps, pinned with `it.fails` (0.3.4 hardening report): each asserts
+ * the CORRECT mapping and currently fails. When a fix lands, the `.fails`
+ * flips red and should be dropped. C1 is fixed at the recorder.
  */
 describe("buildAnchorMap — known gaps", () => {
-  /// C1. A retry starts a new turn_seq (capture.rs), so the retried-away turn
-  /// stays in the entries. After a reload (ids re-minted, no tool calls) the
-  /// positional pass pairs from the end and shifts the earlier exchange onto
-  /// the orphaned turn: T1's comments vanish and T2old's show on "one".
-  it.fails("a retried turn left in the entries does not shift earlier exchanges", () => {
+  /// C1 (fixed). A retry rewinds the last turn and re-sends its prompt as a
+  /// new turn. The recorder marks the rewound turn and leaves its rows out of
+  /// the anchors (`atlas-checkpoint` `anchors`, `HistoryRewound` in capture),
+  /// so after a reload the chat's two exchanges pair with the two live turns
+  /// and nothing shifts onto the turn that was taken back.
+  it("pairs a reloaded retried chat with the live turns the recorder keeps", () => {
     const messages = [
       msg({ id: "m1", role: "user", content: "one" }),
       msg({ id: "m2", role: "assistant", content: "a1", mode: "text" }),
       msg({ id: "m3", role: "user", content: "two" }),
       msg({ id: "m4", role: "assistant", content: "a2 (retried)", mode: "text" }),
     ];
+    // Turn 2 was rewound: its rows are not among the entries.
     const entries = [
       entry({ rowId: "p1", kind: "prompt", turnSeq: 1, nativeId: "prompt-1-a" }),
       entry({ rowId: "r1", kind: "response", turnSeq: 1 }),
-      entry({ rowId: "p2old", kind: "prompt", turnSeq: 2, nativeId: "prompt-2-b" }),
-      entry({ rowId: "r2old", kind: "response", turnSeq: 2 }),
       entry({ rowId: "p2", kind: "prompt", turnSeq: 3, nativeId: "prompt-3-b" }),
       entry({ rowId: "r2", kind: "response", turnSeq: 3 }),
     ];
