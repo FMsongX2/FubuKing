@@ -3,6 +3,8 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { ACTIONS } from "@/features/keybindings/lib/actions";
+
 /**
  * Guards the UI action seam (ADR-0012): every tool the UI tool server lists
  * to the model has a case in the window's dispatcher, and the dispatcher has
@@ -100,4 +102,82 @@ describe("UI action contract", () => {
       expect(read("src/features/ui-actions/lib/ui-open.ts")).toContain(`a.str("${key}")`);
     },
   );
+});
+
+/**
+ * `ui_command` runs any global keybinding command by id, auto-approved. The
+ * ADR-0012 surface is non-destructive by rule, so every global command an
+ * agent can reach is listed here, reviewed. A new global command fails this
+ * test until someone decides it is safe for an agent — or adds it to
+ * `REFUSED` in ui-command.ts with the alternative to use.
+ */
+const REVIEWED_AGENT_COMMANDS = [
+  "workspace.toggleSidebar",
+  "app.settings",
+  "app.capture",
+  "nav.commandPalette",
+  "nav.filePicker",
+  "nav.search",
+  "nav.newTabPalette",
+  "nav.layoutSwitcher",
+  "usage.open",
+  "hintNav.toggle",
+  "panels.left",
+  "panels.right",
+  "panels.teamChat",
+  "panels.terminal",
+  "panels.agentSidebar",
+  "panels.tabBar",
+  "panels.knowledge",
+  "panels.zen",
+  "tabs.newChat",
+  "tabs.newTerminal",
+  "tabs.newUntitled",
+  "tabs.prev",
+  "tabs.next",
+  "tabs.focus1",
+  "tabs.focus2",
+  "tabs.focus3",
+  "tabs.focus4",
+  "tabs.focus5",
+  "tabs.focus6",
+  "tabs.focus7",
+  "tabs.focus8",
+  "tabs.focus9",
+  "split.new",
+  "split.focusLeft",
+  "split.focusRight",
+  // Moves the column's tabs to its neighbour; closes nothing.
+  "split.close",
+  "view.zoomIn",
+  "view.zoomOut",
+  "view.zoomReset",
+];
+
+function refusedCommands(): string[] {
+  const src = read("src/features/ui-actions/lib/ui-command.ts");
+  const start = src.indexOf("const REFUSED");
+  const body = src.slice(src.indexOf("{", src.indexOf("=", start)) + 1, src.indexOf("\n};", start));
+  return [...body.matchAll(/^\s*"([\w.]+)":/gm)].map((m) => m[1]);
+}
+
+describe("ui_command reach", () => {
+  it("refuses exactly the four ADR-0012 commands", () => {
+    expect(refusedCommands().sort()).toEqual(
+      ["chat.cycleAgent", "chat.cyclePermissionMode", "tabs.close", "workspace.add"].sort(),
+    );
+  });
+
+  it("every refused id is a real command (a dead entry is a hole)", () => {
+    const ids = new Set(ACTIONS.map((a) => a.id as string));
+    for (const id of refusedCommands()) expect(ids.has(id), id).toBe(true);
+  });
+
+  it("every global command an agent can run has been reviewed", () => {
+    const refused = new Set(refusedCommands());
+    const reachable = ACTIONS.filter((a) => a.when === "global")
+      .map((a) => a.id as string)
+      .filter((id) => !refused.has(id));
+    expect([...reachable].sort()).toEqual([...REVIEWED_AGENT_COMMANDS].sort());
+  });
 });
