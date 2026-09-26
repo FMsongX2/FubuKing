@@ -75,3 +75,22 @@ export function outwardPreparingOf(
     note: content[0] ?? "Looking up who this reaches and the exact words it will post.",
   };
 }
+
+/** Whether `toolCall` is an outward action's card — any organisation tool's,
+ *  since only the outward ones ever ask. */
+export function isOutwardCall(toolCall: ToolCallRef): boolean {
+  const toolName = typeof toolCall.toolName === "string" ? toolCall.toolName : "";
+  return orgToolOf(toolName) !== null;
+}
+
+/**
+ * Whether a keystroke (Enter, or the option's digit) may pick an option of
+ * `kind` on this card. An outward action posts in the user's name and cannot
+ * be taken back, and the card's keys listen on the whole window — an Enter
+ * meant for the composer as the card appeared would post. So its Allow is a
+ * click, never a key; Decline and Esc still work from the keyboard.
+ */
+export function keyMayPick(toolCall: ToolCallRef, kind: string): boolean {
+  const allow = kind === "allow_once" || kind === "allow_always";
+  return !(allow && isOutwardCall(toolCall));
+}

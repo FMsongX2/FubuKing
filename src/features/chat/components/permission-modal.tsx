@@ -16,6 +16,7 @@ import type { PermissionOptionRef, PendingPermission } from "@/types/acp";
 import { type AgentType } from "@/types/agent";
 import { agentMeta } from "@/features/agents/lib/agent-meta";
 import {
+  keyMayPick,
   outwardApprovalOf,
   outwardPreparingOf,
   type OutwardApproval,
@@ -88,7 +89,11 @@ function PermissionModalImpl({ tabId, onSendMessage }: PermissionModalProps) {
     setDraft("");
   }, [reqId]);
 
-  const primaryId = current?.options.find((o) => isAllow(o.kind))?.optionId;
+  // The option Enter picks, and the one drawn as primary. None on an outward
+  // action's card: its Allow is a click (`keyMayPick`).
+  const primaryId = current?.options.find(
+    (o) => isAllow(o.kind) && keyMayPick(current.toolCall, o.kind),
+  )?.optionId;
 
   // Keyboard: digits 1–9 select, Enter = primary, Esc = cancel — except while
   // the free-text field is focused (there Enter submits text, Esc still cancels).
@@ -128,8 +133,10 @@ function PermissionModalImpl({ tabId, onSendMessage }: PermissionModalProps) {
       }
       const n = parseInt(e.key, 10);
       if (!Number.isNaN(n) && n >= 1 && n <= current.options.length) {
+        const picked = current.options[n - 1];
+        if (!keyMayPick(current.toolCall, picked.kind)) return;
         e.preventDefault();
-        send({ kind: "selected", option_id: current.options[n - 1].optionId });
+        send({ kind: "selected", option_id: picked.optionId });
       }
     };
     window.addEventListener("keydown", onKey, true);

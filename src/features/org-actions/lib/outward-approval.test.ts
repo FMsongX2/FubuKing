@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { outwardApprovalOf, outwardPreparingOf } from "./outward-approval";
+import { keyMayPick, outwardApprovalOf, outwardPreparingOf } from "./outward-approval";
 
 /** The body of a long reply: shortening it anywhere would show. */
 const LONG = Array.from({ length: 300 }, (_, i) => `line ${i}: renamed the theme keys`).join("\n");
@@ -60,5 +60,23 @@ describe("an outward action's card while it is prepared", () => {
     expect(
       outwardPreparingOf(preparingCard({ toolName: "git push" }), [{ kind: "reject_once" }]),
     ).toBeNull();
+  });
+});
+
+describe("keys on an outward action's card", () => {
+  /// The card's keys listen on the whole window; an Enter meant for the
+  /// composer must never post in the user's name.
+  it("never let a key allow an outward action", () => {
+    expect(keyMayPick(replyCard(), "allow_once")).toBe(false);
+    expect(keyMayPick(replyCard({ toolName: "atlas_org.org_send" }), "allow_always")).toBe(false);
+  });
+
+  it("still let a key decline it", () => {
+    expect(keyMayPick(replyCard(), "reject_once")).toBe(true);
+  });
+
+  it("leave every other card's keys as they were", () => {
+    expect(keyMayPick(replyCard({ toolName: "git push" }), "allow_once")).toBe(true);
+    expect(keyMayPick(replyCard({ toolName: undefined }), "allow_once")).toBe(true);
   });
 });
