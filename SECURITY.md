@@ -1,21 +1,24 @@
+<!-- Modified by Quotatlas from upstream Atlas (Apache-2.0). -->
 # Security
 
-Report security issues privately by email rather than opening a public issue.
-
-## Scope
-
-Atlas runs coding agents that read files and execute commands. An agent doing that after you approved it is the product working as designed. An agent doing it **without** the approval step, or reaching outside the project you granted it, is a vulnerability.
-
-Credential handling, the update channel, and anything that causes local data to leave the machine unexpectedly are all in scope.
+Report security issues privately. Never open a public issue for a vulnerability.
 
 ## Reporting a vulnerability
 
-Email **adibmohsin.root@gmail.com** with:
+Use GitHub's private vulnerability reporting: open the repository's Security tab and choose "Report a vulnerability" (https://github.com/FMsongX2/Quotatlas/security/advisories/new). Include:
 
-- **Atlas version** — Settings → About.
-- **OS and chip** — macOS version, Apple Silicon or Intel.
-- **Steps to reproduce.**
-- **Impact** — what an attacker could do with it.
+- Quotatlas version, from Settings → About.
+- OS and version, and on a Mac whether it is Apple Silicon or Intel.
+- Steps to reproduce.
+- Impact: what an attacker could do with it.
+
+If the problem is in code Quotatlas inherits unchanged from Atlas, report it to Atlas as well, following [Atlas's security policy](https://github.com/pacifio/atlas/security/policy). Atlas users are affected too.
+
+## Scope
+
+Quotatlas runs coding agents that read files and execute commands. An agent doing that after you approved it is the product working as designed. An agent doing it without the approval step, or reaching outside the project you granted it, is a vulnerability.
+
+Credential handling, the updater, and anything that causes local data to leave the machine unexpectedly are all in scope. Quotatlas is designed never to read, copy or store Claude Code or Codex credentials, never to send telemetry and never to contact Atlas's hosted services. A way to make it do any of these is a vulnerability.
 
 ## What to expect
 
@@ -23,4 +26,4 @@ We acknowledge reports as soon as we can and prioritise confirmed issues. There 
 
 ## Supported versions
 
-Atlas is pre-1.0. Only the latest release is supported — update and confirm the issue still reproduces before reporting.
+Quotatlas is pre-1.0. Only the latest release on `main` is supported. Update and confirm the issue still reproduces before reporting. Until the first release, report against the current `main`.

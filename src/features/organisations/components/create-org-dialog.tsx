@@ -1,3 +1,4 @@
+// Modified by Quotatlas from upstream Atlas (Apache-2.0).
 import { useEffect, useRef, useState } from "react";
 import { Dialog } from "@base-ui/react/dialog";
 import { Building2, Check, Loader2, X } from "lucide-react";
@@ -8,9 +9,11 @@ import { auth } from "@/features/auth/lib/auth-api";
 import { useAuthStore } from "@/features/auth/stores/auth-store";
 import { useOrgStore } from "../stores/org-store";
 import { switchOrg } from "../lib/org-switch";
+import { HOSTED_SERVICES_ENABLED } from "@/lib/quotatlas";
 
 /** The web origin an org handle lives under — shown as the static prefix. */
-const HANDLE_PREFIX = "app.tryatlas.cc/";
+// Quotatlas: a local handle never becomes a URL on Atlas's servers.
+const HANDLE_PREFIX = HOSTED_SERVICES_ENABLED ? "app.tryatlas.cc/" : "@";
 
 /** Don't probe the server until the handle is at least this long. Keeps the
  *  first keystroke or two from spending the shared 100-req/60s auth budget. */
@@ -256,43 +259,48 @@ export function CreateOrgDialog({
               </div>
 
               {/* Cloud vs local. Signed out there is nothing to sync to, so
-                  cloud is unavailable rather than merely unselected. */}
-              <div>
-                <span className="text-xs font-medium text-[var(--secondary-foreground)]">Type</span>
-                <div className="mt-1 flex gap-1.5">
-                  {(
-                    [
-                      ["cloud", "Cloud", !signedIn],
-                      ["local", "Local", false],
-                    ] as const
-                  ).map(([id, label, isDisabled]) => {
-                    const on = mode === id;
-                    return (
-                      <button
-                        key={id}
-                        disabled={isDisabled}
-                        title={isDisabled ? "Sign in to create a cloud organisation" : undefined}
-                        onClick={() => setMode(id)}
-                        className={cn(
-                          "rounded-full border px-2.5 py-1 text-xs transition-colors",
-                          isDisabled
-                            ? "cursor-not-allowed border-border bg-panel-input text-[var(--muted-foreground)] opacity-40"
-                            : on
-                              ? "cursor-pointer border-border-strong bg-[var(--atlas-element-selected)] text-[var(--foreground)]"
-                              : "cursor-pointer border-border bg-panel-input text-[var(--muted-foreground)] hover:text-[var(--secondary-foreground)]",
-                        )}
-                      >
-                        {label}
-                      </button>
-                    );
-                  })}
+                  cloud is unavailable rather than merely unselected.
+                  Quotatlas: every organisation is local, so there is no choice. */}
+              {HOSTED_SERVICES_ENABLED && (
+                <div>
+                  <span className="text-xs font-medium text-[var(--secondary-foreground)]">
+                    Type
+                  </span>
+                  <div className="mt-1 flex gap-1.5">
+                    {(
+                      [
+                        ["cloud", "Cloud", !signedIn],
+                        ["local", "Local", false],
+                      ] as const
+                    ).map(([id, label, isDisabled]) => {
+                      const on = mode === id;
+                      return (
+                        <button
+                          key={id}
+                          disabled={isDisabled}
+                          title={isDisabled ? "Sign in to create a cloud organisation" : undefined}
+                          onClick={() => setMode(id)}
+                          className={cn(
+                            "rounded-full border px-2.5 py-1 text-xs transition-colors",
+                            isDisabled
+                              ? "cursor-not-allowed border-border bg-panel-input text-[var(--muted-foreground)] opacity-40"
+                              : on
+                                ? "cursor-pointer border-border-strong bg-[var(--atlas-element-selected)] text-[var(--foreground)]"
+                                : "cursor-pointer border-border bg-panel-input text-[var(--muted-foreground)] hover:text-[var(--secondary-foreground)]",
+                          )}
+                        >
+                          {label}
+                        </button>
+                      );
+                    })}
+                  </div>
+                  <p className="mt-1 text-2xs text-[var(--muted-foreground)]">
+                    {cloud
+                      ? "Synced across your devices and shareable with your team."
+                      : "Private and offline. Turn on sync later to share it."}
+                  </p>
                 </div>
-                <p className="mt-1 text-2xs text-[var(--muted-foreground)]">
-                  {cloud
-                    ? "Synced across your devices and shareable with your team."
-                    : "Private and offline. Turn on sync later to share it."}
-                </p>
-              </div>
+              )}
 
               {/* Region — pill selector. Meaningless for a local org, which
                   never leaves this machine. */}

@@ -1,3 +1,4 @@
+<!-- Modified by Quotatlas from upstream Atlas (Apache-2.0). -->
 
 # Contributor Covenant 3.0 Code of Conduct
 
@@ -46,7 +47,7 @@ We agree to restrict the following behaviors in our community. Instances, threat
 
 Tensions can occur between community members even when they are trying their best to collaborate. Not every conflict represents a code of conduct violation, and this Code of Conduct reinforces encouraged behaviors and norms that can help avoid conflicts and minimize harm.
 
-When an incident does occur, it is important to report it promptly. To report a possible violation, **email adibmohsin.root@gmail.com**
+When an incident does occur, it is important to report it promptly. To report a possible violation, contact the Quotatlas maintainers privately on GitHub: open the repository's Security tab, choose "Report a vulnerability" (https://github.com/FMsongX2/Quotatlas/security/advisories/new) and say that it is a conduct report. A concern that does not need to stay private can be raised in [GitHub Discussions](https://github.com/FMsongX2/Quotatlas/discussions).
 
 Community Moderators take reports of violations seriously and will make every effort to respond in a timely manner. They will investigate all reports of code of conduct violations, reviewing messages, logs, and recordings, or interviewing witnesses and other participants. Community Moderators will keep investigation and enforcement actions as transparent as possible while prioritizing safety and confidentiality. In order to honor these values, enforcement actions are carried out in private with the involved parties, but communicating to the whole community may be part of a mutually agreed upon resolution.
 

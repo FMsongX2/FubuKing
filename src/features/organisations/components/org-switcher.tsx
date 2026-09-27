@@ -1,3 +1,4 @@
+// Modified by Quotatlas from upstream Atlas (Apache-2.0).
 import { useMemo, useState } from "react";
 import { Menu as DropdownMenu } from "@base-ui/react/menu";
 import { Dialog } from "@base-ui/react/dialog";
@@ -29,6 +30,7 @@ import { useActionShortcut } from "@/features/keybindings/lib/use-action-shortcu
 import { CreateOrgDialog } from "./create-org-dialog";
 import { MembersModal } from "./members-modal";
 import { isSyncedOrg, type Organisation } from "../types";
+import { HOSTED_SERVICES_ENABLED } from "@/lib/quotatlas";
 
 /** Two-letter avatar seed from an org name. */
 function initials(name: string): string {
@@ -500,12 +502,16 @@ export function OrgSwitcher() {
                 </div>
               )}
 
-              <DropdownMenu.Separator className="h-px shrink-0 bg-border-subtle" />
+              {/* Quotatlas: sync needs Atlas's hosted services, so the footer
+               *  and its separator go with them. */}
+              {HOSTED_SERVICES_ENABLED && (
+                <DropdownMenu.Separator className="h-px shrink-0 bg-border-subtle" />
+              )}
 
               {/* Sync toggle for the ACTIVE org — in the footer (not under the org
                *  list) so it's unambiguous which org it applies to. Signed out,
                *  the action starts sign-in; already-synced, it just reports state. */}
-              {syncing ? (
+              {!HOSTED_SERVICES_ENABLED ? null : syncing ? (
                 <div
                   title="Syncing…"
                   className="mx-1 my-1 flex h-control-md w-[calc(100%-8px)] items-center gap-2 rounded-md px-1.5 text-xs text-[var(--secondary-foreground)] select-none"

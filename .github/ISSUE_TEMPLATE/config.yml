@@ -1,13 +1,15 @@
-# Kept enabled on purpose. Already-installed Atlas builds link to
-# /issues/new?title=…&body=… with no `template=` — disabling blank issues
-# redirects that to the template chooser and silently drops the prefilled
-# body, losing whatever the user typed in the feedback panel. It also gives
-# anything that fits neither form somewhere to go.
+# Modified by Quotatlas from upstream Atlas (Apache-2.0).
+# Kept enabled on purpose. It gives anything that fits neither form somewhere
+# to go, and it keeps a /issues/new?title=…&body=… link that names no
+# `template=` working: with blank issues disabled, GitHub redirects such a link
+# to the template chooser and silently drops the prefilled body. The in-app
+# feedback panel always names a form and fills its `description` field, so it
+# does not depend on this.
 blank_issues_enabled: true
 contact_links:
-  - name: Question about Atlas
-    url: https://discord.gg/GmnFggaPfP
-    about: Ask in #dev on Discord rather than opening an issue.
+  - name: Question about Quotatlas
+    url: https://github.com/FMsongX2/Quotatlas/discussions
+    about: Ask in GitHub Discussions rather than opening an issue.
   - name: Report a security vulnerability
-    url: https://github.com/pacifio/atlas/security/policy
-    about: Don't open a public issue for a vulnerability — see SECURITY.md for how to report it privately.
+    url: https://github.com/FMsongX2/Quotatlas/security/policy
+    about: Don't open a public issue for a vulnerability. See SECURITY.md for how to report it privately.

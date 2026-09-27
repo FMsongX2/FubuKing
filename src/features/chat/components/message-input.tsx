@@ -76,6 +76,8 @@ import { FeaturedAgentOffers } from "./featured-agent-offers";
 import { RetryPill } from "./retry-pill";
 import { AiGrantBar } from "./ai-grant-bar";
 import { RemovedAgentBar } from "./removed-agent-bar";
+import { HostedAgentBar } from "./hosted-agent-bar";
+import { HOSTED_SERVICES_ENABLED } from "@/lib/quotatlas";
 import { useAiGrantProbe, useNoAiGrant } from "../stores/ai-grant-store";
 import {
   QUALITY_LADDER,
@@ -1895,7 +1897,8 @@ export function MessageInput({
             Scoped to the native agent for the same reason the lock is: the
             other agents do not use the Atlas gateway, so an org with no grant
             is not their problem and a bar over a working composer is noise. */}
-        {agentType === "atlas-agent" && <AiGrantBar />}
+        {agentType === "atlas-agent" &&
+          (HOSTED_SERVICES_ENABLED ? <AiGrantBar /> : <HostedAgentBar tabId={tabId} />)}
 
         {/* The tab's agent was uninstalled — same strip, same reason: the
             input below cannot send until the chat is switched. */}
