@@ -17,7 +17,7 @@ import {
   Search,
   Plus,
   RotateCw,
-  Paperclip,
+  AtSign,
 } from "lucide-react";
 import { invoke } from "@tauri-apps/api/core";
 import { useChatStore } from "../stores/chat-store";
@@ -1284,6 +1284,19 @@ export function MessageInput({
   // target under a drag image that hangs off the cursor lit up and went dark
   // seemingly at random. Each split pane has its own column, so a drop still
   // lands in the pane under the cursor. Outside a chat panel, the composer.
+  //
+  // A drop ALWAYS becomes an inline `@file` chip at the caret — it does not go
+  // through `attachPaths`, and an image is no exception. Dragging a file into
+  // the conversation is a pointing gesture: "this one, here, in the sentence I
+  // am writing". Routing a dropped image to the thumbnail strip above the
+  // field answered a question the user had not asked — it detached the file
+  // from the place they aimed it, and left the prompt with no reference to it
+  // at all, so the sentence read "look at this" with no "this" in it. The
+  // explicit attach gestures ("+" ▸ Add files / Attach media, and paste) still
+  // route through `attachPaths`, where a thumbnail IS the thing being asked
+  // for. The chip carries the absolute path, which rides to the agent as an
+  // ACP `ResourceLink` (`compose_prompt`) — every agent reads those, and a
+  // vision agent opens the image itself.
   const dropZoneRef = useRef<HTMLElement | null>(null);
   const [dropZoneEl, setDropZoneEl] = useState<HTMLElement | null>(null);
   useLayoutEffect(() => {
@@ -1292,7 +1305,7 @@ export function MessageInput({
     dropZoneRef.current = zone;
     setDropZoneEl(zone);
   }, []);
-  const onDropFiles = useCallback((paths: string[]) => void attachPaths(paths), [attachPaths]);
+  const onDropFiles = useCallback((paths: string[]) => insertFileChips(paths), [insertFileChips]);
   const { isDropTarget } = useComposerFileDrop({
     targetRef: dropZoneRef,
     enabled: !disabled,
@@ -1957,12 +1970,15 @@ export function MessageInput({
                 )}
               >
                 <div className="flex flex-col items-center gap-1 rounded-xl border border-[var(--border)] bg-[var(--card)] px-4 py-3 shadow-md">
-                  <Paperclip size={16} className="text-[var(--primary)]" />
+                  <AtSign size={16} className="text-[var(--primary)]" />
                   <span className="text-sm font-medium text-[var(--foreground)]">
-                    Drop to attach
+                    Drop to reference
                   </span>
+                  {/* Says what will happen, because the two gestures now differ:
+                      a drop writes a chip into the sentence, the "+" menu
+                      attaches. */}
                   <span className="text-xs text-[var(--muted-foreground)]">
-                    {imageSupported ? "Images are sent inline" : "Files are attached by path"}
+                    Added as an @mention in your message
                   </span>
                 </div>
               </div>,
