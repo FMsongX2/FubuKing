@@ -25,7 +25,7 @@
       "msi"
     ],
     "publisher": "Quotatlas contributors",
-    "homepage": "https://github.com/FMsongX2/quotatlas",
+    "homepage": "https://github.com/FMsongX2/Quotatlas",
     "windows": {
       "webviewInstallMode": {
         "type": "downloadBootstrapper",

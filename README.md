@@ -63,8 +63,8 @@ Added by Quotatlas:
 Requirements: [Bun](https://bun.sh/), Rust stable via [rustup](https://rustup.rs/), and Xcode Command Line Tools on macOS or the MSVC build tools on Windows. To use Claude Code, install the `claude` CLI; for Codex, install the `codex` CLI.
 
 ```bash
-git clone https://github.com/FMsongX2/quotatlas
-cd quotatlas
+git clone https://github.com/FMsongX2/Quotatlas
+cd Quotatlas
 bun install
 bun run dev:app
 ```

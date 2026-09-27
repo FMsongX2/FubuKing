@@ -7,7 +7,7 @@
  */
 
 /** The Quotatlas repository: docs, issues, discussions and releases. */
-export const QUOTATLAS_REPO_URL = "https://github.com/FMsongX2/quotatlas";
+export const QUOTATLAS_REPO_URL = "https://github.com/FMsongX2/Quotatlas";
 
 /** Upstream Atlas, credited wherever the product describes its origin. */
 export const UPSTREAM_ATLAS_URL = "https://github.com/pacifio/atlas";

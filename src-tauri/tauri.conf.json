@@ -65,7 +65,7 @@
     "category": "DeveloperTool",
     "shortDescription": "Quotatlas \u2014 every coding agent and every account in one window",
     "longDescription": "Quotatlas runs Claude Code, Codex and other ACP coding agents side by side with shared memory, commit-linked session history and per-account quota tracking. Based on Atlas.",
-    "copyright": "Quotatlas contributors. Based on Atlas by Adib Mohsin. Report bugs: https://github.com/FMsongX2/quotatlas/issues",
+    "copyright": "Quotatlas contributors. Based on Atlas by Adib Mohsin. Report bugs: https://github.com/FMsongX2/Quotatlas/issues",
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
