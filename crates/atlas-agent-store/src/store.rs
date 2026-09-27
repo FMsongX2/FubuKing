@@ -1,3 +1,4 @@
+// Modified by Quotatlas from upstream Atlas (Apache-2.0).
 //! The store: the installed map, turned into agents.
 //!
 //! Ported from `AgentServerStore` (`agent_server_store.rs:176-489`), and in
@@ -375,8 +376,10 @@ impl AgentServerStore {
                             default_mode: entry_settings.default_mode().map(str::to_owned),
                         }
                     }
-                    AgentServerSettings::Registry { env, .. } => {
-                        let Some(agent) = registry_agents.get(name) else {
+                    AgentServerSettings::Registry { env, base, label, .. } => {
+                        // Quotatlas: an account entry runs its base agent.
+                        let registry_id = base.as_deref().unwrap_or(name.as_str());
+                        let Some(agent) = registry_agents.get(registry_id) else {
                             // Installed, but the catalogue has not loaded or no
                             // longer lists it. Not an error: a refresh may
                             // bring it back, and dropping the settings entry
@@ -389,6 +392,8 @@ impl AgentServerStore {
                         };
                         match self.registry_entry(
                             name,
+                            registry_id,
+                            label.as_deref(),
                             agent,
                             env,
                             byok_env,
@@ -436,9 +441,12 @@ impl AgentServerStore {
         self.updates.send(generation).ok();
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn registry_entry(
         &self,
         name: &str,
+        registry_id: &str,
+        label: Option<&str>,
         agent: &RegistryAgent,
         settings_env: &HashMap<String, String>,
         byok_env: &HashMap<String, String>,
@@ -461,8 +469,10 @@ impl AgentServerStore {
                     http: self.http.clone(),
                     node: self.node.clone(),
                     project_env: self.project_env.clone(),
+                    // Keyed by registry id, not entry key: accounts of one
+                    // agent share its payload rather than downloading copies.
                     installation_dir: registry_dir(&self.data_dir)
-                        .join(sanitize_path_component(name)),
+                        .join(sanitize_path_component(registry_id)),
                     version: version.clone(),
                     targets: binary.targets.clone(),
                     settings_env: settings_env.clone(),
@@ -473,7 +483,7 @@ impl AgentServerStore {
             RegistryAgent::Npx(npx) => Arc::new(LocalRegistryNpxAgent {
                 node: self.node.clone(),
                 project_env: self.project_env.clone(),
-                install_dir: npx_install_dir(&registry_dir(&self.data_dir), name),
+                install_dir: npx_install_dir(&registry_dir(&self.data_dir), registry_id),
                 version: version.clone(),
                 package: npx.package.clone(),
                 args: npx.args.clone(),
@@ -488,7 +498,10 @@ impl AgentServerStore {
             server,
             source: ExternalAgentSource::Registry,
             icon_path: metadata.icon_path.clone(),
-            display_name: Some(metadata.name.clone()),
+            display_name: Some(match label {
+                Some(label) => format!("{} · {label}", metadata.name),
+                None => metadata.name.clone(),
+            }),
             version: Some(version),
             default_mode: default_mode.map(str::to_owned),
         })

@@ -1,3 +1,4 @@
+// Modified by Quotatlas from upstream Atlas (Apache-2.0).
 //! The store's contract: an agent exists because it is in the installed map,
 //! and for no other reason.
 //!
@@ -612,4 +613,89 @@ async fn a_version_change_with_no_watcher_is_harmless() {
             .as_deref(),
         Some("2.0.0")
     );
+}
+
+// ------------------------------------------------------- Quotatlas: accounts
+
+/// An account entry is a second key for one registry agent: it resolves
+/// through `base`, reads with its label, and layers its own environment on
+/// the shared payload.
+#[tokio::test]
+async fn an_account_entry_runs_its_base_agent_with_its_own_env() {
+    let contents = b"the agent";
+    let digest = format!("{:x}", Sha256::digest(contents));
+    let http = FakeHttp::new().with(ARCHIVE_URL, 200, contents.to_vec());
+    let fixture = fixture_with_http(vec![binary_agent("some-cli", "1.0.0", Some(digest))], http);
+    let profile_env =
+        HashMap::from([("PROFILE_HOME".to_string(), "/profiles/work".to_string())]);
+
+    fixture
+        .store
+        .set_settings(settings(&[
+            ("some-cli", AgentServerSettings::registry()),
+            ("some-cli@work", AgentServerSettings::account("some-cli", "work", profile_env)),
+        ]))
+        .await;
+
+    let account = AgentId::new("some-cli@work");
+    assert_eq!(fixture.store.agent_source(&account), Some(ExternalAgentSource::Registry));
+    assert_eq!(
+        fixture.store.agent_display_name(&account).as_deref(),
+        Some("some-cli (registry) · work")
+    );
+
+    let base_command = fixture
+        .store
+        .agent_server(&AgentId::new("some-cli"))
+        .unwrap()
+        .get_command(vec![], HashMap::new())
+        .await
+        .unwrap();
+    let account_command = fixture
+        .store
+        .agent_server(&account)
+        .unwrap()
+        .get_command(vec![], HashMap::new())
+        .await
+        .unwrap();
+
+    // One payload on disk, shared by the agent and its account.
+    assert_eq!(account_command.path, base_command.path);
+    assert_eq!(
+        account_command.env.as_ref().unwrap().get("PROFILE_HOME").unwrap(),
+        "/profiles/work"
+    );
+    assert!(base_command.env.as_ref().unwrap().get("PROFILE_HOME").is_none());
+}
+
+/// Without its base in the catalogue an account is skipped like any other
+/// registry entry, so a later refresh can bring it back.
+#[tokio::test]
+async fn an_account_whose_base_is_not_catalogued_is_skipped() {
+    let fixture = fixture(vec![npx_agent("some-cli", "1.0.0")]);
+    fixture
+        .store
+        .set_settings(settings(&[(
+            "gone@work",
+            AgentServerSettings::account("gone", "work", HashMap::new()),
+        )]))
+        .await;
+
+    assert!(fixture.store.entry(&AgentId::new("gone@work")).is_none());
+}
+
+/// Upstream maps never carry `base` or `label`, and an account entry must
+/// write them without disturbing the upstream wire shape.
+#[test]
+fn account_fields_are_optional_on_the_wire() {
+    let plain: AgentServerSettings = serde_json::from_str(r#"{ "type": "registry" }"#).unwrap();
+    assert_eq!(plain, AgentServerSettings::registry());
+    assert_eq!(serde_json::to_string(&plain).unwrap(), r#"{"type":"registry"}"#);
+
+    let account = AgentServerSettings::account("claude-acp", "work", HashMap::new());
+    let json = serde_json::to_value(&account).unwrap();
+    assert_eq!(json["base"], "claude-acp");
+    assert_eq!(json["label"], "work");
+    assert_eq!(account.registry_id("claude-acp@work"), Some("claude-acp"));
+    assert_eq!(plain.registry_id("claude-acp"), Some("claude-acp"));
 }

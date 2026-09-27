@@ -1,3 +1,4 @@
+// Modified by Quotatlas from upstream Atlas (Apache-2.0).
 //! The MCP surface of the UI tool server: the tools, their instructions, and
 //! the handler that turns each call into one UI action.
 //!
@@ -79,7 +80,7 @@ pub(super) fn tools() -> Vec<Tool> {
                     "repoPath": { "type": "string" },
                     "staged": { "type": "boolean" },
                     "commit": { "type": "string" },
-                    "section": { "type": "string", "enum": ["general", "appearance", "icons", "layouts", "providers", "skills", "agents", "models", "updates", "keybindings", "about"] },
+                    "section": { "type": "string", "enum": ["general", "appearance", "icons", "layouts", "providers", "skills", "agents", "accounts", "models", "updates", "keybindings", "about"] },
                     "type": { "type": "string", "enum": ["canvas", "browser", "tasks", "knowledge", "knowledge-graph", "memory", "settings", "log", "usage", "artifacts"] },
                     "sessionId": { "type": "string" },
                     "agent": { "type": "string" },

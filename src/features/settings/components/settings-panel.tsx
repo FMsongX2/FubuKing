@@ -22,6 +22,7 @@ import {
   ChevronLeft,
   ChevronRight,
   DownloadCloud,
+  Users,
 } from "lucide-react";
 import { clampScale, SCALE_STEP, MIN_SCALE, MAX_SCALE, DEFAULT_SCALE } from "../lib/ui-scale";
 import { APP_ICONS } from "../lib/app-icons";
@@ -46,6 +47,7 @@ import { openConfigFile } from "../lib/atlas-config-api";
 import { useSettingsStore } from "@/features/settings/stores/settings-store";
 import { useAgentRegistryStore } from "@/features/agents/stores/agent-registry-store";
 import { TELEMETRY_AVAILABLE } from "@/lib/quotatlas";
+import { AccountsSettings } from "@/features/accounts/components/accounts-settings";
 
 const SECTIONS: Array<{
   id: SettingsSection;
@@ -59,6 +61,7 @@ const SECTIONS: Array<{
   { id: "providers", label: "API Keys", icon: KeyRound },
   { id: "skills", label: "Skills", icon: Zap },
   { id: "agents", label: "Agents", icon: WandSparkles },
+  { id: "accounts", label: "Accounts", icon: Users },
   { id: "models", label: "Local Models", icon: Boxes },
   { id: "updates", label: "Updates", icon: DownloadCloud },
   { id: "keybindings", label: "Keybindings", icon: Keyboard },
@@ -214,6 +217,7 @@ export function SettingsPanel({ initialSection }: { initialSection?: string } = 
           <div className="max-w-[500px]">
             {activeSection === "general" && <GeneralSettings />}
             {activeSection === "layouts" && <LayoutsSettings />}
+            {activeSection === "accounts" && <AccountsSettings />}
             {activeSection === "updates" && <UpdatesSettings />}
             {activeSection === "about" && <AboutSettings />}
           </div>

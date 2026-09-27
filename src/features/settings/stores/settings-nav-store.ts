@@ -1,3 +1,4 @@
+// Modified by Quotatlas from upstream Atlas (Apache-2.0).
 import { create } from "zustand";
 
 /**
@@ -17,6 +18,7 @@ export const SETTINGS_SECTIONS = [
   "providers",
   "skills",
   "agents",
+  "accounts",
   "models",
   "updates",
   "keybindings",

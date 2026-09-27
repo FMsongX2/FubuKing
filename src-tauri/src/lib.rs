@@ -669,6 +669,8 @@ pub fn run() {
             commands::registry::acp_registry_list,
             commands::registry::acp_registry_refresh,
             commands::registry::acp_registry_install,
+            commands::accounts::accounts_list,
+            commands::accounts::accounts_create,
             commands::registry::acp_registry_install_detected,
             commands::registry::acp_registry_uninstall,
             commands::registry::acp_registry_update,

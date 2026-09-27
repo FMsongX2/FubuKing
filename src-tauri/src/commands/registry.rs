@@ -1,3 +1,4 @@
+// Modified by Quotatlas from upstream Atlas (Apache-2.0).
 //! ACP Marketplace — list/refresh/install/uninstall of external agents.
 //!
 //! Rebuilt on the ported store at Stage 3 of the Zed port. The command names,
@@ -327,7 +328,7 @@ async fn install_detected(
 }
 
 /// The installed map with one entry added or replaced.
-fn with_entry(
+pub(crate) fn with_entry(
     host: &Arc<AgentHost>,
     agent_id: &str,
     entry: AgentServerSettings,
@@ -408,7 +409,7 @@ pub fn acp_registry_metadata(
 /// Disk first: the store rebuild is what makes the agent spawnable, and an
 /// agent that is spawnable now but gone after a restart is worse than one that
 /// failed to install at all.
-async fn persist(
+pub(crate) async fn persist(
     host: &Arc<AgentHost>,
     data_dir: &std::path::Path,
     settings: atlas_agent_store::AllAgentServersSettings,
@@ -419,7 +420,7 @@ async fn persist(
     Ok(())
 }
 
-fn app_data_dir(app: &AppHandle) -> std::path::PathBuf {
+pub(crate) fn app_data_dir(app: &AppHandle) -> std::path::PathBuf {
     app.path()
         .app_data_dir()
         .unwrap_or_else(|_| std::env::temp_dir())

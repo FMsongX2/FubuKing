@@ -1,3 +1,4 @@
+// Modified by Quotatlas from upstream Atlas (Apache-2.0).
 // Answers every scenario gets: the commands Atlas calls just to start up.
 // A scenario overrides any of these by naming the same command.
 //
@@ -12,6 +13,7 @@ import type { Theme, ThemeCatalogSummary } from "@/features/theme/lib/theme-api"
 import type { MockHandlers } from "../types";
 import builtinThemesJson from "../fixtures/builtin-themes.json";
 import { agentHandlers } from "../fake-agent";
+import { accountsHandlers } from "../fixtures/accounts";
 import { artifactsHandlers } from "../fixtures/artifacts";
 import { captureHandlers } from "../fixtures/capture";
 import { commsHandlers } from "../fixtures/comms";
@@ -61,6 +63,7 @@ export const baseFixtureMaps: Readonly<Record<string, MockHandlers>> = {
   "fixtures/skills": skillsHandlers,
   "fixtures/spaces": spacesHandlers,
   "fixtures/terminal": terminalHandlers,
+  "fixtures/accounts": accountsHandlers,
 };
 
 export const baseHandlers: MockHandlers = {
@@ -169,6 +172,7 @@ export const baseHandlers: MockHandlers = {
   ...skillsHandlers,
   ...spacesHandlers,
   ...terminalHandlers,
+  ...accountsHandlers,
 
   // ── fire-and-forget housekeeping ────────────────────────────────────────
   comms_ready: nothing,
