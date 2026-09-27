@@ -1,3 +1,4 @@
+// Modified by Quotatlas from upstream Atlas (Apache-2.0).
 import { describe, expect, it } from "vitest";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
@@ -7,12 +8,10 @@ import { ICONS_DIR, readManifest, staleOutputs } from "../scripts/app-icons.mjs"
 /**
  * Guards the selectable macOS app icons (`src-tauri/icons/app-icons/`).
  *
- * The default icon ships as a precompiled `Assets.car` rather than the `.icon`
- * source, because tauri-cli starts actool with stdin closed and the bundle
- * aborts (tauri-apps/tauri#15315; `scripts/app-icons.mjs` has the detail). That
- * trades a build-time failure for a quieter one: edit an Icon Composer source,
- * forget `bun run icons:render`, and every build ships the old icon without a
- * word. Likewise an id in the manifest with no rendered `.icns` shows up in
+ * Quotatlas draws its icons as SVG sources and renders them with the Tauri CLI
+ * (`scripts/app-icons.mjs`); the default becomes Tauri's standard icon set. Edit
+ * a source, forget `bun run icons:render`, and every build ships the old icon
+ * without a word. Likewise an id in the manifest with no rendered `.icns` shows up in
  * Settings and silently falls back to the default when picked.
  *
  * None of it fails to compile, so it is checked here: the manifest, the
@@ -36,9 +35,9 @@ describe("app icon manifest", () => {
     expect(ids).toContain(manifest.default);
   });
 
-  it("has exactly one Icon Composer source per id", () => {
+  it("has exactly one SVG source per id", () => {
     const sources = readdirSync(path.join(ICONS_DIR, "sources")).filter((n) => n !== ".DS_Store");
-    expect(sources.sort()).toEqual(ids.map((id) => `${id}.icon`).sort());
+    expect(sources.sort()).toEqual(ids.map((id) => `${id}.svg`).sort());
   });
 
   it("has a rendered .icns for every id but the default, and nothing else", () => {
@@ -56,13 +55,12 @@ describe("tauri config", () => {
   const conf = readJson("src-tauri/tauri.conf.json");
   const macos = readJson("src-tauri/tauri.macos.conf.json");
 
-  it("bundles the precompiled Assets.car, never an .icon source", () => {
+  it("bundles the rendered Icon.icns, never an .icon source or a compiled car", () => {
     const icons: string[] = conf.bundle.icon;
-    expect(icons).toContain("icons/app-icons/Assets.car");
-    expect(existsSync(path.join(REPO_ROOT, "src-tauri", "icons/app-icons/Assets.car"))).toBe(true);
-    // An `.icon` entry makes Tauri run actool at bundle time — the failure
-    // the precompiled car exists to avoid.
-    expect(icons.filter((i) => i.endsWith(".icon"))).toEqual([]);
+    expect(icons).toContain("icons/Icon.icns");
+    expect(existsSync(path.join(REPO_ROOT, "src-tauri", "icons/Icon.icns"))).toBe(true);
+    // An `.icon` entry makes Tauri run actool at bundle time, which needs Xcode.
+    expect(icons.filter((i) => i.endsWith(".icon") || i.endsWith(".car"))).toEqual([]);
   });
 
   it("ships the rendered icons on macOS only, where app_icon.rs reads them", () => {

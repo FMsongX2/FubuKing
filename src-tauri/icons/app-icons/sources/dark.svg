@@ -1,5 +1,5 @@
-<!-- Modified by Quotatlas from upstream Atlas (Apache-2.0). -->
-<svg width="600" height="600" viewBox="0 0 600 600" fill="none" xmlns="http://www.w3.org/2000/svg">
+<svg width="1024" height="1024" viewBox="0 0 1024 1024" fill="none" xmlns="http://www.w3.org/2000/svg">
+<g transform="translate(100 100) scale(1.373333)">
   <defs>
     <linearGradient id="qa-bg" x1="0" y1="0" x2="0" y2="600" gradientUnits="userSpaceOnUse">
       <stop offset="0" stop-color="#23262F"/>
@@ -15,4 +15,5 @@
   <circle cx="284" cy="280" r="150" stroke="#FFFFFF" stroke-opacity="0.1" stroke-width="54"/>
   <path d="M284 130A150 150 0 1 1 134 280" stroke="url(#qa-gauge)" stroke-width="54" stroke-linecap="round"/>
   <path d="M350 346L452 448" stroke="#FFFFFF" stroke-width="54" stroke-linecap="round"/>
+</g>
 </svg>

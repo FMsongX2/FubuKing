@@ -43,7 +43,8 @@ function modifiedUpstreamFiles(): string[] {
     .filter(Boolean);
 }
 
-/** Paths `QUOTATLAS-CHANGES.md` lists, one backticked path per bullet. */
+/** Paths `QUOTATLAS-CHANGES.md` lists, one backticked path per bullet. A path
+ *  ending in `/` is a directory entry that covers every file under it. */
 function listedChanges(): string[] {
   return read(CHANGES_FILE)
     .split("\n")
@@ -57,9 +58,11 @@ describe("Quotatlas marks every upstream file it modifies (Apache-2.0 §4(b))", 
   });
 
   it("puts the notice near the top of each modified file, or lists the file", () => {
-    const listed = new Set(listedChanges());
+    const listed = listedChanges();
+    const covered = (rel: string) =>
+      listed.some((entry) => (entry.endsWith("/") ? rel.startsWith(entry) : rel === entry));
     const unmarked = modifiedUpstreamFiles().filter((rel) => {
-      if (listed.has(rel)) return false;
+      if (covered(rel)) return false;
       const head = read(rel).split("\n").slice(0, NOTICE_WINDOW).join("\n");
       return !head.includes(NOTICE_LINE);
     });
@@ -67,8 +70,12 @@ describe("Quotatlas marks every upstream file it modifies (Apache-2.0 §4(b))", 
   });
 
   it("lists only files that really differ from upstream", () => {
-    const modified = new Set(modifiedUpstreamFiles());
-    const stale = listedChanges().filter((rel) => !modified.has(rel));
+    const modified = modifiedUpstreamFiles();
+    const stale = listedChanges().filter((entry) =>
+      entry.endsWith("/")
+        ? !modified.some((rel) => rel.startsWith(entry))
+        : !modified.includes(entry),
+    );
     expect(stale, `${CHANGES_FILE} names files Quotatlas no longer modifies`).toEqual([]);
   });
 });

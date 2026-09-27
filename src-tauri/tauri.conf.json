@@ -71,8 +71,7 @@
       "icons/128x128.png",
       "icons/128x128@2x.png",
       "icons/Icon.icns",
-      "icons/icon.ico",
-      "icons/app-icons/Assets.car"
+      "icons/icon.ico"
     ],
     "macOS": {
       "minimumSystemVersion": "11.0",

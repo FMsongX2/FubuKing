@@ -1,8 +1,9 @@
+// Modified by Quotatlas from upstream Atlas (Apache-2.0).
 //! The app icon, from the persisted `appIcon` setting.
 //!
 //! The selectable icons are listed in `icons/app-icons/app-icons.json`, and
 //! rendered by `scripts/app-icons.mjs`. The manifest's default is the bundle's
-//! own Liquid Glass icon (a precompiled `Assets.car`). Every other icon ships
+//! own icon (`Icon.icns`, rendered from an SVG source). Every other icon ships
 //! as a flat `icons/app-icons/<id>.icns` resource and is applied at runtime in
 //! two places:
 //!
