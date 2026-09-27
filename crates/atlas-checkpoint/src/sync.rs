@@ -89,6 +89,12 @@ pub fn ingest_base() -> String {
 pub enum DrainStatus {
     /// Everything pending was sent.
     Drained,
+    /// The pass ran out of its budget ([`SyncConfig::deadline`]) with rows
+    /// still pending. Not a failure and not a reason to back off: the caller
+    /// runs the next pass when its turn comes round again, so one Project's
+    /// backlog shares the uplink with every other Project's instead of
+    /// holding it until the backlog is empty.
+    Yielded,
     /// The server could not be reached, or returned 5xx. Rows stay pending and
     /// nothing is surfaced to the developer — this is the ordinary offline case.
     Offline,
@@ -141,6 +147,11 @@ pub struct SyncConfig<'a> {
     /// which parks the drain rather than failing it.
     pub token: &'a dyn Fn() -> Option<String>,
     pub timeout: Duration,
+    /// When the pass stops starting new batches and yields
+    /// ([`DrainStatus::Yielded`]). `None` drains until the queue is empty. A
+    /// batch already started always finishes: stopping mid-batch would leave
+    /// uploaded blobs without their rows.
+    pub deadline: Option<std::time::Instant>,
 }
 
 impl SyncConfig<'_> {
@@ -203,6 +214,12 @@ pub fn drain(store: &Store, config: &SyncConfig<'_>) -> Result<DrainOutcome> {
     let mut max_count = MAX_BATCH_COUNT;
 
     loop {
+        // Checked between batches, never inside one. At least one batch runs
+        // per pass, so a short budget still makes progress.
+        if config.deadline.is_some_and(|d| std::time::Instant::now() >= d) && outcome.sent + outcome.failed > 0 {
+            outcome.status = DrainStatus::Yielded;
+            break;
+        }
         let batch = store.pending_artifacts(
             &config.workspace_id,
             &config.wire_workspace_id,

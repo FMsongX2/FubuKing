@@ -33,8 +33,11 @@ pub struct Store {
     blobs: BlobStore,
     root: PathBuf,
     /// `None` when this process attached read-only because another window holds
-    /// the writer lock.
-    writer_lock: Option<WriterLock>,
+    /// the writer lock. Shared by [`Store::sibling`] connections, so the lock is
+    /// held while any of them is open. In a `Mutex` only because the lock's
+    /// connection is `Send` but not `Sync`; it is never locked — holding it is
+    /// the point.
+    writer_lock: Option<std::sync::Arc<std::sync::Mutex<WriterLock>>>,
 }
 
 impl Store {
@@ -84,7 +87,7 @@ impl Store {
 
         let writer_lock = if take_lock {
             match WriterLock::acquire(&root.join("sessions.lock")) {
-                Ok(lock) => Some(lock),
+                Ok(lock) => Some(std::sync::Arc::new(std::sync::Mutex::new(lock))),
                 Err(Error::AlreadyLocked) => None,
                 Err(e) => return Err(e),
             }
@@ -137,6 +140,29 @@ impl Store {
         // contention this would otherwise mask is prevented by the writer lock.
         conn.busy_timeout(std::time::Duration::from_secs(5))?;
         Ok(conn)
+    }
+
+    /// A second connection to this Store's database, writing under the **same**
+    /// writer lock — for work in this process that must not queue behind the
+    /// first connection: the cloud drain and the transcript import run on
+    /// their own thread with a sibling, so recording a turn never waits on
+    /// the network or a long import.
+    ///
+    /// Safe where a second [`Store::open`] is not: the lock arbitrates between
+    /// *processes*, and a sibling is the same process. SQLite serialises the
+    /// two connections' writes; every write is a short transaction (the drain
+    /// holds none across the network), so neither waits long, and the
+    /// connection's busy timeout absorbs the wait.
+    ///
+    /// The sibling of a read-only Store is read-only.
+    pub fn sibling(&self) -> Result<Self> {
+        let db_path = self.root.join("sessions.db");
+        Ok(Self {
+            conn: Self::open_connection(&db_path, false)?,
+            blobs: BlobStore::new(self.root.join("blobs")),
+            root: self.root.clone(),
+            writer_lock: self.writer_lock.clone(),
+        })
     }
 
     /// Does this process own the Project's writer lock?
