@@ -3,7 +3,6 @@ import { describe, expect, it } from "vitest";
 import type { ChatMessage, ToolCallDisplay } from "@/types/agent";
 
 import { buildAnchorMap, structureKey, type AnchorEntry } from "./comment-anchors";
-import { projectRows } from "./turn-rows";
 
 let n = 0;
 function msg(partial: Partial<ChatMessage> & { role: ChatMessage["role"] }): ChatMessage {
@@ -51,7 +50,6 @@ describe("buildAnchorMap", () => {
     expect(map.rowIdByChatKey.get("u1")).toEqual({ rowId: "am-p", anchorKind: "message" });
     expect(map.chatKeyByRowId.get("tc-1")).toBe("call-1");
     expect(map.ordered.map((a) => a.id)).toEqual(["am-p", "am-1", "tc-1"]);
-    expect(map.workByTurn.get("t:a1")).toEqual(["tc-1"]);
   });
 
   it("pins a reloaded exchange to its turn through a surviving tool id", () => {
@@ -121,7 +119,6 @@ describe("buildAnchorMap", () => {
     expect(map.rowIdByChatKey.has(messages[2].id)).toBe(false);
     expect(map.rowIdByChatKey.get(messages[3].id)?.rowId).toBe("r1");
     expect(map.rowIdByChatKey.get(messages[4].id)?.rowId).toBe("r2");
-    expect(map.workByTurn.get(`t:${messages[1].id}`)).toEqual(["th"]);
   });
 
   it("leaves a trailing exchange with no captured turn unmatched", () => {
@@ -139,25 +136,26 @@ describe("buildAnchorMap", () => {
     expect(map.rowIdByChatKey.has(messages[2].id)).toBe(false);
   });
 
-  it("names work turns the way the projection does", () => {
+  it("keys every call of a run by its own id, which is what a folded group counts", () => {
+    // The pill on a folded tool sequence sums the buckets of the call ids the
+    // group rendered, so a comment on the LAST call of a run has to be reachable
+    // by that call's id — not only the first one's.
     const messages = [
       msg({ role: "user", content: "q" }),
-      msg({ role: "assistant", mode: "tool", toolCalls: [tool("c1")] }),
-      msg({ role: "assistant", mode: "text", content: "done" }),
+      msg({ role: "assistant", mode: "tool", toolCalls: [tool("c1"), tool("c2"), tool("c3")] }),
     ];
     const entries = [
       entry({ rowId: "p", kind: "prompt", turnSeq: 1 }),
-      entry({ rowId: "t", kind: "tool_call", turnSeq: 1, nativeId: "c1" }),
-      entry({ rowId: "r", kind: "response", turnSeq: 1 }),
+      entry({ rowId: "t1", kind: "tool_call", turnSeq: 1, nativeId: "c1" }),
+      entry({ rowId: "t2", kind: "tool_call", turnSeq: 1, nativeId: "c2" }),
+      entry({ rowId: "t3", kind: "tool_call", turnSeq: 1, nativeId: "c3" }),
     ];
     const map = buildAnchorMap(messages, entries);
-    const projection = projectRows(messages, {
-      streaming: false,
-      expanded: new Set(),
-      expandedTurns: new Set(),
-    });
-    const turnIds = new Set(projection.turns.map((t) => t.id));
-    for (const key of map.workByTurn.keys()) expect(turnIds.has(key)).toBe(true);
+    expect(["c1", "c2", "c3"].map((id) => map.rowIdByChatKey.get(id)?.rowId)).toEqual([
+      "t1",
+      "t2",
+      "t3",
+    ]);
   });
 
   it("returns the empty map for nothing", () => {

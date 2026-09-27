@@ -61,10 +61,6 @@ export interface AnchorMap {
   rowIdByChatKey: Map<string, AnchorHit>;
   /** The reverse: captured row id → chat key. */
   chatKeyByRowId: Map<string, string>;
-  /** Assistant turn id (`t:<first message id>`, as `projectRows` mints it) →
-   *  the thinking and tool-call rows inside that turn. What the "Worked"
-   *  header aggregates. */
-  workByTurn: Map<string, string[]>;
   /** Every matched row, in transcript order, for the panel. */
   ordered: OrderedAnchor[];
 }
@@ -72,7 +68,6 @@ export interface AnchorMap {
 export const EMPTY_ANCHOR_MAP: AnchorMap = {
   rowIdByChatKey: new Map(),
   chatKeyByRowId: new Map(),
-  workByTurn: new Map(),
   ordered: [],
 };
 
@@ -98,17 +93,6 @@ function anchorKindOf(kind: AnchorEntry["kind"]): AnchorKind {
   }
 }
 
-/** Same rule as `projectRows`: a message with nothing in it makes no row. */
-function isEmptyMessage(m: ChatMessage): boolean {
-  return (
-    !(m.content && m.content.trim()) &&
-    !(m.thinking && m.thinking.trim()) &&
-    m.toolCalls.length === 0 &&
-    m.fileChanges.length === 0 &&
-    !(m.plan && m.plan.length > 0)
-  );
-}
-
 function hasText(m: ChatMessage): boolean {
   return !!(m.content && m.content.trim());
 }
@@ -120,9 +104,6 @@ function hasThinking(m: ChatMessage): boolean {
 interface Exchange {
   user: ChatMessage | null;
   assistant: ChatMessage[];
-  /** `t:<id>` of the first non-empty assistant message, as the projection
-   *  names the turn — or `null` for an exchange with no assistant rows yet. */
-  turnId: string | null;
 }
 
 function splitExchanges(messages: readonly ChatMessage[]): Exchange[] {
@@ -130,18 +111,17 @@ function splitExchanges(messages: readonly ChatMessage[]): Exchange[] {
   let current: Exchange | null = null;
   for (const m of messages) {
     if (m.role === "user") {
-      current = { user: m, assistant: [], turnId: null };
+      current = { user: m, assistant: [] };
       out.push(current);
       continue;
     }
     // A leading assistant run — a resumed thread whose first prompt fell
     // outside the loaded window — gets an exchange of its own.
     if (!current) {
-      current = { user: null, assistant: [], turnId: null };
+      current = { user: null, assistant: [] };
       out.push(current);
     }
     current.assistant.push(m);
-    if (current.turnId === null && !isEmptyMessage(m)) current.turnId = `t:${m.id}`;
   }
   return out;
 }
@@ -248,8 +228,7 @@ export function buildAnchorMap(
     }
   }
 
-  // Derived views, in transcript order.
-  const workByTurn = new Map<string, string[]>();
+  // Derived view, in transcript order.
   const ordered: OrderedAnchor[] = [];
   const entryByRow = new Map(entries.map((e) => [e.rowId, e] as const));
   const push = (chatKey: string) => {
@@ -260,19 +239,11 @@ export function buildAnchorMap(
   };
   for (const ex of exchanges) {
     if (ex.user) push(ex.user.id);
-    const work: string[] = [];
     for (const m of ex.assistant) {
       push(m.id);
-      const mh = rowIdByChatKey.get(m.id);
-      if (mh && m.mode === "thinking") work.push(mh.rowId);
-      for (const tc of m.toolCalls) {
-        push(tc.id);
-        const th = rowIdByChatKey.get(tc.id);
-        if (th) work.push(th.rowId);
-      }
+      for (const tc of m.toolCalls) push(tc.id);
     }
-    if (ex.turnId && work.length > 0) workByTurn.set(ex.turnId, work);
   }
 
-  return { rowIdByChatKey, chatKeyByRowId, workByTurn, ordered };
+  return { rowIdByChatKey, chatKeyByRowId, ordered };
 }

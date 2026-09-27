@@ -6,7 +6,7 @@
 import type { Scenario } from "../types";
 import type { Comment } from "@/features/artifacts/lib/comments-api";
 import { mockComment } from "../fixtures/artifacts";
-import { text, user, t } from "../fixtures/chat";
+import { text, thinking, tool, tools, user, t } from "../fixtures/chat";
 import { setSeedTranscript } from "../fake-agent";
 
 const transcript = [user("hello world", t(0)), text("Hey! 👋 How can I help you today?", t(1))];
@@ -152,3 +152,79 @@ export const chatCommentsError = commentScenario(
     throw new Error("comments service unavailable");
   },
 );
+
+/**
+ * A comment on a tool call inside a folded run — the case the "Worked" header
+ * used to speak for.
+ *
+ * What to review: the fold's summary line ("Read files, ran commands") wears the
+ * aggregate pill at its end, NOT the turn header above it, whose line belongs to
+ * the prompt's action bar; opening the fold shows the pill on the third call,
+ * which is the one that was discussed.
+ */
+const CALL_IDS = ["tcx-1", "tcx-2", "tcx-3"];
+const toolTranscript = [
+  user("Why is the retry helper swallowing the abort?", t(0)),
+  thinking("Read the client, then find the call sites.", t(1)),
+  tools(
+    [
+      tool.read("src/lib/api.ts", { id: CALL_IDS[0] }),
+      tool.search("listUsers\\(", { id: CALL_IDS[1] }),
+      tool.run("bun test src/lib", { id: CALL_IDS[2], result: "2 pass\n0 fail\n" }),
+    ],
+    t(2),
+  ),
+  text("`request()` catches the AbortError and retries it. I'll rethrow instead.", t(6)),
+];
+
+export const chatCommentsTools: Scenario = {
+  name: "chat-comments-tools",
+  description: "A comment on the third call of a folded tool run, and one on the response.",
+  init: () => setSeedTranscript(toolTranscript),
+  commands: {
+    chat_comment_target: () => ({
+      remoteProjectId: "rw_8c41f20b",
+      sessionId: SESSION,
+      entries: [
+        { rowId: PROMPT_ROW, kind: "prompt", turnSeq: 1, nativeId: "prompt-1-x", toolName: null },
+        { rowId: "am-think-1", kind: "thinking", turnSeq: 1, nativeId: null, toolName: null },
+        { rowId: "tc-1", kind: "tool_call", turnSeq: 1, nativeId: CALL_IDS[0], toolName: "Read" },
+        { rowId: "tc-2", kind: "tool_call", turnSeq: 1, nativeId: CALL_IDS[1], toolName: "Search" },
+        { rowId: "tc-3", kind: "tool_call", turnSeq: 1, nativeId: CALL_IDS[2], toolName: "Bash" },
+        {
+          rowId: RESPONSE_ROW,
+          kind: "response",
+          turnSeq: 1,
+          nativeId: toolTranscript[3].id,
+          toolName: null,
+        },
+      ],
+    }),
+    artifacts_cloud_comments: () => ({
+      byAnchor: {
+        "tc-3": [
+          mockComment({
+            id: "ct_1",
+            sessionId: SESSION,
+            anchorKind: "tool_call",
+            anchorId: "tc-3",
+            body: "This is the command that was timing out in CI.",
+          }),
+          mockComment({
+            id: "ct_2",
+            sessionId: SESSION,
+            anchorKind: "tool_call",
+            anchorId: "tc-3",
+            parentId: "ct_1",
+            body: "Fixed by the rethrow below.",
+            authorId: "user_bob",
+          }),
+        ],
+        [RESPONSE_ROW]: [
+          mockComment({ id: "ct_3", sessionId: SESSION, anchorId: RESPONSE_ROW, body: "agreed" }),
+        ],
+      },
+      session: [],
+    }),
+  },
+};

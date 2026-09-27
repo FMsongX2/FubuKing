@@ -1095,6 +1095,10 @@ function seedComments() {
   const entries = TIMELINES.get(LIVE_ID) ?? [];
   const prompt = entries.find((e) => e.kind === "prompt");
   const tool = entries.find((e) => e.kind === "tool_call");
+  // The SECOND call of a run, deliberately: a group of consecutive calls is one
+  // row on the rail, and a comment on any but its first used to have nowhere to
+  // render — it counted in the panel and the badge and appeared nowhere.
+  const laterTool = entries.filter((e) => e.kind === "tool_call")[1];
   const rows: Comment[] = [];
   if (prompt) {
     rows.push(
@@ -1121,6 +1125,17 @@ function seedComments() {
         anchorKind: "tool_call",
         anchorId: tool.id,
         body: "This is the call that was timing out in CI.",
+      }),
+    );
+  }
+  if (laterTool) {
+    rows.push(
+      mockComment({
+        id: "cm_5",
+        anchorKind: "tool_call",
+        anchorId: laterTool.id,
+        body: "Was this search narrow enough? It missed the legacy call site.",
+        authorId: "user_bob",
       }),
     );
   }

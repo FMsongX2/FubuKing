@@ -349,7 +349,7 @@ function diffEditOf(tc: ToolCallDisplay): FileEdit | null {
 }
 
 /** Trim a path to something that reads in one line without the eye scanning. */
-function shortPath(p: string): string {
+export function shortPath(p: string): string {
   const parts = p.split("/").filter(Boolean);
   if (parts.length <= 2) return parts.join("/");
   return parts.slice(-2).join("/");
@@ -376,7 +376,7 @@ const TOOL_ICON_BY_KIND: Record<string, MarkerTool> = {
  * Substrings that appear inside unrelated words ("rm" in "confirm", "web" in
  * "webhook") are not in it for that reason.
  */
-function toolIconFor(kind: string | null | undefined, toolName: string): MarkerTool {
+export function toolIconFor(kind: string | null | undefined, toolName: string): MarkerTool {
   const byKind = TOOL_ICON_BY_KIND[kind ?? ""];
   if (byKind) return byKind;
   const name = toolName.toLowerCase();

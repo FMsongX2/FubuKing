@@ -65,6 +65,8 @@ import { observeSize } from "../lib/shared-resize-observer";
 import { animatedScrollTo } from "../lib/scroll-to";
 import { useTimelineScroll } from "../lib/use-timeline-scroll";
 import { commentActivity } from "../lib/comment-activity";
+import { toolLine } from "../lib/tool-line";
+import { ToolGlyph } from "@/features/chat/components/tool-glyph";
 import { anchorKindFor, visibleCount, type Comment } from "../lib/comments-api";
 import { CodeBlock, CopyButton, prettyJson } from "./code-block";
 import { AccountAvatar } from "@/features/auth/components/account-avatar";
@@ -484,7 +486,12 @@ export function SessionDetail({
       setRenderCount(index + 40);
       return;
     }
-    const node = entryRefs.current.get(pendingJump);
+    // Only a group's HEAD is registered — a run of tool calls is one row on
+    // the rail — so the scroll target is that head, never the entry itself. A
+    // comment on the fourth call of a run used to look up its own id here,
+    // find nothing, and leave `pendingJump` set: a click that did nothing, for
+    // good.
+    const node = entryRefs.current.get(groups[index].entries[0].id);
     if (node) {
       jumpTo(node, "center");
       // A smooth scroll into the middle of a long conversation leaves no clue
@@ -1119,6 +1126,11 @@ const Timeline = memo(function Timeline({
           agent={agent}
           expandTools={expandTools}
           isLanded={group.entries.some((e) => e.id === landed)}
+          landedCallId={
+            group.kind === "tool_call" && landed && landed !== group.entries[0].id
+              ? (group.entries.find((e) => e.id === landed)?.id ?? null)
+              : null
+          }
           register={register}
           comments={comments}
         />
@@ -1142,6 +1154,7 @@ const Row = memo(function Row({
   agent,
   expandTools,
   isLanded,
+  landedCallId,
   register,
   comments,
 }: {
@@ -1154,11 +1167,30 @@ const Row = memo(function Row({
   expandTools: boolean;
   /** A jump just landed here — ringed briefly. */
   isLanded: boolean;
+  /** The landed entry, when it is one of this row's calls rather than its head:
+   *  the run has to unfold for it. `null` for every other row, so a jump does
+   *  not re-render the whole window. */
+  landedCallId: string | null;
   register: (id: string, node: HTMLDivElement | null) => void;
   /** `null` on a Session that is not shared — there is nothing to anchor to. */
   comments: RowComments | null;
 }) {
   const head = group.entries[0];
+  // A group of tool calls speaks for several anchors, not one. Every comment
+  // surface below branches on it, so it is named once here.
+  const isCallRun = group.kind === "tool_call";
+  // Every thread on this row: the entry's own, plus each call's when the row is
+  // a run of them. The activity lines under a folded run are the only place a
+  // thread on its fifth call is visible without opening it.
+  const threads = useMemo(
+    () =>
+      !comments
+        ? undefined
+        : isCallRun
+          ? group.entries.flatMap((e) => comments.byAnchor[e.id] ?? [])
+          : comments.byAnchor[head.id],
+    [comments, isCallRun, group.entries, head.id],
+  );
   return (
     <div
       ref={(node) => register(head.id, node)}
@@ -1212,15 +1244,19 @@ const Row = memo(function Row({
             // it is how a discussion announces itself) while the copy button
             // beside it was not, so the row showed a lone pill with a hole
             // next to it until the pointer arrived.
-            pinned={comments ? visibleCount(comments.byAnchor[head.id]) > 0 : false}
+            pinned={comments && !isCallRun ? visibleCount(comments.byAnchor[head.id]) > 0 : false}
           >
             {/* Comment first, copy second. The comment button is the one that
              *  grows — faces and a count once a discussion exists — so
              *  outermost would make the copy button's position depend on how
              *  many people had replied. Every kind can be commented on, not
              *  just the two that can be copied: a tool call and a Checkpoint
-             *  are exactly the things worth asking about. */}
-            {comments && (
+             *  are exactly the things worth asking about.
+             *
+             *  A run of calls is the exception: this header can only anchor the
+             *  FIRST of them, so each call carries its own button instead (see
+             *  `CallRow`) and the aggregate lives on the fold. */}
+            {comments && !isCallRun && (
               <CommentButton
                 bare
                 anchorKind={anchorKindFor(group.kind)}
@@ -1236,8 +1272,14 @@ const Row = memo(function Row({
           </ActionCluster>
         </div>
 
-        {group.kind === "tool_call" ? (
-          <Calls calls={group.entries} projectPath={projectPath} expandAll={expandTools} />
+        {isCallRun ? (
+          <Calls
+            calls={group.entries}
+            projectPath={projectPath}
+            expandAll={expandTools}
+            comments={comments}
+            revealId={landedCallId}
+          />
         ) : group.kind === "checkpoint" ? (
           <Checkpoint entry={head} />
         ) : group.kind === "prompt" ? (
@@ -1250,9 +1292,7 @@ const Row = memo(function Row({
           </Clamp>
         )}
 
-        {comments && (
-          <ActivityLog comments={comments.byAnchor[head.id]} directory={comments.directory} />
-        )}
+        {comments && <ActivityLog comments={threads} directory={comments.directory} />}
       </div>
     </div>
   );
@@ -1432,30 +1472,63 @@ function Calls({
   calls,
   projectPath,
   expandAll,
+  comments,
+  revealId,
 }: {
   calls: TimelineEntry[];
   projectPath: string;
   expandAll: boolean;
+  comments: RowComments | null;
+  /** A jump landed on one of these calls — unfold so it can be seen. */
+  revealId?: string | null;
 }) {
   const [open, setOpen] = useState(expandAll);
   useEffect(() => setOpen(expandAll), [expandAll]);
+  // A jump to a call inside a folded run has to open the run. Not merged with
+  // the line above: `expandAll` is a switch the reader set and must stay
+  // authoritative when they turn it off again.
+  useEffect(() => {
+    if (revealId) setOpen(true);
+  }, [revealId]);
+
+  // Threads inside the fold, summed. A run of calls is folded by default, so
+  // without this the only sign of a discussion on its third call would be the
+  // count in the panel — the fold would look untouched.
+  const inside = comments
+    ? calls.reduce((n, call) => n + visibleCount(comments.byAnchor[call.id]), 0)
+    : 0;
 
   if (!open) {
     return (
       <button
         type="button"
         onClick={() => setOpen(true)}
-        className="mt-1.5 flex cursor-pointer items-center gap-1 text-sm text-[var(--muted-foreground)] transition-colors hover:text-[var(--foreground)]"
+        className="mt-1.5 flex cursor-pointer items-center gap-1.5 text-sm text-[var(--muted-foreground)] transition-colors hover:text-[var(--foreground)]"
       >
         Show tool calls
         <ChevronRight size={12} />
+        {inside > 0 && (
+          <span
+            className="flex h-5 items-center gap-1 rounded-full border border-border bg-card pl-1.5 pr-1.5 text-[var(--secondary-foreground)]"
+            aria-label={`${inside} ${inside === 1 ? "comment" : "comments"} on these tool calls`}
+          >
+            <MessageSquare size={11} />
+            <span className="text-2xs tabular-nums">{inside > 9 ? "9+" : inside}</span>
+          </span>
+        )}
       </button>
     );
   }
 
   return (
     <>
-      <CallTable calls={calls} projectPath={projectPath} compact />
+      <CallTable
+        calls={calls}
+        projectPath={projectPath}
+        compact
+        comments={comments}
+        revealId={revealId}
+      />
       <button
         type="button"
         onClick={() => setOpen(false)}
@@ -1581,10 +1654,17 @@ function CallTable({
   calls,
   projectPath,
   compact: dense,
+  comments,
+  revealId,
 }: {
   calls: TimelineEntry[];
   projectPath: string;
   compact?: boolean;
+  comments: RowComments | null;
+  /** A jump landed on this call: expand it, and grow the window until it is
+   *  mounted. Without this a comment on the fourth call of a run scrolled the
+   *  group into view and stopped there. */
+  revealId?: string | null;
 }) {
   const [open, setOpen] = useState<string | null>(null);
   const [shown, setShown] = useState(CALL_WINDOW);
@@ -1594,6 +1674,14 @@ function CallTable({
 
   // A different call list is a different table — restart the window.
   useEffect(() => setShown(CALL_WINDOW), [calls]);
+
+  useEffect(() => {
+    if (!revealId) return;
+    const at = calls.findIndex((c) => c.id === revealId);
+    if (at === -1) return;
+    setShown((cur) => (at < cur ? cur : at + 1));
+    setOpen(revealId);
+  }, [revealId, calls]);
 
   if (calls.length === 0) {
     return (
@@ -1622,6 +1710,7 @@ function CallTable({
           divider={i < visibleCalls.length - 1 || hidden > 0}
           onToggle={toggle}
           projectPath={projectPath}
+          comments={comments}
         />
       ))}
       {hidden > 0 && (
@@ -1640,6 +1729,17 @@ function CallTable({
 /**
  * One call: the summary row, and the recorded payloads when expanded.
  *
+ * The line is the transcript's — glyph, verb, target (`toolLine`) — rather than
+ * the `toolName` / `paths[0]` columns it used to be. The two surfaces show the
+ * same events to the same reader, and a comment made here is read back beside
+ * that call in the live chat; recognising the call in both is the point.
+ *
+ * The comment button is on the CALL, not on the group above it. A group is a run
+ * of consecutive calls and its header could only ever anchor the first one, so a
+ * thread on the fourth call of a run had nowhere to render — it counted in the
+ * panel and the badge and appeared nowhere in the timeline, which is the bug this
+ * replaces.
+ *
  * Memoised so the table's own state changes touch only the rows they concern:
  * expanding a call re-renders that row and the one it closed, not every row in
  * a table that can hold a Session's entire call history.
@@ -1651,6 +1751,7 @@ const CallRow = memo(function CallRow({
   divider,
   onToggle,
   projectPath,
+  comments,
 }: {
   call: TimelineEntry;
   dense?: boolean;
@@ -1658,47 +1759,86 @@ const CallRow = memo(function CallRow({
   divider: boolean;
   onToggle: (id: string) => void;
   projectPath: string;
+  /** `null` on a Session that is not shared — there is nothing to anchor to. */
+  comments: RowComments | null;
 }) {
   const failed = call.toolStatus === "failed";
+  // One parse of the recorded arguments per call, not per render: the table can
+  // hold a Session's whole call history.
+  const line = useMemo(() => toolLine(call), [call]);
+  const thread = comments?.byAnchor[call.id];
   return (
     <div>
-      <button
-        type="button"
-        onClick={() => onToggle(call.id)}
+      <div
         className={cn(
-          "grid w-full cursor-pointer items-center gap-3 bg-[var(--card)] px-3 text-left transition-colors hover:bg-[var(--atlas-element-hover)]",
-          dense
-            ? "h-8 grid-cols-[76px_minmax(0,1fr)_16px]"
-            : "h-9 grid-cols-[64px_76px_minmax(0,1fr)_16px]",
+          "group/row flex items-center gap-2 bg-[var(--card)] px-3 transition-colors hover:bg-[var(--atlas-element-hover)]",
+          dense ? "h-8" : "h-9",
           divider && "border-b border-[var(--atlas-border-subtle)]",
         )}
       >
         {!dense && (
-          <span className="font-mono text-xs text-[var(--atlas-text-disabled)]">
+          <span className="shrink-0 font-mono text-xs text-[var(--atlas-text-disabled)]">
             {time(call.at)}
           </span>
         )}
-        <span
-          className={cn(
-            "truncate font-mono text-xs",
-            failed
-              ? "text-[var(--atlas-status-error-foreground)]"
-              : "text-[var(--atlas-status-info-foreground)]",
-          )}
+        <button
+          type="button"
+          onClick={() => onToggle(call.id)}
+          title={line.detail ? `${line.verb} ${line.detail}` : line.verb}
+          className="group/marker flex min-w-0 flex-1 cursor-pointer items-center gap-2 text-left"
         >
-          {call.toolName ?? "Other"}
-        </span>
-        <span className="min-w-0 truncate font-mono text-xs text-[var(--muted-foreground)]">
-          {call.paths[0] ?? call.toolTitle ?? ""}
-        </span>
-        <ChevronRight
-          size={12}
-          className={cn(
-            "text-[var(--atlas-border-strong)] transition-transform",
-            expanded && "rotate-90",
-          )}
-        />
-      </button>
+          <span className="flex w-4 shrink-0 justify-center text-[var(--muted-foreground)]">
+            <ToolGlyph tool={line.tool} failed={failed} />
+          </span>
+          {/* One run of text, so verb and target read as a sentence and a long
+              command truncates as a line rather than as a separate column. */}
+          <span
+            className={cn(
+              "min-w-0 truncate text-sm",
+              failed
+                ? "text-[var(--atlas-status-error-foreground)]"
+                : "text-[var(--secondary-foreground)]",
+            )}
+          >
+            {line.verb}
+            {line.detail && (
+              <>
+                {" "}
+                <span
+                  className={cn(
+                    line.fileDetail &&
+                      "text-[var(--atlas-text-disabled)] underline decoration-dotted underline-offset-[3px] group-hover/marker:text-[var(--secondary-foreground)]",
+                  )}
+                >
+                  {line.detail}
+                </span>
+              </>
+            )}
+          </span>
+          <ChevronRight
+            size={12}
+            className={cn(
+              "shrink-0 text-[var(--atlas-border-strong)] transition-transform",
+              expanded && "rotate-90",
+            )}
+          />
+        </button>
+        {/* A discussed call keeps its button on screen — that is how the
+            discussion announces itself; an undiscussed one reveals on hover
+            like every other Timeline control. */}
+        {comments && (
+          <ActionCluster pinned={visibleCount(thread) > 0}>
+            <CommentButton
+              bare
+              anchorKind="tool_call"
+              anchorId={call.id}
+              comments={thread}
+              actions={comments.actions}
+              directory={comments.directory}
+            />
+          </ActionCluster>
+        )}
+      </div>
 
       {expanded && (
         <div className="space-y-2.5 border-b border-[var(--atlas-border-subtle)] bg-[var(--background)] px-3 py-3">

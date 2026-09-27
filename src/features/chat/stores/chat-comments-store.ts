@@ -174,15 +174,21 @@ export function useCommentBucket(tabId: string, chatKey: string): Comment[] | un
   return useChatCommentsStore((s) => s.byTab[tabId]?.byChatKey[chatKey]);
 }
 
-/** Visible comments across the thinking and tool rows of one assistant turn. */
-export function useTurnCommentCount(tabId: string, turnId: string): number {
+/**
+ * Visible comments across a set of chat rows — what a folded tool sequence
+ * shows on its summary line.
+ *
+ * Keyed by CHAT ids rather than captured row ids, because the caller is a row:
+ * a marker group holds the tool call ids it rendered and nothing else. The
+ * selector returns a number, so a frame about a row outside the set is not a
+ * re-render.
+ */
+export function useKeysCommentCount(tabId: string, chatKeys: readonly string[]): number {
   return useChatCommentsStore((s) => {
     const tab = s.byTab[tabId];
     if (!tab) return 0;
-    const rows = tab.anchors.workByTurn.get(turnId);
-    if (!rows) return 0;
     let n = 0;
-    for (const rowId of rows) n += visibleCount(tab.byAnchor[rowId]);
+    for (const key of chatKeys) n += visibleCount(tab.byChatKey[key]);
     return n;
   });
 }

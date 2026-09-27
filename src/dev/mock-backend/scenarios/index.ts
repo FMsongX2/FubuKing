@@ -16,6 +16,7 @@ import {
   chatCommentsMany,
   chatCommentsOrphan,
   chatCommentsRepliesOnly,
+  chatCommentsTools,
 } from "./chat-comments";
 import { chatLongPrompt } from "./chat-long-prompt";
 import { chatMarkdown } from "./chat-markdown";
@@ -50,6 +51,7 @@ const all: Scenario[] = [
   chatCommentsOrphan,
   chatCommentsMany,
   chatCommentsRepliesOnly,
+  chatCommentsTools,
   chatCommentsError,
   chatLongPrompt,
   chatMarkdown,

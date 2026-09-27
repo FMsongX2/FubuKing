@@ -1076,7 +1076,7 @@ function RowView({
     case RowKind.Separator:
       return <SeparatorRowView row={row} />;
     case RowKind.WorkHeader:
-      return <WorkHeaderRowView row={row} tabId={tabId} onToggle={onExpandTurn} />;
+      return <WorkHeaderRowView row={row} onToggle={onExpandTurn} />;
     case RowKind.TurnFooter:
       // made a fresh closure per render and defeated the memo on footer rows.
       return <TurnFooterRowView row={row} onSaveKb={onSaveKb} />;
