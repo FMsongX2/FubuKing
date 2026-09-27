@@ -49,6 +49,8 @@ enum Reply {
     RejectContaining(String),
     /// 429 with a `Retry-After` header of this many seconds.
     RetryAfter(u64),
+    /// Accept, after this many milliseconds — a slow uplink.
+    SlowAccept(u64),
 }
 
 struct Stub {
@@ -276,6 +278,11 @@ fn handle(
             received.lock().unwrap().extend(artifacts);
             respond(&mut stream, 202, "{}");
         }
+        Reply::SlowAccept(ms) => {
+            std::thread::sleep(Duration::from_millis(ms));
+            received.lock().unwrap().extend(artifacts);
+            respond(&mut stream, 202, "{}");
+        }
         Reply::Partial { reject } => {
             let results: Vec<serde_json::Value> = artifacts
                 .iter()
@@ -378,6 +385,7 @@ fn config<'a>(base_url: &str, token: &'a dyn Fn() -> Option<String>) -> SyncConf
         wire_workspace_id: WIRE_WORKSPACE.to_string(),
         token,
         timeout: Duration::from_secs(5),
+        deadline: None,
     }
 }
 
@@ -1045,3 +1053,88 @@ fn a_local_project_accumulates_rows_that_never_drain() {
     assert_eq!(outcome.still_pending, 0);
     assert!(stub.artifacts().is_empty(), "nothing left the machine");
 }
+
+// ── Sync off the recording path ──────────────────────────────────────────────
+
+/// A pass with a budget sends at least one batch, then yields with the rest
+/// still pending — so one Project's backlog cannot hold the uplink until it is
+/// empty. The next pass (no budget) finishes the queue.
+#[test]
+fn a_budgeted_pass_yields_after_a_batch_and_the_next_pass_finishes() {
+    let stub = Stub::start(vec![Reply::Accept], 200);
+    let dir = tempfile::tempdir().unwrap();
+    let mut store = cloud_store(dir.path());
+    for i in 0..60 {
+        record(&mut store, &format!("s{i}"), "a short answer");
+    }
+    let token = always_token();
+
+    let mut budgeted = config(&stub.base_url, &token);
+    budgeted.deadline = Some(std::time::Instant::now());
+    let first = drain(&store, &budgeted).unwrap();
+    assert_eq!(first.status, DrainStatus::Yielded);
+    assert!(first.sent > 0 && first.sent <= atlas_checkpoint::sync::MAX_BATCH_COUNT, "one batch: {first:?}");
+    assert!(first.still_pending > 0, "{first:?}");
+    assert_eq!(stub.ingest_calls(), 1);
+
+    let rest = drain(&store, &config(&stub.base_url, &token)).unwrap();
+    assert_eq!(rest.status, DrainStatus::Drained);
+    assert_eq!(rest.still_pending, 0);
+    assert_eq!(first.sent + rest.sent, stub.artifacts().len());
+}
+
+/// A drain on a sibling connection never holds the Store the recorder writes
+/// through: while it waits on a slow uplink, a turn records at once, and the
+/// drain still marks what it sent. The sibling writes under the same writer
+/// lock, which stays held while either connection is open.
+#[test]
+fn a_drain_on_a_sibling_never_holds_up_recording() {
+    let stub = Stub::start(vec![Reply::SlowAccept(1_500)], 200);
+    let dir = tempfile::tempdir().unwrap();
+    let mut store = cloud_store(dir.path());
+    record(&mut store, "before", "queued before the drain");
+
+    let sibling = store.sibling().expect("a sibling opens");
+    assert!(sibling.is_writer(), "the sibling writes under this process's lock");
+    let base_url = stub.base_url.clone();
+    let draining = std::thread::spawn(move || {
+        let token = always_token();
+        drain(&sibling, &config(&base_url, &token)).unwrap()
+    });
+    // Let the drain reach the network.
+    while stub.ingest_calls() == 0 {
+        std::thread::sleep(Duration::from_millis(10));
+    }
+
+    let started = std::time::Instant::now();
+    record(&mut store, "during", "recorded while the drain waits on the uplink");
+    let took = started.elapsed();
+    assert!(took < Duration::from_millis(1_000), "recording waited {took:?} on the drain");
+
+    let outcome = draining.join().unwrap();
+    assert_eq!(outcome.status, DrainStatus::Drained);
+    assert!(outcome.sent > 0);
+    // What was recorded while it ran is not lost: the drain's next batch
+    // picked it up, through its own connection.
+    assert_eq!(outcome.still_pending, 0, "{outcome:?}");
+    assert_eq!(outcome.sent, stub.artifacts().len());
+
+    // The writer lock is still this process's while the original is open.
+    let second = Store::open(dir.path().join(".atlas")).unwrap();
+    assert!(!second.is_writer(), "a second open still loses the lock");
+}
+
+/// The sibling keeps the writer lock alive on its own: dropping the store it
+/// came from does not hand the Project to another opener while a sync pass is
+/// still writing.
+#[test]
+fn a_sibling_holds_the_writer_lock_after_its_origin_is_dropped() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = cloud_store(dir.path());
+    let sibling = store.sibling().unwrap();
+    drop(store);
+    assert!(!Store::open(dir.path().join(".atlas")).unwrap().is_writer());
+    drop(sibling);
+    assert!(Store::open(dir.path().join(".atlas")).unwrap().is_writer(), "released with the last connection");
+}
+

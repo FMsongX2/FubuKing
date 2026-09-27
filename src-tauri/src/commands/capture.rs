@@ -159,21 +159,6 @@ enum Job {
         /// Recorded once per call, not once per path.
         patch: Option<String>,
     },
-    /// Send everything pending for this Project.
-    ///
-    /// Progressive and interruptible by construction: each pass sends what it
-    /// can and leaves the rest pending, so closing Atlas mid-backlog resumes
-    /// rather than restarting. An explicit drain bypasses the offline backoff —
-    /// it exists because a human just did something (promote, connect, retry).
-    Drain {
-        project_root: PathBuf,
-    },
-    /// Import any on-disk transcripts for this Project that are not yet
-    /// recorded — the historical backfill and the ongoing terminal-gap scan,
-    /// which are the same operation run at different times.
-    ImportTranscripts {
-        project_root: PathBuf,
-    },
     /// Walk from the last-seen commit to HEAD and link what it finds.
     ///
     /// Not tied to a Session — it is driven by the repository moving, and the
@@ -365,7 +350,12 @@ pub struct CaptureState {
     /// under `catch_unwind` — but a dead worker is silent capture loss, which is
     /// exactly what the health signal exists to make visible).
     worker_alive: Arc<AtomicBool>,
+    /// The sync worker's liveness, as [`CaptureState::worker_alive`] is the
+    /// recording worker's.
+    sync_alive: Arc<AtomicBool>,
     tx: mpsc::Sender<Job>,
+    /// Requests for the sync worker ([`SyncRequest`]).
+    sync_tx: mpsc::Sender<SyncRequest>,
 }
 
 /// A late-bound source of access tokens, shared between the command surface and
@@ -392,7 +382,36 @@ pub const CAPTURE_CHANGED: &str = "atlas:capture-changed";
 /// the first write of a burst shows immediately and the last one is not lost.
 const NOTIFY_DEBOUNCE: Duration = Duration::from_millis(250);
 
-/// Per-root drain backoff, owned by the worker.
+/// Work for the **sync worker** — the thread that talks to the cloud and
+/// reads transcripts off disk, so the recording worker never does.
+///
+/// # Why a second thread
+///
+/// Everything used to run on the one capture worker, for every Project: a
+/// cloud drain looped until the whole outbox was sent — minutes, after
+/// promoting a Project with a local backlog — holding that Project's store
+/// lock across every upload, while every other job waited in the channel.
+/// Recording stopped for **all** Projects (new prompts, turns and tool calls
+/// sat in memory, lost if the app quit), and every other Project's sync
+/// waited behind the one backlog. Now the recording worker only writes
+/// locally; this worker drains and imports through a sibling connection
+/// ([`Store::sibling`]) so it never holds the recorder's store lock, gives
+/// each Project a bounded pass ([`SYNC_PASS_BUDGET`]) in turn, and keeps one
+/// entry per Project however many times a drain is asked for.
+enum SyncRequest {
+    /// Send this Project's outbox. `forced` bypasses the offline backoff: a
+    /// human just did something (promote, connect, retry).
+    Drain { project_root: PathBuf, forced: bool },
+    /// Import any on-disk transcripts for this Project that are not yet
+    /// recorded — the historical backfill and the terminal-gap scan.
+    Import { project_root: PathBuf },
+}
+
+/// How long one drain pass may keep starting batches before it yields to the
+/// next Project that is due. A batch in flight always finishes.
+const SYNC_PASS_BUDGET: Duration = Duration::from_secs(3);
+
+/// Per-root drain backoff, owned by the sync worker.
 struct DrainBackoff {
     next_attempt: Instant,
     delay: Duration,
@@ -437,7 +456,6 @@ impl CaptureState {
         // Until it is, the closure yields no credential — which parks the drain
         // instead of failing it, and is exactly Local-mode behaviour.
         let token: TokenProvider = Arc::new(Mutex::new(None));
-        let token_for_worker = token.clone();
         let notify: Notifier = Arc::new(Mutex::new(None));
         let notify_for_worker = notify.clone();
         let stores: StoreRegistry = Arc::new(Mutex::new(HashMap::new()));
@@ -450,10 +468,22 @@ impl CaptureState {
         // milliseconds.
         std::thread::Builder::new()
             .name("atlas-capture".into())
-            .spawn(move || {
-                worker(rx, token_for_worker, notify_for_worker, stores_for_worker, alive_for_worker)
-            })
+            .spawn(move || worker(rx, notify_for_worker, stores_for_worker, alive_for_worker))
             .expect("capture worker thread");
+        // The cloud and the transcript scan, on a thread of their own so a
+        // long upload or import never holds a turn's recording (see
+        // [`SyncRequest`]).
+        let (sync_tx, sync_rx) = mpsc::channel();
+        let sync_alive = Arc::new(AtomicBool::new(true));
+        let (sync_token, sync_notify, sync_stores, sync_alive_for_worker) =
+            (token.clone(), notify.clone(), stores.clone(), sync_alive.clone());
+        std::thread::Builder::new()
+            .name("atlas-capture-sync".into())
+            .spawn(move || {
+                let ingest = Box::new(atlas_checkpoint::sync::ingest_base);
+                sync_worker(sync_rx, sync_token, sync_notify, sync_stores, sync_alive_for_worker, ingest)
+            })
+            .expect("capture sync thread");
         Self {
             sessions: Mutex::new(HashMap::new()),
             pending_writes: Mutex::new(HashMap::new()),
@@ -466,7 +496,9 @@ impl CaptureState {
             notify,
             stores,
             worker_alive,
+            sync_alive,
             tx,
+            sync_tx,
         }
     }
 
@@ -491,7 +523,7 @@ impl CaptureState {
 
     /// Is the capture worker thread still running?
     fn is_worker_alive(&self) -> bool {
-        self.worker_alive.load(Ordering::Relaxed)
+        self.worker_alive.load(Ordering::Relaxed) && self.sync_alive.load(Ordering::Relaxed)
     }
 
     /// Install the credential source the drain uses.
@@ -614,9 +646,7 @@ impl CaptureState {
     /// backlog is hundreds of megabytes and must never block the click that
     /// started it.
     pub fn note_drain(&self, project_root: &std::path::Path) {
-        self.submit(Job::Drain {
-            project_root: project_root.to_path_buf(),
-        });
+        self.submit_sync(SyncRequest::Drain { project_root: project_root.to_path_buf(), forced: true });
     }
 
     /// Import on-disk transcripts for a Project.
@@ -627,9 +657,7 @@ impl CaptureState {
     /// what makes running it repeatedly affordable. Whether the import may run
     /// at all (the Cloud bulk-disclosure gate) is checked in `import_for`.
     pub fn note_import(&self, project_root: &std::path::Path) {
-        self.submit(Job::ImportTranscripts {
-            project_root: project_root.to_path_buf(),
-        });
+        self.submit_sync(SyncRequest::Import { project_root: project_root.to_path_buf() });
     }
 
     /// The repository moved, or a Project was just opened — walk for new
@@ -1035,6 +1063,12 @@ impl CaptureState {
     /// Drop a session's turn anchor with the session.
     fn forget_turn_head(&self, session_id: &str) {
         lock_ok(&self.turn_heads).remove(session_id);
+    }
+
+    fn submit_sync(&self, request: SyncRequest) {
+        if self.sync_tx.send(request).is_err() {
+            tracing::error!(target: "atlas::capture", "capture sync worker is gone; nothing will be sent");
+        }
     }
 
     fn submit(&self, job: Job) {
@@ -2525,6 +2559,7 @@ fn sync_config<'a>(
         wire_workspace_id: project_path.to_string(),
         token,
         timeout: std::time::Duration::from_secs(30),
+        deadline: None,
     }
 }
 
@@ -2650,13 +2685,7 @@ fn open_in(stores: &StoreRegistry, root: &Path) -> Result<StoreHandle, String> {
 /// worker takes a store's mutex for the duration of one job and releases it, so
 /// a write command issued while the worker is idle does not have to wait for the
 /// worker to notice — and, more importantly, does not open a competing store.
-fn worker(
-    rx: mpsc::Receiver<Job>,
-    drain_token: TokenProvider,
-    notify: Notifier,
-    stores: StoreRegistry,
-    alive: Arc<AtomicBool>,
-) {
+fn worker(rx: mpsc::Receiver<Job>, notify: Notifier, stores: StoreRegistry, alive: Arc<AtomicBool>) {
     /// Flips the liveness flag on the way out, however the thread exits — so a
     /// dead worker is a `Stopped` health state instead of a silent gap.
     struct AliveGuard(Arc<AtomicBool>);
@@ -2669,28 +2698,19 @@ fn worker(
 
     // Session ids are assigned by the store on first write and reused after.
     let mut session_ids: HashMap<String, String> = HashMap::new();
-    // Offline backoff per Project root — worker-owned, because the worker is
-    // the only place drains run.
-    let backoff: BackoffMap = Arc::new(Mutex::new(HashMap::new()));
 
     // Change notification, coalesced. `dirty` says a write landed that a reader
     // would want; `last_emit` enforces the window. Starting `last_emit` a full
     // window in the past makes the very first write emit immediately.
     let mut dirty = false;
     let mut last_emit = Instant::now() - NOTIFY_DEBOUNCE;
-    // The scan runs on its own clock now, because the receive timeout is short
-    // while there is a pending notification to flush.
-    let mut last_scan = Instant::now();
-
     loop {
         // Short wait while a notification is pending, so the trailing edge of a
         // burst is announced promptly rather than at the next scan.
+        // Only local writes run here: the cloud drain and the transcript scan
+        // are the sync worker's ([`sync_worker`]), so a job never waits on the
+        // network or a long import.
         let wait = if dirty { NOTIFY_DEBOUNCE } else { IMPORT_SCAN_INTERVAL };
-        // A timeout rather than a blocking receive, so the ongoing transcript
-        // scan reaches **every bound Project** — including backgrounded ones.
-        // The existing sessions watcher is a global singleton pointed at the
-        // active project, so inheriting it would miss exactly the terminal
-        // Sessions this is meant to catch.
         let job = match rx.recv_timeout(wait) {
             Ok(job) => Some(job),
             Err(mpsc::RecvTimeoutError::Timeout) => None,
@@ -2703,50 +2723,13 @@ fn worker(
             // process. The job is lost (and logged); the mutexes it may have
             // poisoned are recovered by `lock_ok` everywhere.
             //
-            // Every job changes something a reader can see — a drain included:
-            // it moves outbox state, which the capture popover's queue row
-            // renders ("N pending — sends when online"). Explicit drains are
-            // user actions (promote, connect, retry), so announcing them costs
-            // nothing measurable.
+            // Every job changes something a reader can see.
             let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                process_job(job, &mut session_ids, &drain_token, &stores, &backoff);
+                process_job(job, &mut session_ids, &stores);
             }));
             if result.is_err() {
                 tracing::error!(target: "atlas::capture", "capture job panicked; job dropped");
             }
-            dirty = true;
-        }
-
-        if last_scan.elapsed() >= IMPORT_SCAN_INTERVAL {
-            last_scan = Instant::now();
-            {
-                let open: Vec<(PathBuf, StoreHandle)> = lock_ok(&stores)
-                    .iter()
-                    .filter(|(_, handle)| handle.is_writer)
-                    .map(|(root, handle)| (root.clone(), handle.clone()))
-                    .collect();
-                // The registry lock is released before the work starts: an
-                // import can run for minutes, and holding the map would stall
-                // every other Project behind one of them.
-                for (root, handle) in open {
-                    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                        let mut store = lock_ok(&handle.store);
-                        import_for(&mut store, &root);
-                        // Reconnecting requires no action from the developer:
-                        // the same tick that scans for transcripts retries the
-                        // outbox (gated by the per-root backoff).
-                        drain_for(&mut store, &root, &drain_token, &backoff, false);
-                    }));
-                    if result.is_err() {
-                        tracing::error!(
-                            target: "atlas::capture",
-                            project = %root.display(),
-                            "capture tick panicked; continuing"
-                        );
-                    }
-                }
-            }
-            // An import may have added Sessions, so the board wants to know.
             dirty = true;
         }
 
@@ -2761,13 +2744,7 @@ fn worker(
 }
 
 /// Handle one queued job.
-fn process_job(
-    job: Job,
-    session_ids: &mut HashMap<String, String>,
-    drain_token: &TokenProvider,
-    stores: &StoreRegistry,
-    backoff: &BackoffMap,
-) {
+fn process_job(job: Job, session_ids: &mut HashMap<String, String>, stores: &StoreRegistry) {
     // Needs no store at all.
     if let Job::EndSession { native_session_id } = &job {
         session_ids.remove(native_session_id);
@@ -2777,9 +2754,7 @@ fn process_job(
     // A commit walk is not tied to a Session, so it carries its own root
     // rather than a binding.
     let (session_binding, root) = match &job {
-        Job::WalkCommits { project_root, .. }
-        | Job::ImportTranscripts { project_root }
-        | Job::Drain { project_root } => (None, project_root.clone()),
+        Job::WalkCommits { project_root, .. } => (None, project_root.clone()),
         Job::Prompt { binding, .. }
         | Job::Turn { binding, .. }
         | Job::ToolCall { binding, .. }
@@ -2876,20 +2851,6 @@ fn process_job(
         return;
     }
 
-    if let Job::ImportTranscripts { .. } = &job {
-        // `import_for` checks both the pause state and the Cloud
-        // bulk-disclosure approval itself.
-        import_for(store, &root);
-        return;
-    }
-
-    if let Job::Drain { .. } = &job {
-        // Explicit drains (promotion, connect, retry) bypass the backoff — a
-        // human just asked for this one.
-        drain_for(store, &root, drain_token, backoff, true);
-        return;
-    }
-
     // Everything below records something new.
     if !capturing {
         return;
@@ -2914,10 +2875,7 @@ fn process_job(
     let mut link_after: Vec<String> = Vec::new();
     let outcome = match job {
         // Already handled above; none of these needs a Session.
-        Job::WalkCommits { .. }
-        | Job::ImportTranscripts { .. }
-        | Job::Drain { .. }
-        | Job::EndSession { .. } => Ok(()),
+        Job::WalkCommits { .. } | Job::EndSession { .. } => Ok(()),
         Job::Prompt { prompt, .. } => capture
             .record_prompt(
                 &key,
@@ -3090,25 +3048,30 @@ fn import_for(store: &mut Store, root: &std::path::Path) {
 /// Offline is the ordinary case here, not an error: rows simply stay pending —
 /// with exponential backoff on the retry so a dead network is not hammered
 /// every 30 seconds. `forced` bypasses the backoff for explicit human actions.
+///
+/// `deadline` bounds the pass ([`SYNC_PASS_BUDGET`]); `true` when it yielded
+/// with rows still pending, so the caller queues the Project for another turn.
 fn drain_for(
     store: &mut Store,
     root: &std::path::Path,
+    base_url: &str,
     token: &TokenProvider,
     backoff: &BackoffMap,
     forced: bool,
-) {
-    let Ok(Some(binding)) = store.binding() else { return };
+    deadline: Option<Instant>,
+) -> bool {
+    let Ok(Some(binding)) = store.binding() else { return false };
     if binding.mode != ProjectMode::Cloud {
         // Local mode is the same database with draining switched off.
-        return;
+        return false;
     }
-    let Some(org_id) = binding.org_id.clone() else { return };
+    let Some(org_id) = binding.org_id.clone() else { return false };
 
     // Terminal until re-registration: the server said this identity may not
     // push, and retrying a revoked membership every 30 seconds forever is
     // noise. `set_cloud_binding` clears the gate on a fresh registration.
     if binding.drain_state == DrainGate::NotAuthorized {
-        return;
+        return false;
     }
 
     // The wire identity is the server-assigned project id (slug as a
@@ -3119,13 +3082,13 @@ fn drain_for(
     // older build) and must not drain at all.
     if binding.remote_workspace_id.is_none() && binding.slug.is_none() {
         warn_once_unregistered(root);
-        return;
+        return false;
     }
 
     if !forced {
         if let Some(entry) = lock_ok(backoff).get(root) {
             if Instant::now() < entry.next_attempt {
-                return;
+                return false;
             }
         }
     }
@@ -3151,7 +3114,7 @@ fn drain_for(
         .expect("gated on a wire identity existing");
 
     let config = atlas_checkpoint::SyncConfig {
-        base_url: atlas_checkpoint::sync::ingest_base(),
+        base_url: base_url.to_string(),
         org_id,
         // Local row keying: `pending_artifacts` selects by the path rows were
         // written under. The wire identity is what lands on every artifact.
@@ -3159,8 +3122,10 @@ fn drain_for(
         wire_workspace_id,
         token: &mint_token,
         timeout: std::time::Duration::from_secs(30),
+        deadline,
     };
 
+    let mut yielded = false;
     match atlas_checkpoint::drain(store, &config) {
         Ok(outcome) if outcome.status == atlas_checkpoint::DrainStatus::NotAuthorized => {
             // A terminal state, not a retry loop: persisted so every later tick
@@ -3188,6 +3153,7 @@ fn drain_for(
         }
         Ok(outcome) => {
             lock_ok(backoff).remove(root);
+            yielded = outcome.status == atlas_checkpoint::DrainStatus::Yielded;
             if outcome.sent > 0 || outcome.failed > 0 {
                 tracing::info!(
                     target: "atlas::capture",
@@ -3201,6 +3167,194 @@ fn drain_for(
         Err(e) => {
             bump_backoff(backoff, root, None);
             tracing::warn!(target: "atlas::capture", "drain failed: {e}");
+        }
+    }
+    yielded
+}
+
+/// The sync worker: cloud drains and transcript imports for every Project, off
+/// the recording path ([`SyncRequest`] says why).
+///
+/// Round-robin and deduplicated: `due` holds each Project at most once, however
+/// many drains were asked for; a pass that yields ([`SYNC_PASS_BUDGET`]) goes to
+/// the back, so a large backlog in one Project shares the uplink with every
+/// other Project instead of holding it until it is empty. Every thirty seconds
+/// each open Project is queued for an import scan and a (backoff-gated) drain,
+/// which is how a Project reconnects without the developer doing anything.
+///
+/// Each drain and import runs on a **sibling** connection ([`with_sibling`]):
+/// the recorder's store lock is taken only for the instant it takes to open
+/// one, so a turn is never recorded late because a Project is syncing.
+///
+/// `ingest` names the ingest server, read once per pass (the deployed one in
+/// the app; a stub in tests).
+fn sync_worker(
+    rx: mpsc::Receiver<SyncRequest>,
+    token: TokenProvider,
+    notify: Notifier,
+    stores: StoreRegistry,
+    alive: Arc<AtomicBool>,
+    ingest: Box<dyn Fn() -> String + Send>,
+) {
+    struct AliveGuard(Arc<AtomicBool>);
+    impl Drop for AliveGuard {
+        fn drop(&mut self) {
+            self.0.store(false, Ordering::Relaxed);
+        }
+    }
+    let _guard = AliveGuard(alive);
+
+    let backoff: BackoffMap = Arc::new(Mutex::new(HashMap::new()));
+    let mut queue = SyncQueue::default();
+    let mut last_scan = Instant::now();
+    let mut dirty = false;
+    let mut last_emit = Instant::now() - NOTIFY_DEBOUNCE;
+
+    loop {
+        // Block only when there is nothing to do; otherwise just take what
+        // arrived, so a new request joins the rotation at once.
+        let wait = if !queue.is_empty() {
+            Duration::ZERO
+        } else if dirty {
+            NOTIFY_DEBOUNCE
+        } else {
+            IMPORT_SCAN_INTERVAL.saturating_sub(last_scan.elapsed())
+        };
+        let first = if wait.is_zero() {
+            match rx.try_recv() {
+                Ok(request) => Some(request),
+                Err(mpsc::TryRecvError::Empty) => None,
+                Err(mpsc::TryRecvError::Disconnected) => return,
+            }
+        } else {
+            match rx.recv_timeout(wait) {
+                Ok(request) => Some(request),
+                Err(mpsc::RecvTimeoutError::Timeout) => None,
+                Err(mpsc::RecvTimeoutError::Disconnected) => return,
+            }
+        };
+        for request in first.into_iter().chain(std::iter::from_fn(|| rx.try_recv().ok())) {
+            queue.push(request);
+        }
+
+        if last_scan.elapsed() >= IMPORT_SCAN_INTERVAL {
+            last_scan = Instant::now();
+            let open: Vec<PathBuf> =
+                lock_ok(&stores).iter().filter(|(_, h)| h.is_writer).map(|(root, _)| root.clone()).collect();
+            for root in open {
+                queue.push(SyncRequest::Import { project_root: root.clone() });
+                queue.push(SyncRequest::Drain { project_root: root, forced: false });
+            }
+        }
+
+        // One import and one drain pass, then back to the channel.
+        if let Some(root) = queue.next_import() {
+            if with_sibling(&stores, &root, |store| import_for(store, &root)).is_some() {
+                dirty = true;
+            }
+        }
+        if let Some((root, forced)) = queue.next_drain() {
+            let deadline = Some(Instant::now() + SYNC_PASS_BUDGET);
+            let base_url = ingest();
+            let yielded = with_sibling(&stores, &root, |store| {
+                drain_for(store, &root, &base_url, &token, &backoff, forced, deadline)
+            });
+            if yielded == Some(true) {
+                queue.requeue(root);
+            }
+            dirty = true;
+        }
+
+        if dirty && last_emit.elapsed() >= NOTIFY_DEBOUNCE {
+            dirty = false;
+            last_emit = Instant::now();
+            if let Some(app) = lock_ok(&notify).as_ref() {
+                let _ = app.emit(CAPTURE_CHANGED, ());
+            }
+        }
+    }
+}
+
+/// What the sync worker has to do: each Project at most once per kind, in
+/// arrival order, with "forced" remembered for a drain asked for more than
+/// once.
+#[derive(Default)]
+struct SyncQueue {
+    drains: std::collections::VecDeque<PathBuf>,
+    forced: std::collections::HashSet<PathBuf>,
+    imports: std::collections::VecDeque<PathBuf>,
+}
+
+impl SyncQueue {
+    fn is_empty(&self) -> bool {
+        self.drains.is_empty() && self.imports.is_empty()
+    }
+
+    fn push(&mut self, request: SyncRequest) {
+        match request {
+            SyncRequest::Drain { project_root, forced } => {
+                if forced {
+                    self.forced.insert(project_root.clone());
+                }
+                if !self.drains.contains(&project_root) {
+                    self.drains.push_back(project_root);
+                }
+            }
+            SyncRequest::Import { project_root } => {
+                if !self.imports.contains(&project_root) {
+                    self.imports.push_back(project_root);
+                }
+            }
+        }
+    }
+
+    fn next_drain(&mut self) -> Option<(PathBuf, bool)> {
+        let root = self.drains.pop_front()?;
+        let forced = self.forced.remove(&root);
+        Some((root, forced))
+    }
+
+    fn next_import(&mut self) -> Option<PathBuf> {
+        self.imports.pop_front()
+    }
+
+    /// A drain that yielded goes to the back of the line.
+    fn requeue(&mut self, root: PathBuf) {
+        if !self.drains.contains(&root) {
+            self.drains.push_back(root);
+        }
+    }
+}
+
+/// Runs `f` on a **sibling** of the Project's writing store — a connection of
+/// its own under the same writer lock ([`Store::sibling`]) — so long work
+/// never holds the store the recorder writes through. `None` when the Project
+/// is not enabled here, or another process holds its writer lock. A panic in
+/// `f` is contained and logged, like a panicking recording job.
+fn with_sibling<R>(stores: &StoreRegistry, root: &Path, f: impl FnOnce(&mut Store) -> R) -> Option<R> {
+    // The same guard the recorder uses: never create `.atlas/` for a Project
+    // that has not enabled capture.
+    if !enabled_on_disk(root) {
+        return None;
+    }
+    let handle = open_in(stores, root).ok()?;
+    if !handle.is_writer {
+        return None;
+    }
+    // The recorder's lock, held only while the sibling opens.
+    let sibling = lock_ok(&handle.store).sibling();
+    let mut sibling = match sibling {
+        Ok(store) => store,
+        Err(e) => {
+            tracing::warn!(target: "atlas::capture", project = %root.display(), "sync connection failed: {e}");
+            return None;
+        }
+    };
+    match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| f(&mut sibling))) {
+        Ok(result) => Some(result),
+        Err(_) => {
+            tracing::error!(target: "atlas::capture", project = %root.display(), "capture sync pass panicked; continuing");
+            None
         }
     }
 }
@@ -3648,7 +3802,7 @@ impl OutboundMiddleware<SessionDeltaEnvelope> for CaptureMiddleware {
                 // A retry took the last turn back before re-sending its
                 // prompt. Marked in the store so the chat's comment anchors
                 // stop counting it; queued behind the turn it takes back.
-                state.submit(Job::RewindTurns { binding: binding.clone(), turns: i64::from(*turns) });
+                state.submit(Job::RewindTurns { binding, turns: i64::from(*turns) });
             }
 
             SessionDelta::AgentDisconnected { .. } => {
@@ -4221,5 +4375,176 @@ mod diff_path_tests {
             std::path::Path::new("/repo")
         )
         .is_none());
+    }
+}
+
+#[cfg(test)]
+mod sync_worker_tests {
+    //! Syncing never blocks recording, and one Project's backlog never blocks
+    //! another's sync. The real [`sync_worker`] against a slow stub ingest.
+
+    use std::io::{BufRead, BufReader, Read, Write};
+    use std::net::TcpListener;
+
+    use atlas_checkpoint::{Capture, Role, SessionKey, Source, SyncState, TurnContent};
+
+    use super::*;
+
+    #[test]
+    fn a_drain_asked_for_twice_is_queued_once_and_remembers_it_was_forced() {
+        let (a, b) = (PathBuf::from("/a"), PathBuf::from("/b"));
+        let mut queue = SyncQueue::default();
+        queue.push(SyncRequest::Drain { project_root: a.clone(), forced: false });
+        queue.push(SyncRequest::Drain { project_root: b.clone(), forced: false });
+        queue.push(SyncRequest::Drain { project_root: a.clone(), forced: true });
+        queue.push(SyncRequest::Import { project_root: a.clone() });
+        queue.push(SyncRequest::Import { project_root: a.clone() });
+        assert_eq!(queue.next_drain(), Some((a.clone(), true)), "once, and forced");
+        assert_eq!(queue.next_drain(), Some((b, false)));
+        assert_eq!(queue.next_drain(), None);
+        assert_eq!(queue.next_import(), Some(a));
+        assert_eq!(queue.next_import(), None);
+        assert!(queue.is_empty());
+    }
+
+    #[test]
+    fn a_yielded_drain_goes_to_the_back_of_the_line() {
+        let (a, b) = (PathBuf::from("/a"), PathBuf::from("/b"));
+        let mut queue = SyncQueue::default();
+        queue.push(SyncRequest::Drain { project_root: a.clone(), forced: true });
+        queue.push(SyncRequest::Drain { project_root: b.clone(), forced: true });
+        let (first, _) = queue.next_drain().unwrap();
+        queue.requeue(first);
+        assert_eq!(queue.next_drain().map(|(r, _)| r), Some(b), "b's turn before a's second pass");
+        assert_eq!(queue.next_drain().map(|(r, _)| r), Some(a));
+    }
+
+    /// An ingest that accepts every batch after `delay`, counting batches per
+    /// wire project id.
+    fn slow_ingest(delay: Duration) -> (String, Arc<Mutex<HashMap<String, usize>>>) {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let url = format!("http://{}", listener.local_addr().unwrap());
+        let batches: Arc<Mutex<HashMap<String, usize>>> = Arc::default();
+        let seen = batches.clone();
+        std::thread::spawn(move || {
+            for stream in listener.incoming() {
+                let Ok(mut stream) = stream else { break };
+                let seen = seen.clone();
+                std::thread::spawn(move || {
+                    let mut reader = BufReader::new(stream.try_clone().unwrap());
+                    let mut line = String::new();
+                    let _ = reader.read_line(&mut line);
+                    let mut length = 0usize;
+                    loop {
+                        let mut header = String::new();
+                        if reader.read_line(&mut header).unwrap_or(0) == 0 || header.trim().is_empty() {
+                            break;
+                        }
+                        if let Some((k, v)) = header.split_once(':') {
+                            if k.trim().eq_ignore_ascii_case("content-length") {
+                                length = v.trim().parse().unwrap_or(0);
+                            }
+                        }
+                    }
+                    let mut body = vec![0u8; length];
+                    let _ = reader.read_exact(&mut body);
+                    let body = String::from_utf8_lossy(&body);
+                    for wire in ["rw-a", "rw-b"] {
+                        if body.contains(wire) {
+                            *seen.lock().unwrap().entry(wire.to_string()).or_default() += 1;
+                        }
+                    }
+                    std::thread::sleep(delay);
+                    let _ = stream
+                        .write_all(b"HTTP/1.1 202 Accepted\r\nContent-Length: 2\r\nConnection: close\r\n\r\n{}");
+                });
+            }
+        });
+        (url, batches)
+    }
+
+    /// A cloud-bound Project with `sessions` recorded Sessions pending.
+    fn cloud_project(dir: &Path, wire: &str, sessions: usize) -> StoreHandle {
+        let root = dir.to_string_lossy().to_string();
+        let mut store = Store::open(atlas_checkpoint::atlas_dir(dir)).unwrap();
+        atlas_checkpoint::bind(&store, &root, dir, ProjectMode::Local).unwrap();
+        store.promote_to_cloud(&root, "org-1", wire, Some(wire)).unwrap();
+        for i in 0..sessions {
+            record(&mut store, &root, &format!("{wire}-{i}"));
+        }
+        StoreHandle { store: Arc::new(Mutex::new(store)), is_writer: true }
+    }
+
+    fn record(store: &mut Store, root: &str, native: &str) {
+        let mut capture = Capture::new(store, ProjectMode::Cloud);
+        let key = SessionKey { workspace_id: root.to_string(), source: Source::Native, native_session_id: native.into() };
+        let session = capture.record_prompt(&key, "do the thing", 1, None, None, None).unwrap();
+        capture
+            .record_turn(
+                &session,
+                TurnContent {
+                    turn_seq: 1,
+                    native_message_id: Some(format!("{native}-m")),
+                    role: Role::Assistant,
+                    mode: atlas_checkpoint::Mode::Text,
+                    body: "done".into(),
+                    created_at: None,
+                },
+            )
+            .unwrap();
+    }
+
+    fn pending(handle: &StoreHandle, root: &Path) -> i64 {
+        lock_ok(&handle.store).row_count_in_state(&root.to_string_lossy(), SyncState::Pending).unwrap()
+    }
+
+    /// The case reported: Project A was promoted with a large local backlog.
+    /// While A syncs, (1) a turn in A records at once, (2) Project B's small
+    /// queue is sent without waiting for A's backlog, and (3) A still drains
+    /// completely, including what was recorded mid-sync.
+    #[test]
+    fn a_projects_backlog_blocks_neither_recording_nor_another_projects_sync() {
+        let (a_dir, b_dir) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
+        let a = cloud_project(a_dir.path(), "rw-a", 300);
+        let b = cloud_project(b_dir.path(), "rw-b", 1);
+        let (a_root, b_root) = (a_dir.path().to_path_buf(), b_dir.path().to_path_buf());
+        let stores: StoreRegistry = Arc::default();
+        lock_ok(&stores).insert(a_root.clone(), a.clone());
+        lock_ok(&stores).insert(b_root.clone(), b.clone());
+
+        let (url, batches) = slow_ingest(Duration::from_millis(900));
+        let token: TokenProvider = Arc::new(Mutex::new(Some(Box::new(|| Some("t".to_string())))));
+        let (tx, rx) = mpsc::channel();
+        let worker = std::thread::spawn(move || {
+            let ingest: Box<dyn Fn() -> String + Send> = Box::new(move || url.clone());
+            sync_worker(rx, token, Arc::default(), stores, Arc::new(AtomicBool::new(true)), ingest)
+        });
+        tx.send(SyncRequest::Drain { project_root: a_root.clone(), forced: true }).unwrap();
+        tx.send(SyncRequest::Drain { project_root: b_root.clone(), forced: true }).unwrap();
+
+        // (1) A is mid-upload: its recorder's store is free, a turn records now.
+        let started = Instant::now();
+        while batches.lock().unwrap().get("rw-a").copied().unwrap_or(0) == 0 {
+            assert!(started.elapsed() < Duration::from_secs(20), "A never started syncing");
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        let recorded = Instant::now();
+        record(&mut lock_ok(&a.store), &a_root.to_string_lossy(), "live-during-sync");
+        assert!(recorded.elapsed() < Duration::from_millis(500), "recording in A waited {:?}", recorded.elapsed());
+
+        // (2) B's queue is sent while A still has a backlog.
+        while pending(&b, &b_root) > 0 {
+            assert!(started.elapsed() < Duration::from_secs(30), "B was never synced");
+            std::thread::sleep(Duration::from_millis(50));
+        }
+        assert!(pending(&a, &a_root) > 0, "B waited for A's whole backlog");
+
+        // (3) A still finishes, including what was recorded mid-sync.
+        while pending(&a, &a_root) > 0 {
+            assert!(started.elapsed() < Duration::from_secs(90), "A never finished: {} pending", pending(&a, &a_root));
+            std::thread::sleep(Duration::from_millis(100));
+        }
+        drop(tx);
+        worker.join().unwrap();
     }
 }
