@@ -1,3 +1,4 @@
+// Modified by Quotatlas from upstream Atlas (Apache-2.0).
 import { useEffect, useMemo, useState } from "react";
 import { Download, Loader2, Search, Trash2, X } from "lucide-react";
 import { toast } from "sonner";
@@ -90,7 +91,7 @@ export function IconThemesSettings() {
                   </div>
                   <div className="mt-2 flex items-center gap-1 text-3xs uppercase tracking-wide text-muted-foreground">
                     {theme.id === MINIMAL_ICON_THEME_ID ? (
-                      <span>Atlas defaults</span>
+                      <span>Quotatlas defaults</span>
                     ) : theme.builtIn ? (
                       <span>Bundled</span>
                     ) : (

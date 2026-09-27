@@ -1,3 +1,4 @@
+// Modified by Quotatlas from upstream Atlas (Apache-2.0).
 import {
   createContext,
   memo,
@@ -2592,7 +2593,7 @@ function MemoryBlock({ block }: { block: InjectedBlock }) {
           {MEMORY_LABELS[block.label] ?? block.label.toLowerCase()}
         </span>
         <span className="font-mono text-xs text-[var(--atlas-text-disabled)]">
-          from Atlas memory
+          from Quotatlas memory
         </span>
         <span className="flex-1" />
         {lines > 0 && (

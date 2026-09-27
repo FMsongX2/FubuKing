@@ -1,6 +1,8 @@
+// Modified by Quotatlas from upstream Atlas (Apache-2.0).
 mod app_icon;
 mod auth;
 mod commands;
+mod hosted;
 mod logging;
 #[cfg(target_os = "macos")]
 mod menu;

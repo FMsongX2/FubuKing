@@ -1,3 +1,4 @@
+// Modified by Quotatlas from upstream Atlas (Apache-2.0).
 import { lazy, Suspense, memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { copyText } from "@/lib/clipboard";
 import { matchesAction } from "@/features/keybindings/lib/use-scoped-hotkeys";
@@ -1616,7 +1617,7 @@ const ChatComposer = memo(function ChatComposer({
           onStop={onStop}
           running={running}
           stopping={stopping}
-          placeholder="Ask Atlas what to do ..."
+          placeholder="Ask Quotatlas what to do ..."
         />
       </div>
     </>
@@ -1713,7 +1714,7 @@ function WelcomeState() {
 
         {/* ratchet-allow: the one-off welcome headline sits between text-xl (20px) and text-2xl (24px) */}
         <h2 className="bg-gradient-to-b from-foreground to-foreground/55 bg-clip-text text-[22px] font-semibold tracking-tight text-transparent">
-          Atlas
+          Quotatlas
         </h2>
         <p className="mt-1.5 text-base text-[var(--muted-foreground)]">
           Code with Agents. Tools, plans, and edits all live.

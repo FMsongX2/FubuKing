@@ -1,3 +1,4 @@
+// Modified by Quotatlas from upstream Atlas (Apache-2.0).
 import { Dialog } from "@base-ui/react/dialog";
 import { Loader2, AlertTriangle } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -67,7 +68,8 @@ export function UpdateAvailableModal() {
               (error ?? "Something went wrong while installing the update.")
             ) : (
               <>
-                Atlas{version ? ` ${version}` : ""} has been downloaded. Restart to finish updating.
+                Quotatlas{version ? ` ${version}` : ""} has been downloaded. Restart to finish
+                updating.
               </>
             )}
           </p>
@@ -106,7 +108,7 @@ export function UpdateAvailableModal() {
 
           {!applying && !isError && (
             <p className="mt-3 text-2xs text-muted-foreground leading-relaxed px-1">
-              "Later" installs the update automatically the next time you quit Atlas.
+              "Later" installs the update automatically the next time you quit Quotatlas.
               {isWindows && " Windows will ask for permission to install it."}
             </p>
           )}

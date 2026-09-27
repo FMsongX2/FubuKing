@@ -1,3 +1,4 @@
+// Modified by Quotatlas from upstream Atlas (Apache-2.0).
 //! Tauri adapters over [`crate::auth::AuthCore`].
 //!
 //! Thin by design: translate arguments, spawn the poll task, emit events. Every
@@ -153,6 +154,9 @@ pub async fn auth_sign_in(
     app: AppHandle,
     state: State<'_, AuthState>,
 ) -> Result<AuthSnapshot, String> {
+    if !crate::hosted::HOSTED_SERVICES_ENABLED {
+        return Err(crate::hosted::HOSTED_SERVICES_DISABLED.to_string());
+    }
     let core = state.core();
 
     let grant = core
@@ -499,6 +503,10 @@ pub fn restore_on_launch(app: &AppHandle) {
     tauri::async_runtime::spawn(async move {
         let core = app.state::<AuthState>().core();
         broadcast(&app, core.snapshot());
+        // Nothing to revalidate against: the auth host is upstream Atlas's.
+        if !crate::hosted::HOSTED_SERVICES_ENABLED {
+            return;
+        }
 
         let settled = {
             let app = app.clone();

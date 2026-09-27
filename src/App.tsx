@@ -1,3 +1,4 @@
+// Modified by Quotatlas from upstream Atlas (Apache-2.0).
 import { startTransition, useState, useEffect, useMemo, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { AppLayout } from "@/features/layout/components/app-layout";
@@ -234,7 +235,7 @@ export function App() {
       listenUpdateReady((e) => a.setReady(e.version)),
       listenUpdateApplied((e) => {
         a.reset();
-        toast.success(`Updated to Atlas ${e.version}.`);
+        toast.success(`Updated to Quotatlas ${e.version}.`);
       }),
       listenUpdateError((e) => a.setError(e.message)),
       listenUpdateChecking((e) => a.setChecking(e.checking)),
@@ -499,7 +500,7 @@ export function App() {
             status: "failure",
           });
           toast.error(
-            "Atlas couldn't load your projects. Your saved data is safe on disk — restart Atlas to get it back.",
+            "Quotatlas couldn't load your projects. Your saved data is safe on disk — restart Quotatlas to get it back.",
             { duration: Infinity },
           );
           startTransition(() => {
@@ -732,11 +733,11 @@ export function App() {
       const byPath = useProjectStore
         .getState()
         .projects.find((w) => w.path === sess?.workingDirectory)?.name;
-      return byPath ?? useAppStore.getState().currentProject?.name ?? "Atlas";
+      return byPath ?? useAppStore.getState().currentProject?.name ?? "Quotatlas";
     };
     const notifyAgentDone = (acpSessionId: string) =>
       sendNativeNotification({
-        title: `Atlas: ${sessionProjectName(acpSessionId)}`,
+        title: `Quotatlas: ${sessionProjectName(acpSessionId)}`,
         body: "Agent task finished.",
       });
 
@@ -745,7 +746,7 @@ export function App() {
     // `sendNativeNotification`).
     const notifyPermissionRequested = (toolTitle: string, acpSessionId: string) =>
       sendNativeNotification({
-        title: `Atlas: ${sessionProjectName(acpSessionId)} needs permission`,
+        title: `Quotatlas: ${sessionProjectName(acpSessionId)} needs permission`,
         body: `Approve "${toolTitle}" to continue.`,
       });
 
@@ -1385,11 +1386,11 @@ export function App() {
       .catch((e) => console.warn("recent_files_open_project failed:", e));
   }, [currentProject?.path]);
 
-  // Native window title: `projectName - Atlas` while a project is open,
-  // plain `Atlas` otherwise. This is what macOS shows on the window-menu,
+  // Native window title: `projectName - Quotatlas` while a project is open,
+  // plain `Quotatlas` otherwise. This is what macOS shows on the window-menu,
   // on minimize, and on title hover.
   useEffect(() => {
-    const title = currentProject ? `${currentProject.name} - Atlas` : "Atlas";
+    const title = currentProject ? `${currentProject.name} - Quotatlas` : "Quotatlas";
     void invoke("set_window_title", { title }).catch(() => {});
   }, [currentProject?.name]);
 

@@ -1,3 +1,4 @@
+// Modified by Quotatlas from upstream Atlas (Apache-2.0).
 import { useEffect, useState, type ReactNode } from "react";
 import { cn } from "@/lib/utils";
 import {
@@ -292,7 +293,8 @@ export function UsagePopup({ view }: { view: SessionUsageView }) {
         <Card index={0} section="empty">
           <div className="label">Nothing yet</div>
           <p className="mt-0.5 text-2xs leading-snug text-[var(--muted-foreground)]">
-            Usage shows up after the first turn — what this agent reports, and what Atlas records.
+            Usage shows up after the first turn — what this agent reports, and what Quotatlas
+            records.
           </p>
         </Card>
       ) : (

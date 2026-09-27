@@ -1,4 +1,8 @@
-//! Global, cross-repository memory under `~/.atlas/memory/`.
+// Modified by Quotatlas from upstream Atlas (Apache-2.0).
+//! Global, cross-repository memory under `~/.quotatlas/memory/`.
+//!
+//! Quotatlas keeps this apart from upstream Atlas's `~/.atlas/memory/` so the
+//! two apps never write one index concurrently.
 //!
 //! A store that outlives any single repository. It is populated by a
 //! **deterministic, conservative promotion rule** over each repository's record
@@ -104,7 +108,7 @@ pub struct Candidate {
 }
 
 /// Resolve the global memory dir: `ATLAS_GLOBAL_MEMORY_DIR` if set, else
-/// `$HOME/.atlas/memory` (`%USERPROFILE%` on Windows, where `HOME` is normally
+/// `$HOME/.quotatlas/memory` (`%USERPROFILE%` on Windows, where `HOME` is normally
 /// unset; falling back to `./.atlas/memory` if neither is set).
 pub fn global_dir() -> PathBuf {
     if let Ok(d) = std::env::var(GLOBAL_DIR_ENV) {
@@ -115,7 +119,7 @@ pub fn global_dir() -> PathBuf {
     let home = std::env::var("HOME")
         .or_else(|_| std::env::var("USERPROFILE"))
         .unwrap_or_else(|_| ".".to_string());
-    PathBuf::from(home).join(".atlas").join("memory")
+    PathBuf::from(home).join(".quotatlas").join("memory")
 }
 
 fn ledger_path(dir: &Path) -> PathBuf {

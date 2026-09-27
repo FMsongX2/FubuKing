@@ -1,3 +1,4 @@
+// Modified by Quotatlas from upstream Atlas (Apache-2.0).
 import { useMemo } from "react";
 import { useAppStore } from "../stores/app-store";
 import { recentsForOrg } from "../lib/recent-projects";
@@ -39,7 +40,7 @@ export function WelcomeScreen() {
         {/* Branding */}
         <div className="text-center space-y-2">
           <AtlasIcon size={64} className="mx-auto mb-4 rounded-2xl" />
-          <h1 className="text-xl font-semibold text-[var(--foreground)]">Atlas</h1>
+          <h1 className="text-xl font-semibold text-[var(--foreground)]">Quotatlas</h1>
           <p className="text-sm text-[var(--secondary-foreground)]">The second brain IDE</p>
         </div>
 

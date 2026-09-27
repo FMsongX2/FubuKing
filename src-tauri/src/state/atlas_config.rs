@@ -1,3 +1,4 @@
+// Modified by Quotatlas from upstream Atlas (Apache-2.0).
 //! `AtlasConfig` — the human- and agent-editable settings file.
 //!
 //! Replaces `AppState.settings` (formerly the `settings` object inside
@@ -49,8 +50,10 @@ pub const CONFIG_FILE_NAME: &str = "config.toml";
 
 /// Directory under `~/.config` (or `$XDG_CONFIG_HOME`) holding
 /// [`CONFIG_FILE_NAME`]. Named for the product, not the bundle id: a path a
-/// user types should read `atlas`, not `dev.atlas.ide`.
-pub const CONFIG_DIR_NAME: &str = "atlas";
+/// user types should read `quotatlas`, not the reverse-DNS identifier. It
+/// differs from upstream Atlas's `atlas` so both apps can be installed side by
+/// side without sharing one settings file.
+pub const CONFIG_DIR_NAME: &str = "quotatlas";
 
 /// How many times [`ConfigManager::apply_patch`] rebuilds its patch when an
 /// external write lands inside the merge-then-swap window. Three is enough to
@@ -246,18 +249,17 @@ pub struct AppSettings {
     /// on the frontend (⌘+/⌘-/⌘0); persisted so it survives relaunch.
     #[serde(default = "default_ui_scale")]
     pub ui_scale: f32,
-    /// Anonymous product telemetry (PostHog). Default **ON** (opt-out, like
-    /// VS Code / Zed) — privacy-preserving metadata only; the user can turn it
-    /// off anytime in Settings → General. Gates both the Rust emitter and the
-    /// frontend `posthog-js` crash reporter. Still inert unless a key resolves.
-    /// See `crate::telemetry`.
-    #[serde(default = "default_true")]
+    /// Anonymous product telemetry (PostHog). Default **OFF** in Quotatlas,
+    /// which also ships without a key, so the client is inert either way.
+    /// Gates both the Rust emitter and the frontend `posthog-js` crash
+    /// reporter. See `crate::telemetry`.
+    #[serde(default)]
     pub share_telemetry: bool,
     /// Attribute telemetry to the signed-in Atlas account (PostHog `$identify`),
-    /// rather than keeping it on the anonymous per-device person. Default **ON**,
-    /// and irrelevant while signed out or while `share_telemetry` is off — both
-    /// gate this. See `crate::telemetry`.
-    #[serde(default = "default_true")]
+    /// rather than keeping it on the anonymous per-device person. Default
+    /// **OFF**, and irrelevant while signed out or while `share_telemetry` is
+    /// off — both gate this. See `crate::telemetry`.
+    #[serde(default)]
     pub link_telemetry_to_account: bool,
     /// Selected on-device **embedding** model id (== its dir name under
     /// `app_data/models/`). Drives `memory_graph::model_dir` and every embedding
@@ -386,8 +388,8 @@ impl Default for AppSettings {
             enable_atlas_logs: true,
             show_hidden_files: true,
             ui_scale: default_ui_scale(),
-            share_telemetry: true,
-            link_telemetry_to_account: true,
+            share_telemetry: false,
+            link_telemetry_to_account: false,
             embedding_model_id: default_embedding_model(),
             theme: default_theme(),
             theme_mode: ThemeMode::default(),
@@ -472,15 +474,14 @@ const SETTINGS_DOCS: &[(&str, &str)] = &[
     ),
     (
         "shareTelemetry",
-        "# Anonymous product telemetry. Opt-OUT: on by default, coarse metadata\n\
-         # only, never file contents or prompts. See TELEMETRY.md.\n\
-         # (default: true)",
+        "# Anonymous product telemetry. Off by default, and Quotatlas builds\n\
+         # ship without an analytics key. See TELEMETRY.md. (default: false)",
     ),
     (
         "linkTelemetryToAccount",
-        "# Attribute telemetry to your signed-in Atlas account instead of the\n\
+        "# Attribute telemetry to your signed-in account instead of the\n\
          # anonymous per-device id. Irrelevant while signed out, or while\n\
-         # shareTelemetry is false — both gate it. (default: true)",
+         # shareTelemetry is false — both gate it. (default: false)",
     ),
     (
         "embeddingModelId",
@@ -1846,17 +1847,20 @@ mod tests {
         (dir, path)
     }
 
-    // ── config_root (issue #64 follow-up: ~/.config/atlas, not the bundle id) ──
+    // ── config_root (issue #64 follow-up: ~/.config/quotatlas, not the bundle id) ──
 
     #[test]
-    fn config_lives_under_dot_config_atlas_not_the_bundle_id() {
+    fn config_lives_under_dot_config_quotatlas_not_the_bundle_id() {
         let home = PathBuf::from("/Users/someone");
         let root = config_root_from(None, Some(&home)).expect("a home resolves a root");
 
-        assert_eq!(root, PathBuf::from("/Users/someone/.config/atlas"));
-        assert_eq!(root.join(CONFIG_FILE_NAME), PathBuf::from("/Users/someone/.config/atlas/config.toml"));
-        // The whole point: nothing here reads `dev.atlas.ide`.
-        assert!(!root.to_string_lossy().contains("dev.atlas.ide"));
+        assert_eq!(root, PathBuf::from("/Users/someone/.config/quotatlas"));
+        assert_eq!(
+            root.join(CONFIG_FILE_NAME),
+            PathBuf::from("/Users/someone/.config/quotatlas/config.toml")
+        );
+        // The whole point: nothing here reads the bundle identifier.
+        assert!(!root.to_string_lossy().contains("io.github.fmsongx2.quotatlas"));
         assert!(!root.to_string_lossy().contains("Application Support"));
     }
 
@@ -1869,7 +1873,7 @@ mod tests {
 
         let root = config_root_from(Some(&xdg), Some(&home)).unwrap();
 
-        assert_eq!(root, PathBuf::from("/elsewhere/cfg/atlas"));
+        assert_eq!(root, PathBuf::from("/elsewhere/cfg/quotatlas"));
     }
 
     /// A relative `$XDG_CONFIG_HOME` is ignored rather than resolved against
@@ -1882,7 +1886,7 @@ mod tests {
 
         let root = config_root_from(Some(&xdg), Some(&home)).unwrap();
 
-        assert_eq!(root, PathBuf::from("/Users/someone/.config/atlas"));
+        assert_eq!(root, PathBuf::from("/Users/someone/.config/quotatlas"));
     }
 
     /// No home and no usable XDG: there is nowhere to put it, and `load`
@@ -2547,12 +2551,14 @@ red = "#ee0000"
     fn a_broken_config_after_migration_does_not_resurrect_legacy_settings() {
         let (_dir, path) = tmp_config_path();
         fs::write(&path, "this is not { valid toml").unwrap();
-        let legacy = serde_json::json!({ "shareTelemetry": false });
+        // The legacy value is the opposite of the compiled default, so reading
+        // it again would show up as a flipped setting.
+        let legacy = serde_json::json!({ "shareTelemetry": true });
 
         let outcome = bootstrap_at(path, true, Some(legacy));
 
         assert!(
-            outcome.manager.effective().share_telemetry,
+            !outcome.manager.effective().share_telemetry,
             "a post-migration boot must not read state.json.settings again"
         );
     }

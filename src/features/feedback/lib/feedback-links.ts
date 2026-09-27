@@ -1,10 +1,12 @@
+// Modified by Quotatlas from upstream Atlas (Apache-2.0).
 // External destinations from the feedback panel footer.
 
 import { openUrl } from "@tauri-apps/plugin-opener";
 import type { FeedbackCategory } from "./feedback-api";
+import { QUOTATLAS_DISCUSSIONS_URL, QUOTATLAS_ISSUES_URL } from "@/lib/quotatlas";
 
-export const DISCORD_URL = "https://discord.gg/GmnFggaPfP";
-const ISSUE_BASE = "https://github.com/pacifio/atlas/issues/new";
+export const DISCORD_URL = QUOTATLAS_DISCUSSIONS_URL;
+const ISSUE_BASE = `${QUOTATLAS_ISSUES_URL}/new`;
 
 const PREFIX: Record<FeedbackCategory, string> = {
   issue: "[Bug]",
@@ -37,7 +39,7 @@ export function issueUrl(category: FeedbackCategory, message: string): string {
   const title = `${PREFIX[category]} ${first}`;
   const description =
     `${text.slice(0, MAX_BODY)}\n\n---\n` +
-    `_Filed from Atlas → Send feedback._\n` +
+    `_Filed from Quotatlas → Send feedback._\n` +
     `_Attached a screenshot? Drag it in here — a link can't carry it._`;
   const params = new URLSearchParams({
     template: TEMPLATE[category],

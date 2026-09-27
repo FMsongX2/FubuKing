@@ -1,3 +1,4 @@
+// Modified by Quotatlas from upstream Atlas (Apache-2.0).
 /**
  * **Project-scoped** (CONTEXT.md): a UI action acts on the active project's
  * view and never switches projects. A tab another project owns is refused,
@@ -29,7 +30,7 @@ export function tabInScope(tabId: string): Tab {
 
 /** The active project, or a refusal when none is open. */
 export function activeProject(): { name: string; path: string } {
-  return useAppStore.getState().currentProject ?? refuse("no project is open in Atlas");
+  return useAppStore.getState().currentProject ?? refuse("no project is open in Quotatlas");
 }
 
 const join = (base: string, rel: string) =>

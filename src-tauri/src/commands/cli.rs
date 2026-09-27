@@ -1,15 +1,20 @@
-//! Atlas CLI helper — `~/.local/bin/atlas`.
+// Modified by Quotatlas from upstream Atlas (Apache-2.0).
+//! Quotatlas CLI helper — `~/.local/bin/quotatlas`.
 //!
 //! Same pattern as `code` (VS Code) or `zed` (Zed): a tiny shell
 //! wrapper the user runs from any terminal to open the current
-//! folder (or any path) as an Atlas project.
+//! folder (or any path) as a Quotatlas project.
 //!
 //! Usage:
-//!   atlas             open the current directory
-//!   atlas ./some-dir  open the named directory
-//!   atlas --version   print the IDE version
+//!   quotatlas             open the current directory
+//!   quotatlas ./some-dir  open the named directory
+//!   quotatlas --version   print the app version
 //!
-//! Install location is `~/.local/bin/atlas` because:
+//! The name is distinct from upstream Atlas's `atlas` helper on purpose:
+//! both apps refresh their helper on every launch, so a shared name would
+//! make them overwrite each other.
+//!
+//! Install location is `~/.local/bin/quotatlas` because:
 //!   1. macOS GUI launches have a minimal PATH, and the agent spawn path
 //!      already prepends `~/.local/bin` when enriching a child's PATH — so
 //!      anything installed there is reachable from spawned processes too.
@@ -31,7 +36,7 @@ use tauri::State;
 const HELPER_TEMPLATE: &str = include_str!("../../bin/atlas-cli.sh");
 
 /// Per-process state holding a path the CLI helper passed on argv at
-/// launch (e.g. `atlas ~/Desktop/foo` → `~/Desktop/foo`). Consumed
+/// launch (e.g. `quotatlas ~/Desktop/foo` → `~/Desktop/foo`). Consumed
 /// exactly once by `cli_take_initial_project_path` — after that the
 /// frontend's normal hydration path takes over so a window reload
 /// doesn't re-trigger the open.
@@ -70,7 +75,7 @@ pub fn parse_initial_project() -> Option<String> {
 /// there's exactly one positional, it isn't a flag, and it's an existing dir.
 pub fn parse_project_path(args: &[String]) -> Option<String> {
     if args.len() != 1 {
-        // Zero (plain `atlas`, cwd handled by the shell helper passing `.`)
+        // Zero (plain `quotatlas`, cwd handled by the shell helper passing `.`)
         // or multiple args — refuse rather than guess.
         return None;
     }
@@ -95,11 +100,11 @@ pub fn cli_take_initial_project_path(state: State<'_, CliLaunchState>) -> Option
 #[serde(rename_all = "camelCase")]
 pub struct CliStatus {
     pub installed: bool,
-    /// Absolute path of the installed helper (`~/.local/bin/atlas`).
+    /// Absolute path of the installed helper (`~/.local/bin/quotatlas`).
     /// Always Some — points at where it would go if not installed.
     pub path: Option<String>,
     /// Version string read from the installed script's first line
-    /// `# atlas-cli-version: <version>` marker. None if the file
+    /// `# quotatlas-cli-version: <version>` marker. None if the file
     /// exists but the marker is missing (e.g. user-edited or a much
     /// older helper). Used by the Settings UI to show whether the
     /// installed copy matches the current IDE version.
@@ -108,24 +113,23 @@ pub struct CliStatus {
     pub current_version: String,
 }
 
+/// File name of the helper and of a system-wide install. One name on every
+/// platform: unlike `atlas`, `quotatlas` collides with no distro package.
+const HELPER_NAME: &str = "quotatlas";
+
 fn helper_path() -> Option<PathBuf> {
-    dirs::home_dir().map(|h| {
-        if cfg!(target_os = "linux") {
-            h.join(".local").join("bin").join("atl")
-        } else {
-            h.join(".local").join("bin").join("atlas")
-        }
-    })
+    dirs::home_dir().map(|h| h.join(".local").join("bin").join(HELPER_NAME))
 }
 
 #[cfg(target_os = "linux")]
-fn is_atlas_binary(path: &std::path::Path) -> bool {
+fn is_quotatlas_binary(path: &std::path::Path) -> bool {
     use std::io::Read;
     if !is_elf_binary(path) {
         return false;
     }
     if let Ok(mut f) = std::fs::File::open(path) {
-        const NEEDLE: &[u8] = b"dev.atlas.ide";
+        // Must match `identifier` in `tauri.conf.json`.
+        const NEEDLE: &[u8] = b"io.github.fmsongx2.quotatlas";
         const CHUNK_SIZE: usize = 64 * 1024;
         const MAX_SCAN: usize = 32 * 1024 * 1024;
 
@@ -158,19 +162,15 @@ fn system_bin_path() -> Option<PathBuf> {
     {
         use std::os::unix::fs::PermissionsExt;
         for candidate in [
-            "/usr/bin/atl",
-            "/usr/local/bin/atl",
-            "/usr/bin/tryatlas",
-            "/usr/local/bin/tryatlas",
-            "/usr/bin/atlas",
-            "/usr/local/bin/atlas",
-            "/opt/atlas/bin/atlas",
+            "/usr/bin/quotatlas",
+            "/usr/local/bin/quotatlas",
+            "/opt/quotatlas/bin/quotatlas",
         ] {
             let p = PathBuf::from(candidate);
             if p.is_file() {
                 if let Ok(meta) = p.metadata() {
                     if meta.permissions().mode() & 0o111 != 0 {
-                        if candidate.ends_with("/atlas") && !is_atlas_binary(&p) {
+                        if !is_quotatlas_binary(&p) {
                             continue;
                         }
                         return Some(p);
@@ -202,20 +202,20 @@ fn is_elf_binary(_path: &std::path::Path) -> bool {
 fn read_installed_version(path: &std::path::Path) -> Option<String> {
     let raw = std::fs::read_to_string(path).ok()?;
     raw.lines()
-        .find_map(|l| l.strip_prefix("# atlas-cli-version: ").map(|v| v.trim().to_string()))
+        .find_map(|l| l.strip_prefix("# quotatlas-cli-version: ").map(|v| v.trim().to_string()))
 }
 
 fn read_installed_appimage(path: &std::path::Path) -> Option<String> {
     let raw = std::fs::read_to_string(path).ok()?;
     raw.lines().find_map(|l| {
-        l.strip_prefix("# atlas-appimage-path: ")
+        l.strip_prefix("# quotatlas-appimage-path: ")
             .map(|v| v.trim().to_string())
             .filter(|v| !v.is_empty())
     })
 }
 
 /// `cli_status` reads files (and on Linux may scan up to 32 MiB of a system
-/// binary in `is_atlas_binary`), so it runs on the blocking pool rather than
+/// binary in `is_quotatlas_binary`), so it runs on the blocking pool rather than
 /// the thread a sync command would occupy.
 #[tauri::command]
 pub async fn cli_status() -> Result<CliStatus, String> {
@@ -235,7 +235,7 @@ fn status_blocking() -> CliStatus {
         };
     }
     let path = helper_path();
-    // If ~/.local/bin/atlas is a real compiled ELF binary, report it as installed
+    // If ~/.local/bin/quotatlas is a real compiled ELF binary, report it as installed
     if let Some(p) = path.as_deref() {
         if p.exists() && is_elf_binary(p) {
             return CliStatus {
@@ -269,7 +269,7 @@ fn status_blocking() -> CliStatus {
     }
 }
 
-/// Write `~/.local/bin/atlas` with the bundled shell helper, bake
+/// Write `~/.local/bin/quotatlas` with the bundled shell helper, bake
 /// the current IDE version in, set the executable bit. Idempotent:
 /// if the file already exists we overwrite, since the whole point of
 /// this command is "make sure the latest helper is installed."
@@ -278,10 +278,10 @@ fn status_blocking() -> CliStatus {
 /// confirmation without a second IPC round-trip.
 #[tauri::command]
 pub async fn cli_install_helper() -> Result<CliStatus, String> {
-    // The helper is a bash script that relaunches Atlas with `open -n`; neither
-    // exists on Windows, where it would only shadow `atlas` in Git Bash.
+    // The helper is a bash script that relaunches Quotatlas with `open -n`;
+    // neither exists on Windows, where it would only shadow the name in Git Bash.
     if cfg!(windows) {
-        return Err("the atlas CLI helper is not available on Windows yet".to_string());
+        return Err("the quotatlas CLI helper is not available on Windows yet".to_string());
     }
     let version = env!("CARGO_PKG_VERSION").to_string();
 
@@ -290,32 +290,16 @@ pub async fn cli_install_helper() -> Result<CliStatus, String> {
     if let Some(status) = tokio::task::spawn_blocking({
         let version = version.clone();
         move || -> Option<CliStatus> {
-            // If Atlas is already installed system-wide (e.g. /usr/bin/atlas on Linux),
-            // prevent ~/.local/bin/atlas from shadowing it, and clean up any old helper.
+            // If Quotatlas is already installed system-wide (e.g. /usr/bin/quotatlas
+            // on Linux), prevent the user helper from shadowing it, and clean up
+            // an old helper. Only Quotatlas's own helper path is ever touched;
+            // upstream Atlas's `atlas`/`atl` files are left alone.
             if let Some(sys) = system_bin_path() {
                 if let Some(helper) = helper_path() {
                     if helper.exists() {
                         if let Ok(content) = std::fs::read_to_string(&helper) {
-                            if content.contains("atlas-cli-version") || content.contains("open -na")
-                            {
+                            if content.contains("quotatlas-cli-version") {
                                 let _ = std::fs::remove_file(&helper);
-                            }
-                        }
-                    }
-                }
-                if let Some(atlas_link) =
-                    dirs::home_dir().map(|h| h.join(".local").join("bin").join("atlas"))
-                {
-                    if let Ok(meta) = std::fs::symlink_metadata(&atlas_link) {
-                        if meta.file_type().is_symlink() {
-                            let is_broken = !atlas_link.exists();
-                            let points_to_atl = std::fs::read_link(&atlas_link)
-                                .map(|target| {
-                                    target == std::path::Path::new("atl") || target.ends_with("atl")
-                                })
-                                .unwrap_or(false);
-                            if is_broken || points_to_atl {
-                                let _ = std::fs::remove_file(&atlas_link);
                             }
                         }
                     }
@@ -328,7 +312,7 @@ pub async fn cli_install_helper() -> Result<CliStatus, String> {
                 });
             }
 
-            // If ~/.local/bin/atlas is an ELF binary (e.g. tarball installed to ~/.local),
+            // If ~/.local/bin/quotatlas is an ELF binary (e.g. tarball installed to ~/.local),
             // never overwrite the real binary with a shell script helper!
             if let Some(helper) = helper_path() {
                 if helper.exists() && is_elf_binary(&helper) {
@@ -380,26 +364,6 @@ pub async fn cli_install_helper() -> Result<CliStatus, String> {
             std::fs::rename(&tmp, &path)
                 .map_err(|e| format!("rename to {}: {e}", path.display()))?;
 
-            #[cfg(target_os = "linux")]
-            {
-                if let Some(atlas_link) =
-                    dirs::home_dir().map(|h| h.join(".local").join("bin").join("atlas"))
-                {
-                    let usr_atlas = std::path::Path::new("/usr/bin/atlas");
-                    let safe_to_link = !usr_atlas.exists() || is_atlas_binary(usr_atlas);
-                    if safe_to_link {
-                        if let Ok(meta) = std::fs::symlink_metadata(&atlas_link) {
-                            if meta.file_type().is_symlink() && !atlas_link.exists() {
-                                let _ = std::fs::remove_file(&atlas_link);
-                                let _ = std::os::unix::fs::symlink("atl", &atlas_link);
-                            }
-                        } else {
-                            let _ = std::os::unix::fs::symlink("atl", &atlas_link);
-                        }
-                    }
-                }
-            }
-
             Ok(())
         }
     })
@@ -408,7 +372,7 @@ pub async fn cli_install_helper() -> Result<CliStatus, String> {
 
     tracing::info!(
         target: "atlas::cli",
-        "installed atlas CLI helper at {} (version {version})",
+        "installed quotatlas CLI helper at {} (version {version})",
         path.display()
     );
     cli_status().await

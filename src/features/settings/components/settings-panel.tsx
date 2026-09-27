@@ -1,3 +1,4 @@
+// Modified by Quotatlas from upstream Atlas (Apache-2.0).
 import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { toast } from "sonner";
@@ -44,6 +45,7 @@ import { useSettingsNav, type SettingsSection } from "../stores/settings-nav-sto
 import { openConfigFile } from "../lib/atlas-config-api";
 import { useSettingsStore } from "@/features/settings/stores/settings-store";
 import { useAgentRegistryStore } from "@/features/agents/stores/agent-registry-store";
+import { TELEMETRY_AVAILABLE } from "@/lib/quotatlas";
 
 const SECTIONS: Array<{
   id: SettingsSection;
@@ -285,7 +287,7 @@ function GeneralSettings() {
     try {
       const next = await invoke<CliStatus>("cli_install_helper");
       setCli(next);
-      toast.success("Installed atlas tools");
+      toast.success("Installed the quotatlas command");
     } catch (e) {
       toast.error(`Install failed: ${e instanceof Error ? e.message : String(e)}`);
     } finally {
@@ -301,7 +303,7 @@ function GeneralSettings() {
             ? ` (version ${cli.installedVersion}, current ${cli.currentVersion})`
             : ` (version unknown, current ${cli.currentVersion})`
         }`
-    : `Will install to ${cli?.path ?? "~/.local/bin/atlas"}`;
+    : `Will install to ${cli?.path ?? "~/.local/bin/quotatlas"}`;
 
   return (
     <div className="space-y-6">
@@ -309,7 +311,7 @@ function GeneralSettings() {
       {configError && (
         <div className="rounded-md border border-warning/40 bg-warning-muted p-3 space-y-2">
           <p className="text-sm font-medium text-foreground">
-            Atlas is using the last valid settings — config.toml has a problem
+            Quotatlas is using the last valid settings — config.toml has a problem
           </p>
           <p className="text-xs text-secondary-foreground font-mono break-all">{configError}</p>
           <div className="flex gap-2">
@@ -380,11 +382,11 @@ function GeneralSettings() {
       </SettingRow>
       <SectionTitle
         title="Terminal notifications"
-        subtitle="Be told when a command finishes or wants input, wherever you are in Atlas"
+        subtitle="Be told when a command finishes or wants input, wherever you are in Quotatlas"
       />
       <SettingRow
         label="Terminal notifications"
-        description="A command that fails, runs longer than the threshold, or asks for input raises an item in the notification center, a toast when its terminal is off screen, and a macOS notification when Atlas is in the background. Nothing fires while you are looking at that terminal."
+        description="A command that fails, runs longer than the threshold, or asks for input raises an item in the notification center, a toast when its terminal is off screen, and a macOS notification when Quotatlas is in the background. Nothing fires while you are looking at that terminal."
       >
         <Toggle
           checked={settings.terminalNotifications}
@@ -430,7 +432,7 @@ function GeneralSettings() {
       </SettingRow>
       <SettingRow
         label="macOS notifications"
-        description="Also raise a system notification when the Atlas window is not focused."
+        description="Also raise a system notification when the Quotatlas window is not focused."
       >
         <Toggle
           checked={settings.terminalNotifyNative}
@@ -449,7 +451,7 @@ function GeneralSettings() {
       <SectionTitle title="Behaviour" subtitle="Files, logs and the editor" />
       <SettingRow
         label="Auto-add .atlas to .gitignore"
-        description="When you open a git-tracked project, Atlas adds `.atlas/` to the project's .gitignore (creating one if needed). Atlas keeps its caches and state in `.atlas/` — keeping it out of version control is almost always what you want. No-op on non-git projects."
+        description="When you open a git-tracked project, Quotatlas adds `.atlas/` to the project's .gitignore (creating one if needed). Quotatlas keeps its caches and state in `.atlas/` — keeping it out of version control is almost always what you want. No-op on non-git projects."
       >
         <Toggle
           checked={settings.autoAddAtlasGitignore}
@@ -475,40 +477,44 @@ function GeneralSettings() {
         />
       </SettingRow>
       <SettingRow
-        label="Enable Atlas Logs"
-        description="Record Atlas-internal events (sign-in, agent start/finish, browser/file open, etc.) into the Logs tab under the `atlas` source. Default ON so when something goes wrong you can open the Logs tab, filter by `atlas`, and share a timeline. Turn off if the noise bothers you."
+        label="Enable App Logs"
+        description="Record app-internal events (agent start/finish, browser/file open, etc.) into the Logs tab under the `atlas` source. Default ON so when something goes wrong you can open the Logs tab, filter by `atlas`, and share a timeline. Turn off if the noise bothers you."
       >
         <Toggle
           checked={settings.enableAtlasLogs}
           onChange={(next) => updateSettings({ enableAtlasLogs: next })}
         />
       </SettingRow>
-      <SettingRow
-        label="Share usage data"
-        description="Privacy-preserving usage data (app launches, which agents and tools you use, how many files a turn touched, token counts, crashes) to help improve Atlas. Never your prompts, code, file paths, or keys. See TELEMETRY.md."
-      >
-        <Toggle
-          checked={settings.shareTelemetry}
-          onChange={(next) => {
-            // Rust re-syncs the live gate itself on every settings commit
-            // (`notify_settings_changed`) — this only needs to flip the
-            // frontend-only `posthog-js` crash reporter, which Rust can't
-            // reach.
-            updateSettings({ shareTelemetry: next });
-            setTelemetryEnabled(next);
-          }}
-        />
-      </SettingRow>
-      <SettingRow
-        label="Link usage data to my account"
-        description="While signed in, attribute usage data to your Atlas account instead of an anonymous per-device id. Turn this off to stay anonymous even when signed in — already-linked history stays linked."
-      >
-        <Toggle
-          checked={settings.linkTelemetryToAccount}
-          disabled={!settings.shareTelemetry}
-          onChange={(next) => updateSettings({ linkTelemetryToAccount: next })}
-        />
-      </SettingRow>
+      {TELEMETRY_AVAILABLE && (
+        <>
+          <SettingRow
+            label="Share usage data"
+            description="Privacy-preserving usage data (app launches, which agents and tools you use, how many files a turn touched, token counts, crashes) to help improve Atlas. Never your prompts, code, file paths, or keys. See TELEMETRY.md."
+          >
+            <Toggle
+              checked={settings.shareTelemetry}
+              onChange={(next) => {
+                // Rust re-syncs the live gate itself on every settings commit
+                // (`notify_settings_changed`) — this only needs to flip the
+                // frontend-only `posthog-js` crash reporter, which Rust can't
+                // reach.
+                updateSettings({ shareTelemetry: next });
+                setTelemetryEnabled(next);
+              }}
+            />
+          </SettingRow>
+          <SettingRow
+            label="Link usage data to my account"
+            description="While signed in, attribute usage data to your Atlas account instead of an anonymous per-device id. Turn this off to stay anonymous even when signed in — already-linked history stays linked."
+          >
+            <Toggle
+              checked={settings.linkTelemetryToAccount}
+              disabled={!settings.shareTelemetry}
+              onChange={(next) => updateSettings({ linkTelemetryToAccount: next })}
+            />
+          </SettingRow>
+        </>
+      )}
       <SettingRow
         label="Send feedback"
         description="Report a bug, request a feature, or tell us what feels clumsy — with an optional screenshot. Opens a panel in the bottom-right corner."
@@ -552,8 +558,8 @@ function GeneralSettings() {
         />
       </SettingRow>
       <SettingRow
-        label="Atlas CLI"
-        description={`Adds an \`atlas\` command to your shell — type \`atlas .\` in any terminal to open the current folder as a project. Refreshed automatically on every launch so an older copy never lingers. ${cliInstalledLine}.`}
+        label="Quotatlas CLI"
+        description={`Adds a \`quotatlas\` command to your shell — type \`quotatlas .\` in any terminal to open the current folder as a project. Refreshed automatically on every launch so an older copy never lingers. ${cliInstalledLine}.`}
       >
         <button
           type="button"
@@ -710,7 +716,7 @@ function UpdatesSettings() {
 
   return (
     <div className="space-y-6">
-      <SectionTitle title="Updates" subtitle="How Atlas keeps itself up to date" />
+      <SectionTitle title="Updates" subtitle="How Quotatlas keeps itself up to date" />
       <SettingRow
         label="Automatic updates"
         description={
@@ -718,7 +724,7 @@ function UpdatesSettings() {
             ? "Check for a newer version in the background and download the installer automatically. Windows asks for permission before it is installed. Turn off to never check or download."
             : isLinux
               ? "Check for a newer version in the background. On Linux, update via your package manager (AUR, deb, rpm) or download the latest release asset. Turn off to never check."
-              : "Check for a newer version in the background and download it automatically. Updates are Apple-signed and notarized; Atlas verifies the signature before installing. Turn off to never check or download."
+              : "Check for a newer version in the background and download it automatically. Updates are Apple-signed and notarized; Quotatlas verifies the signature before installing. Turn off to never check or download."
         }
       >
         <Toggle
@@ -739,7 +745,7 @@ function UpdatesSettings() {
         label={ready ? `Update ready${version ? ` (${version})` : ""}` : "Check for updates"}
         description={
           ready
-            ? "A new version has been downloaded and verified. Restart now, or it'll be applied automatically the next time you quit Atlas."
+            ? "A new version has been downloaded and verified. Restart now, or it'll be applied automatically the next time you quit Quotatlas."
             : "Check now regardless of the automatic-update setting. Newer versions download in the background; you'll be prompted to restart when ready."
         }
       >
@@ -752,12 +758,12 @@ function UpdatesSettings() {
 function AboutSettings() {
   return (
     <div className="space-y-4">
-      <SectionTitle title="About" subtitle="Atlas IDE" />
+      <SectionTitle title="About" subtitle="Quotatlas IDE" />
       <div className="rounded-lg border border-border bg-card p-4 space-y-2">
         <div className="flex items-center gap-2">
           <AtlasIcon size={40} className="rounded-xl" />
           <div>
-            <p className="text-sm font-semibold text-foreground">Atlas</p>
+            <p className="text-sm font-semibold text-foreground">Quotatlas</p>
             <p className="text-2xs text-muted-foreground">v0.3.3 — The second brain IDE</p>
           </div>
         </div>

@@ -3,7 +3,7 @@
   "app": {
     "windows": [
       {
-        "title": "Atlas",
+        "title": "Quotatlas",
         "width": 1280,
         "height": 800,
         "minWidth": 960,
@@ -42,8 +42,7 @@
           "libglib2.0-0"
         ],
         "provides": [
-          "tryatlas",
-          "atl"
+          "quotatlas"
         ]
       },
       "rpm": {
@@ -55,8 +54,7 @@
           "glib2"
         ],
         "provides": [
-          "tryatlas",
-          "atl"
+          "quotatlas"
         ]
       },
       "appimage": {

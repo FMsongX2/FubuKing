@@ -1,3 +1,4 @@
+// Modified by Quotatlas from upstream Atlas (Apache-2.0).
 import { useCallback, useMemo, useState } from "react";
 import { CopyGlyph } from "@/ui/animated-icon";
 import { AlertTriangle, ArrowLeft, Check, FileJson, Link2, Upload } from "lucide-react";
@@ -187,7 +188,7 @@ function ImportView({
             />
             <p className="caption">
               Fetched once, with a ten-second limit. The file is converted and then forgotten —
-              Atlas never reads the URL again.
+              Quotatlas never reads the URL again.
             </p>
           </div>
         )}
@@ -368,7 +369,7 @@ function FidelityBadge({ report }: { report: ThemeImportReport }) {
 function Counts({ report }: { report: ThemeImportReport }) {
   const items = [
     { label: "mapped", value: report.counts.mapped, hint: "the source said this" },
-    { label: "derived", value: report.counts.derived, hint: "Atlas worked this out" },
+    { label: "derived", value: report.counts.derived, hint: "Quotatlas worked this out" },
     { label: "ignored", value: report.counts.ignored, hint: "nowhere to put it" },
   ];
   return (
@@ -497,9 +498,9 @@ function ExportView({ themes }: { themes: ThemeSummary[] }) {
     <ScrollArea className="min-h-0 flex-1">
       <div className="flex flex-col gap-3 p-3">
         <p className="caption">
-          Any Atlas theme as a shadcn <span className="code">registry:style</span> item. The base
-          tokens cross verbatim; everything above them — palette, editor, terminal, syntax, diff,
-          comms, agent chips — has no shadcn equivalent and is dropped.
+          Any Quotatlas theme as a shadcn <span className="code">registry:style</span> item. The
+          base tokens cross verbatim; everything above them — palette, editor, terminal, syntax,
+          diff, comms, agent chips — has no shadcn equivalent and is dropped.
         </p>
         <div className="flex flex-wrap gap-1">
           {themes.map((theme) => (

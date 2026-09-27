@@ -1,3 +1,4 @@
+// Modified by Quotatlas from upstream Atlas (Apache-2.0).
 import { useState, useEffect, useRef, useCallback } from "react";
 import { RailGlyph } from "@/ui/animated-icon";
 import { useActionShortcut } from "@/features/keybindings/lib/use-action-shortcut";
@@ -94,7 +95,7 @@ export function Titlebar() {
       : undefined) ??
     (currentProject ? projects.find((w) => w.path === currentProject.path)?.name : undefined) ??
     currentProject?.name ??
-    "Atlas";
+    "Quotatlas";
   const { windowRef } = useTauriWindow();
   // The same hook the project sidebar reads, so the two cannot disagree about
   // whether the traffic lights are on screen.

@@ -3,7 +3,7 @@
   "app": {
     "windows": [
       {
-        "title": "Atlas",
+        "title": "Quotatlas",
         "width": 1280,
         "height": 800,
         "minWidth": 960,
@@ -24,8 +24,8 @@
     "targets": [
       "msi"
     ],
-    "publisher": "Atlas",
-    "homepage": "https://tryatlas.cc/",
+    "publisher": "Quotatlas contributors",
+    "homepage": "https://github.com/FMsongX2/quotatlas",
     "windows": {
       "webviewInstallMode": {
         "type": "downloadBootstrapper",

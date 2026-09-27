@@ -1,3 +1,4 @@
+// Modified by Quotatlas from upstream Atlas (Apache-2.0).
 //! Global tracing subscriber installer.
 //!
 //! Routes `tracing::info!` / `warn!` / `error!` calls from anywhere in the
@@ -29,8 +30,8 @@ use tracing_subscriber::EnvFilter;
 
 /// Must match `identifier` in `tauri.conf.json`; the subscriber is installed
 /// before a Tauri handle exists, so the path is derived rather than resolved.
-const BUNDLE_ID: &str = "dev.atlas.ide";
-const LOG_FILE_PREFIX: &str = "atlas";
+const BUNDLE_ID: &str = "io.github.fmsongx2.quotatlas";
+const LOG_FILE_PREFIX: &str = "quotatlas";
 const MAX_LOG_FILES: usize = 7;
 
 static LOG_DIR: OnceLock<Option<PathBuf>> = OnceLock::new();

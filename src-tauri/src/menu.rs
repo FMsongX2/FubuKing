@@ -1,3 +1,4 @@
+// Modified by Quotatlas from upstream Atlas (Apache-2.0).
 //! Native macOS application menu.
 //!
 //! Atlas previously shipped no menu, so Tauri installed its *default* menu —
@@ -28,10 +29,20 @@ pub fn build(app: &tauri::AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
     // App menu (first submenu → becomes the macOS application menu).
     let app_menu = Submenu::with_items(
         app,
-        "Atlas",
+        "Quotatlas",
         true,
         &[
-            &PredefinedMenuItem::about(app, None, Some(AboutMetadata::default()))?,
+            &PredefinedMenuItem::about(
+                app,
+                None,
+                Some(AboutMetadata {
+                    copyright: Some(
+                        "Quotatlas contributors. Based on Atlas by Adib Mohsin (Apache-2.0)."
+                            .into(),
+                    ),
+                    ..AboutMetadata::default()
+                }),
+            )?,
             &PredefinedMenuItem::separator(app)?,
             &PredefinedMenuItem::services(app, None)?,
             &PredefinedMenuItem::separator(app)?,

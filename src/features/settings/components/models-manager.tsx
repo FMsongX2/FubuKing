@@ -1,3 +1,4 @@
+// Modified by Quotatlas from upstream Atlas (Apache-2.0).
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { Search, Download, Check, Trash2, Loader2, AlertTriangle } from "lucide-react";
@@ -276,7 +277,7 @@ function ConfirmReindex({
             <p className="text-base font-semibold text-foreground">Switch embedding model?</p>
             <p className="text-xs text-secondary-foreground mt-1 leading-relaxed">
               Using <span className="text-foreground">{name}</span> re-embeds your memory in a new
-              vector space. Atlas will wipe this project's memory index and rebuild it in the
+              vector space. Quotatlas will wipe this project's memory index and rebuild it in the
               background. Your notes and files are untouched.
             </p>
           </div>

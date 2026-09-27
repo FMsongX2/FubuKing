@@ -1,3 +1,4 @@
+// Modified by Quotatlas from upstream Atlas (Apache-2.0).
 import type { ReactElement } from "react";
 import { Menu as DropdownMenu } from "@base-ui/react/menu";
 import { Keyboard, LayoutTemplate, LogIn, LogOut, Palette, Settings, Zap } from "lucide-react";
@@ -9,6 +10,7 @@ import type { SettingsSection } from "@/features/settings/stores/settings-nav-st
 import { type AccountUser, type SignedIn, type SignedOut } from "../lib/auth-api";
 import { useAuthStore } from "../stores/auth-store";
 import { AccountAvatar } from "./account-avatar";
+import { HOSTED_SERVICES_ENABLED } from "@/lib/quotatlas";
 
 /**
  * The account menu's destinations.
@@ -116,7 +118,7 @@ export function AccountMenu({
                 Keeping it in the same place means the destinations below never
                 move under the pointer as the user signs in or out. */}
             {user && <Header user={user} />}
-            {!signedIn && (
+            {!signedIn && HOSTED_SERVICES_ENABLED && (
               <>
                 <DropdownMenu.Item onClick={() => void beginSignIn()} className={ITEM_CLASS}>
                   <LogIn size={13} className="shrink-0 text-[var(--muted-foreground)]" />

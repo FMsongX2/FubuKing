@@ -1,3 +1,4 @@
+// Modified by Quotatlas from upstream Atlas (Apache-2.0).
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useProjectGitStore, type GitSummary } from "../stores/project-git-store";
 import { useVirtualizer } from "@tanstack/react-virtual";
@@ -41,6 +42,13 @@ import { copyText } from "@/lib/clipboard";
 import { getVersion } from "@tauri-apps/api/app";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { GithubIcon } from "@/components/github-icon";
+import {
+  QUOTATLAS_DISCUSSIONS_URL,
+  QUOTATLAS_DOCS_URL,
+  QUOTATLAS_RELEASES_URL,
+  QUOTATLAS_REPO_URL,
+  UPSTREAM_ATLAS_URL,
+} from "@/lib/quotatlas";
 import { useFeedbackStore } from "@/features/feedback/stores/feedback-store";
 import { openSettingsSection } from "@/features/settings/lib/open-settings";
 import { useProjectStore, type Project, type ProjectGroup } from "../stores/project-store";
@@ -1421,11 +1429,6 @@ function EmptyRail() {
 
 /** Where the help menu points. Grouped as they render: docs and support, then
  *  the public channels, then the app's own surfaces. */
-const DOCS_URL = "https://docs.tryatlas.cc/docs/getting-started";
-const GITHUB_URL = "https://github.com/pacifio/atlas";
-const DISCORD_URL = "https://discord.gg/GmnFggaPfP";
-const X_URL = "https://x.com/tryatlas_cc";
-const SITE_URL = "https://tryatlas.cc/";
 
 function HelpItem({
   icon,
@@ -1474,7 +1477,7 @@ function HelpMenu() {
             <HelpItem
               icon={<BookOpen size={12} />}
               label="Docs"
-              onSelect={() => void openUrl(DOCS_URL)}
+              onSelect={() => void openUrl(QUOTATLAS_DOCS_URL)}
             />
             <HelpItem
               icon={<MessageCircleQuestion size={12} />}
@@ -1494,14 +1497,18 @@ function HelpMenu() {
             <HelpItem
               icon={<GithubIcon className="size-3" />}
               label="GitHub repo"
-              onSelect={() => void openUrl(GITHUB_URL)}
+              onSelect={() => void openUrl(QUOTATLAS_REPO_URL)}
             />
             <HelpItem
               icon={<MessageCircle size={12} />}
-              label="Discord community"
-              onSelect={() => void openUrl(DISCORD_URL)}
+              label="Discussions"
+              onSelect={() => void openUrl(QUOTATLAS_DISCUSSIONS_URL)}
             />
-            <HelpItem icon={<XIcon />} label="Follow on X" onSelect={() => void openUrl(X_URL)} />
+            <HelpItem
+              icon={<GithubIcon className="size-3" />}
+              label="Built on Atlas"
+              onSelect={() => void openUrl(UPSTREAM_ATLAS_URL)}
+            />
 
             <DropdownMenu.Separator className="my-1 h-px bg-border" />
 
@@ -1512,23 +1519,13 @@ function HelpMenu() {
             />
             <HelpItem
               icon={<Globe size={12} />}
-              label="Our website"
-              onSelect={() => void openUrl(SITE_URL)}
+              label="Releases"
+              onSelect={() => void openUrl(QUOTATLAS_RELEASES_URL)}
             />
           </DropdownMenu.Popup>
         </DropdownMenu.Positioner>
       </DropdownMenu.Portal>
     </DropdownMenu.Root>
-  );
-}
-
-/** X's mark. Not in lucide (it ships the pre-rebrand bird), and `currentColor`
- *  on a `fill` so it tracks the row's hover step like every other icon here. */
-function XIcon() {
-  return (
-    <svg viewBox="0 0 24 24" className="size-3" fill="currentColor" aria-hidden>
-      <path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z" />
-    </svg>
   );
 }
 
