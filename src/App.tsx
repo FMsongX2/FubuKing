@@ -1542,6 +1542,16 @@ export function App() {
         dirty: false,
         data: {},
       }),
+    // Every account's limits (ADR Q-0002) — a singleton, like Usage.
+    "quota.open": () =>
+      addTab({
+        id: "quota",
+        type: "quota",
+        title: "Quota",
+        closable: true,
+        dirty: false,
+        data: {},
+      }),
     // Session Capture (the popover behind the titlebar's project pill). Local
     // `captureOpen` state lives in `ProjectLabel`, so this reaches it via the
     // same `atlas:open-capture` event the command palette entry dispatches.

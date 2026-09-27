@@ -3,6 +3,7 @@ mod app_icon;
 mod auth;
 mod commands;
 mod hosted;
+mod quota;
 mod logging;
 #[cfg(target_os = "macos")]
 mod menu;
@@ -259,6 +260,7 @@ pub fn run() {
             );
 
             commands::agents::install_manager(app.handle());
+            quota::start_polling(app.handle().clone());
             // Silent background refresh of model pricing from models.dev — first
             // launch populates the cache; later launches update only on change.
             commands::models_pricing::refresh_in_background(app.handle());
@@ -355,6 +357,7 @@ pub fn run() {
         .manage(Arc::new(KnowledgeMetaState::new()))
         .manage(Arc::new(KnowledgeLinksState::new()))
         .manage(CliLaunchState::new(initial_project))
+        .manage(Arc::new(quota::QuotaService::default()))
         .manage(commands::memory_sharing::MemorySharingState::new())
         .manage(commands::shared_memory::SharedMemoryStore::new())
         // Owns the per-Project session stores and the capture worker
@@ -671,6 +674,8 @@ pub fn run() {
             commands::registry::acp_registry_install,
             commands::accounts::accounts_list,
             commands::accounts::accounts_create,
+            commands::quota::quota_snapshot,
+            commands::quota::quota_refresh,
             commands::registry::acp_registry_install_detected,
             commands::registry::acp_registry_uninstall,
             commands::registry::acp_registry_update,

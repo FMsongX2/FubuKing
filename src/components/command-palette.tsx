@@ -1,3 +1,4 @@
+// Modified by Quotatlas from upstream Atlas (Apache-2.0).
 import { useState, useMemo, useRef, useEffect, useLayoutEffect, Fragment } from "react";
 import { ActionKbd } from "@/features/keybindings/components/action-kbd";
 import type { ActionId } from "@/features/keybindings/lib/actions";
@@ -23,6 +24,7 @@ import {
   BrainCircuit,
   ScrollText,
   Gauge,
+  BarChart3,
   Code,
   GitBranch,
   ArrowLeftToLine,
@@ -90,6 +92,7 @@ export function CommandPalette({
     "memory",
     "log",
     "usage",
+    "quota",
     "settings",
   ]);
   const openTab = (type: TabType, title: string) =>
@@ -204,6 +207,14 @@ export function CommandPalette({
         icon: Gauge,
         category: "Open",
         action: () => openTab("usage", "Usage"),
+      },
+      {
+        id: "new-quota",
+        label: "Quota",
+        actionId: "quota.open",
+        icon: BarChart3,
+        category: "Open",
+        action: () => openTab("quota", "Quota"),
       },
 
       // ── Layout toggles ──

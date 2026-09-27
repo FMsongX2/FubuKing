@@ -14,6 +14,7 @@ import {
   Pin,
   PinOff,
   Gauge,
+  BarChart3,
   ChevronRight,
   ChevronDown,
   ChevronsDownUp,
@@ -1087,6 +1088,20 @@ export function ProjectSidebar() {
                       id: "usage",
                       type: "usage",
                       title: "Usage",
+                      closable: true,
+                      dirty: false,
+                      data: {},
+                    })
+                  }
+                />
+                <NavItem
+                  icon={<BarChart3 size={14} />}
+                  label="Quota"
+                  onClick={() =>
+                    addTab({
+                      id: "quota",
+                      type: "quota",
+                      title: "Quota",
                       closable: true,
                       dirty: false,
                       data: {},

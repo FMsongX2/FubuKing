@@ -1,3 +1,4 @@
+// Modified by Quotatlas from upstream Atlas (Apache-2.0).
 import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
 import path from "node:path";
@@ -121,6 +122,7 @@ const REVIEWED_AGENT_COMMANDS = [
   "nav.newTabPalette",
   "nav.layoutSwitcher",
   "usage.open",
+  "quota.open",
   "hintNav.toggle",
   "panels.left",
   "panels.right",

@@ -36,6 +36,7 @@ import { listen } from "@tauri-apps/api/event";
 import { toast } from "sonner";
 import type { Window as TauriWindow } from "@tauri-apps/api/window";
 import { useUpdaterStore } from "@/features/updater/stores/updater-store";
+import { QuotaIndicator } from "@/features/quota/components/quota-indicator";
 import { updater } from "@/features/updater/lib/updater-api";
 import { AccountButton } from "@/features/auth/components/account-button";
 import { useOrgStore } from "@/features/organisations/stores/org-store";
@@ -178,6 +179,7 @@ export function Titlebar() {
       {/* One dock, account included. Without a project there are no app-level
           actions to gather, so the account stands alone as it always has —
           signing in has to be reachable from an empty window. */}
+      <QuotaIndicator />
       {currentProject ? (
         <ActionDock />
       ) : (

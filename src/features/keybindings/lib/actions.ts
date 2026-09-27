@@ -1,3 +1,4 @@
+// Modified by Quotatlas from upstream Atlas (Apache-2.0).
 /**
  * The action registry — the single source of truth for every rebindable
  * shortcut: its stable id, title, category, default chord(s) and the focus
@@ -136,6 +137,7 @@ export const ACTIONS = [
     defaults: ["cmd+alt+l"],
   },
   { id: "usage.open", title: "Open Usage", category: "Navigation", when: "global", defaults: [] },
+  { id: "quota.open", title: "Open Quota", category: "Navigation", when: "global", defaults: [] },
   {
     id: "hintNav.toggle",
     title: "Hint navigation",

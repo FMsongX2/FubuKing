@@ -14,6 +14,7 @@ import type { MockHandlers } from "../types";
 import builtinThemesJson from "../fixtures/builtin-themes.json";
 import { agentHandlers } from "../fake-agent";
 import { accountsHandlers } from "../fixtures/accounts";
+import { quotaHandlers } from "../fixtures/quota";
 import { artifactsHandlers } from "../fixtures/artifacts";
 import { captureHandlers } from "../fixtures/capture";
 import { commsHandlers } from "../fixtures/comms";
@@ -64,6 +65,7 @@ export const baseFixtureMaps: Readonly<Record<string, MockHandlers>> = {
   "fixtures/spaces": spacesHandlers,
   "fixtures/terminal": terminalHandlers,
   "fixtures/accounts": accountsHandlers,
+  "fixtures/quota": quotaHandlers,
 };
 
 export const baseHandlers: MockHandlers = {
@@ -173,6 +175,7 @@ export const baseHandlers: MockHandlers = {
   ...spacesHandlers,
   ...terminalHandlers,
   ...accountsHandlers,
+  ...quotaHandlers,
 
   // ── fire-and-forget housekeeping ────────────────────────────────────────
   comms_ready: nothing,

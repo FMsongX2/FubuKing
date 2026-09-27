@@ -1,6 +1,7 @@
 // Modified by Quotatlas from upstream Atlas (Apache-2.0).
 pub mod accounts;
 pub mod agent_entitlement;
+pub mod quota;
 pub mod agent_host;
 pub mod agent_analytics;
 pub mod agent_memory;

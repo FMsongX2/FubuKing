@@ -81,7 +81,7 @@ pub(super) fn tools() -> Vec<Tool> {
                     "staged": { "type": "boolean" },
                     "commit": { "type": "string" },
                     "section": { "type": "string", "enum": ["general", "appearance", "icons", "layouts", "providers", "skills", "agents", "accounts", "models", "updates", "keybindings", "about"] },
-                    "type": { "type": "string", "enum": ["canvas", "browser", "tasks", "knowledge", "knowledge-graph", "memory", "settings", "log", "usage", "artifacts"] },
+                    "type": { "type": "string", "enum": ["canvas", "browser", "tasks", "knowledge", "knowledge-graph", "memory", "settings", "log", "usage", "quota", "artifacts"] },
                     "sessionId": { "type": "string" },
                     "agent": { "type": "string" },
                     "url": { "type": "string" },

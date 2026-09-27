@@ -13,7 +13,7 @@ with shared memory and a history that survives every rate limit.
 </div>
 
 > [!WARNING]
-> Quotatlas is in early alpha. It is a fork of [Atlas](https://github.com/pacifio/atlas) and today behaves like Atlas with its hosted services and telemetry removed. The quota and account features below are being built in the open; the roadmap says what works now.
+> Quotatlas is in early alpha. It is a fork of [Atlas](https://github.com/pacifio/atlas) with its hosted services and telemetry removed, plus accounts and quota tracking. The roadmap says what works now.
 
 ## Why
 
@@ -52,8 +52,8 @@ Added by Quotatlas:
 
 - [x] Fork Atlas, rebrand, install side by side with Atlas
 - [x] Remove telemetry and hosted services
-- [ ] Account profiles as agent entries (`CLAUDE_CONFIG_DIR`, `CODEX_HOME`)
-- [ ] Quota panel and title-bar indicator
+- [x] Account profiles as agent entries (`CLAUDE_CONFIG_DIR`, `CODEX_HOME`), managed in Settings → Accounts
+- [x] Quota tab and title-bar readout: Codex through its app server, Claude through its status line
 - [ ] Limit detection and one-click handoff to another account or agent
 - [ ] Managed CLIProxyAPI pool, and the native agent on your own subscriptions
 - [ ] Signed release builds
@@ -76,7 +76,7 @@ The first Rust build takes a few minutes. `bun run test:contracts` runs the repo
 Quotatlas stands on:
 
 - [Atlas](https://github.com/pacifio/atlas) by Adib Mohsin, Apache-2.0. Quotatlas is a modified version of it; see [NOTICE](NOTICE).
-- [Quotio](https://github.com/nguyenphutrong/quotio), MIT, whose quota model and CLIProxyAPI lifecycle informed the quota layer.
+- [Quotio](https://github.com/nguyenphutrong/quotio), MIT, whose quota model, CLIProxyAPI lifecycle and quota screens informed the quota layer and its UI.
 - [CLIProxyAPI](https://github.com/router-for-me/CLIProxyAPI), MIT, downloaded at runtime and verified against its published checksum when the pool is enabled.
 
 Quotatlas is not affiliated with or endorsed by Atlas, Anthropic or OpenAI.

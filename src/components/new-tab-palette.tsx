@@ -1,3 +1,4 @@
+// Modified by Quotatlas from upstream Atlas (Apache-2.0).
 import { useState, useMemo, useRef, useEffect, useLayoutEffect, type ElementType } from "react";
 import { ActionKbd } from "@/features/keybindings/components/action-kbd";
 import type { ActionId } from "@/features/keybindings/lib/actions";
@@ -11,6 +12,7 @@ import {
   BrainCircuit,
   ScrollText,
   Gauge,
+  BarChart3,
   Code,
   Settings,
   Search,
@@ -67,6 +69,7 @@ const MODULES: ModuleEntry[] = [
   },
   { id: "log", type: "log", label: "Log", icon: ScrollText },
   { id: "usage", type: "usage", label: "Usage", icon: Gauge, actionId: "usage.open" },
+  { id: "quota", type: "quota", label: "Quota", icon: BarChart3, actionId: "quota.open" },
   { id: "settings", type: "settings", label: "Settings", icon: Settings, actionId: "app.settings" },
 ];
 

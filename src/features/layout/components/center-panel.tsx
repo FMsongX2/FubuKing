@@ -1,3 +1,4 @@
+// Modified by Quotatlas from upstream Atlas (Apache-2.0).
 import {
   useEffect,
   useRef,
@@ -81,6 +82,9 @@ const LogPanel = lazy(() =>
 const UsagePanel = lazy(() =>
   import("@/features/usage/components/usage-panel").then((m) => ({ default: m.UsagePanel })),
 );
+const QuotaPanel = lazy(() =>
+  import("@/features/quota/components/quota-panel").then((m) => ({ default: m.QuotaPanel })),
+);
 const ArtifactsPanel = lazy(() =>
   import("@/features/artifacts/components/artifacts-panel").then((m) => ({
     default: m.ArtifactsPanel,
@@ -119,6 +123,7 @@ import {
   Columns2,
   House,
   Gauge,
+  BarChart3,
   Layers,
   Frame,
 } from "lucide-react";
@@ -145,6 +150,7 @@ const tabIcons: Record<TabType, FallbackIcon> = {
   pdf: FileText,
   unsupported: Code,
   usage: Gauge,
+  quota: BarChart3,
   artifacts: Layers,
   "comms-draft": FileText,
   spaces: Frame,
@@ -965,6 +971,8 @@ function TabContent({ tab }: { tab: Tab }) {
       return <LogPanel />;
     case "usage":
       return <UsagePanel />;
+    case "quota":
+      return <QuotaPanel />;
     case "artifacts":
       return <ArtifactsPanel />;
     case "media":

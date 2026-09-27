@@ -1,3 +1,4 @@
+// Modified by Quotatlas from upstream Atlas (Apache-2.0).
 export const TAB_TYPES = [
   "chat",
   "canvas",
@@ -16,6 +17,7 @@ export const TAB_TYPES = [
   "pdf",
   "unsupported",
   "usage",
+  "quota",
   "artifacts",
   "comms-draft",
   "spaces",
@@ -34,6 +36,7 @@ export const PROJECTLESS_TYPES: ReadonlySet<TabType> = new Set<TabType>([
   "comms-draft",
   "spaces",
   "usage",
+  "quota",
 ]);
 
 /**

@@ -8,7 +8,9 @@
 //!
 //! This module is where Quotatlas branches on agent identity, because the
 //! profile variable is a property of each CLI: Claude Code reads
-//! `CLAUDE_CONFIG_DIR`, the Codex CLI reads `CODEX_HOME`. Removing an account
+//! `CLAUDE_CONFIG_DIR`, the Codex CLI reads `CODEX_HOME`. A Claude profile
+//! also gets the status line script the quota service reads limits through
+//! (`crate::quota::claude`). Removing an account
 //! is the ordinary `acp_registry_uninstall`; the profile home is kept so a
 //! reinstalled account finds its login again.
 
@@ -164,14 +166,13 @@ fn account_view(host: &AgentHost, id: &str, entry: &AgentServerSettings) -> Opti
     })
 }
 
-/// Every account entry in the installed map, sorted by display order.
-#[tauri::command]
-pub fn accounts_list(app: AppHandle) -> Vec<AccountView> {
-    let host = app.state::<Arc<AgentHost>>().inner().clone();
+/// Every account entry in the installed map, sorted by base agent, then
+/// label. Shared with the quota service, which reads the same accounts.
+pub(crate) fn installed_accounts(host: &AgentHost) -> Vec<AccountView> {
     let settings = host.store().settings();
     let mut accounts: Vec<AccountView> = settings
         .iter()
-        .filter_map(|(id, entry)| account_view(&host, id, entry))
+        .filter_map(|(id, entry)| account_view(host, id, entry))
         .collect();
     accounts.sort_by(|a, b| {
         a.base_agent_id
@@ -179,6 +180,13 @@ pub fn accounts_list(app: AppHandle) -> Vec<AccountView> {
             .then_with(|| a.label.to_lowercase().cmp(&b.label.to_lowercase()))
     });
     accounts
+}
+
+/// Every account entry in the installed map.
+#[tauri::command]
+pub fn accounts_list(app: AppHandle) -> Vec<AccountView> {
+    let host = app.state::<Arc<AgentHost>>().inner().clone();
+    installed_accounts(&host)
 }
 
 /// Install a new account of `base_agent_id` named `label`.
@@ -207,6 +215,11 @@ pub async fn accounts_create(
     let id = unique_account_id(&base_agent_id, &label, &installed);
     let home = profile_home(&config_dir, &id);
     create_profile_home(&home)?;
+    if provider == AccountProvider::Claude {
+        // How the quota service reads this account's limits (ADR Q-0002).
+        crate::quota::claude::install_statusline(&home)
+            .map_err(|e| format!("preparing {}: {e}", home.display()))?;
+    }
 
     let entry = AgentServerSettings::account(&base_agent_id, &label, provider.profile_env(&home));
     let settings = super::registry::with_entry(&host, &id, entry.clone());
