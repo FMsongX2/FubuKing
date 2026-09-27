@@ -14,32 +14,23 @@
 //  3. Rows never subscribe to the chat store or the detail-panel store. Data
 //     arrives as props; actions are fired imperatively via `getState()`.
 
-import { memo, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
-import {
-  ArrowRightLeft,
-  BookOpen,
-  ChevronRight,
-  Paperclip,
-  Brain,
-  Bookmark,
-  Code2,
-  ChevronDown,
-  File,
-  FolderClosed,
-  Globe,
-  Pencil,
-  Search,
-  SquareTerminal,
-  Trash2,
-  Wrench,
-  type LucideIcon,
-} from "lucide-react";
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { Bookmark, Brain, ChevronDown, ChevronRight, Code2, Paperclip } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { CachedMarkdown } from "@/lib/markdown-cache";
 import { StreamingMarkdown } from "./streaming-markdown";
 import { openDetail } from "../stores/detail-panel-store";
 import { openTurnDiff } from "../lib/open-turn-diff";
 import { UserRowActions } from "./user-row-actions";
+import { ImageAttachmentStrip } from "./image-attachments";
+import { FILE_DETAIL, ICON_PX, ICON_STROKE, ToolGlyph } from "./tool-glyph";
+import {
+  GroupCommentPill,
+  RowCommentPill,
+  useGroupHasComments,
+  useRowHasComments,
+} from "./chat-comment-pills";
+import { ProseRowActions } from "./prose-row-actions";
 import type {
   UserRow,
   ProseRow,
@@ -49,7 +40,6 @@ import type {
   SeparatorRow,
   TurnFooterRow,
   WorkHeaderRow,
-  MarkerTool,
 } from "../lib/turn-rows";
 import { userRowMessageId } from "../lib/turn-rows";
 import { M } from "../lib/row-metrics";
@@ -110,6 +100,9 @@ export const UserRowView = memo(function UserRowView({
           a long paste dragged the whole bubble past the viewport edge. With
           the chain capped, the fence scrolls horizontally INSIDE the bubble. */}
       <div className="relative flex min-w-0 max-w-[80%] flex-col items-end">
+        {/* Images above the bubble, right-aligned with it — the same tiles
+            the composer showed before send. */}
+        <ImageAttachmentStrip images={row.attachments} className="mb-2 justify-end" />
         {/* The prompt is markdown too. It is written in the same composer that
             accepts fences and lists, and rendering it as flat text collapsed
             every newline — a pasted snippet came back as one run-on paragraph.
@@ -284,16 +277,24 @@ function clampable(row: UserRow): boolean {
 
 export const ProseRowView = memo(function ProseRowView({
   row,
+  tabId,
   agentLabel,
   priority,
+  pinScopeKey,
 }: {
   row: ProseRow;
+  tabId: string;
   agentLabel: string;
   /** Position in the thread — newest parses first. See `CachedMarkdown`. */
   priority: number;
+  pinScopeKey: string;
 }) {
   return (
-    <Column className="py-2">
+    // A settled response reserves the gap its action bar sits in (see
+    // `prose-row-actions.tsx`); the streaming tail does not — nothing here
+    // works on a response that is still arriving, and the one reflow happens
+    // when the turn ends, deliberately.
+    <Column className={cn("py-2", !row.streaming && "relative pb-7")}>
       {/* One left-aligned group: model, dot, time. The timestamp used to be
           pushed to the far right with `ml-auto`, which left a long empty span
           across a 760px column and read as two unrelated headers rather than
@@ -339,6 +340,15 @@ export const ProseRowView = memo(function ProseRowView({
       ) : (
         <CachedMarkdown source={row.text} unstyled priority={priority} className="atlas-prose" />
       )}
+      {!row.streaming && (
+        <ProseRowActions
+          tabId={tabId}
+          messageId={row.id.slice(2)}
+          timestamp={row.timestamp}
+          text={row.text}
+          pinScopeKey={pinScopeKey}
+        />
+      )}
     </Column>
   );
 });
@@ -347,11 +357,42 @@ export const ProseRowView = memo(function ProseRowView({
 
 export const ThinkingRowView = memo(function ThinkingRowView({
   row,
+  tabId,
   onToggleExpand,
 }: {
   row: ThinkingRow;
+  tabId: string;
   onToggleExpand: (id: string) => void;
 }) {
+  // `th:<messageId>`. A discussed thought wears its pill; the wrapper exists
+  // only then, so an undiscussed row's DOM is exactly what it was.
+  const messageId = row.id.slice(3);
+  const discussed = useRowHasComments(tabId, messageId);
+  const toggle = (
+    <button
+      type="button"
+      onClick={() => onToggleExpand(row.id)}
+      className={cn(
+        "flex h-[26px] items-center gap-2 text-left text-base text-[var(--muted-foreground)] hover:text-[var(--secondary-foreground)] cursor-pointer transition-colors",
+        discussed ? "min-w-0 flex-1" : "w-full",
+      )}
+    >
+      {/* Same slot, size and stroke as the tool rows around it. */}
+      <span className="flex w-4 shrink-0 justify-center">
+        <Brain
+          size={ICON_PX}
+          strokeWidth={ICON_STROKE}
+          className={cn(row.streaming && "atlas-marker-running")}
+        />
+      </span>
+      <span>{row.streaming ? "Thinking…" : "Thought process"}</span>
+      <ChevronRight
+        size={ICON_PX}
+        strokeWidth={ICON_STROKE}
+        className={cn("transition-transform", row.expanded && "rotate-90")}
+      />
+    </button>
+  );
   return (
     // A turn often emits several thinking blocks in a row, and at the bare
     // 26px button height they stacked into one undifferentiated block — three
@@ -359,26 +400,14 @@ export const ThinkingRowView = memo(function ThinkingRowView({
     // takes the pitch to 32px (the row plus a quarter) which is enough to tell
     // them apart without turning them into paragraphs.
     <Column className="py-[3px]">
-      <button
-        type="button"
-        onClick={() => onToggleExpand(row.id)}
-        className="flex h-[26px] w-full items-center gap-2 text-left text-base text-[var(--muted-foreground)] hover:text-[var(--secondary-foreground)] cursor-pointer transition-colors"
-      >
-        {/* Same slot, size and stroke as the tool rows around it. */}
-        <span className="flex w-4 shrink-0 justify-center">
-          <Brain
-            size={ICON_PX}
-            strokeWidth={ICON_STROKE}
-            className={cn(row.streaming && "atlas-marker-running")}
-          />
-        </span>
-        <span>{row.streaming ? "Thinking…" : "Thought process"}</span>
-        <ChevronRight
-          size={ICON_PX}
-          strokeWidth={ICON_STROKE}
-          className={cn("transition-transform", row.expanded && "rotate-90")}
-        />
-      </button>
+      {discussed ? (
+        <div className="flex items-center gap-2">
+          {toggle}
+          <RowCommentPill tabId={tabId} chatKey={messageId} />
+        </div>
+      ) : (
+        toggle
+      )}
       {row.expanded && (
         <div className="pb-3 pl-6">
           <pre className="whitespace-pre-wrap break-words font-sans text-sm leading-[19px] text-[var(--muted-foreground)] select-text">
@@ -391,51 +420,6 @@ export const ThinkingRowView = memo(function ThinkingRowView({
 });
 
 // ── Marker ─────────────────────────────────────────────────────────────────
-
-/**
- * One icon per `MarkerTool` key, in the Codex desktop app's vocabulary: the
- * wrench for a loaded tool, the book for a read, the boxed prompt for a
- * command, the folder for a listing, the magnifier for a search.
- *
- * Shapes only, never colours (house rule 2) — the one tint is red on failure.
- * Keyed by the projection's classification so rows stay plain data; see
- * `MarkerTool` in `turn-rows.ts` for how each call is classified.
- */
-const TOOL_ICON: Record<MarkerTool, LucideIcon> = {
-  run: SquareTerminal,
-  read: BookOpen,
-  edit: Pencil,
-  search: Search,
-  list: FolderClosed,
-  fetch: Globe,
-  // A delegated sub-agent is a different KIND of work from a file read.
-  think: Brain,
-  delete: Trash2,
-  move: ArrowRightLeft,
-  file: File,
-  tool: Wrench,
-};
-
-/** Near the height of the 13px row text, drawn at the thin stroke Codex uses. */
-const ICON_PX = 14;
-const ICON_STROKE = 1.5;
-
-/** A tool call's (or a block's) leading icon, red when it failed. */
-function ToolGlyph({ tool, failed }: { tool: MarkerTool; failed: boolean }) {
-  const Icon = TOOL_ICON[tool];
-  return (
-    <Icon
-      size={ICON_PX}
-      strokeWidth={ICON_STROKE}
-      className={failed ? "text-[var(--atlas-status-error-foreground)]" : undefined}
-    />
-  );
-}
-
-/** Rows whose detail is a file the reader can open — only these get the dimmer,
- *  dotted-underline link treatment. A command or a search pattern is not a
- *  link, so it stays in the verb's tone. */
-const FILE_DETAIL = new Set<MarkerTool>(["read", "edit", "file"]);
 
 /**
  * One tool call: a single muted line, and nothing else.
@@ -465,6 +449,7 @@ export const MarkerRowView = memo(function MarkerRowView({
     }
   }, [row.opens, row.path, row.toolCallId, tabId]);
   const fileLink = clickable && FILE_DETAIL.has(row.tool);
+  const discussed = useRowHasComments(tabId, row.toolCallId);
 
   const line = (
     <button
@@ -472,7 +457,8 @@ export const MarkerRowView = memo(function MarkerRowView({
       disabled={!clickable}
       onClick={clickable ? onClick : undefined}
       className={cn(
-        "atlas-marker group/marker w-full min-w-0 text-left text-base text-[var(--muted-foreground)]",
+        "atlas-marker group/marker min-w-0 text-left text-base text-[var(--muted-foreground)]",
+        discussed ? "flex-1" : "w-full",
         clickable && "cursor-pointer hover:text-[var(--secondary-foreground)]",
         row.state === "running" && "atlas-marker-running",
       )}
@@ -514,7 +500,17 @@ export const MarkerRowView = memo(function MarkerRowView({
       )}
     </button>
   );
-  return embedded ? line : <Column>{line}</Column>;
+  // A discussed call wears its pill beside the line; the wrapper exists only
+  // then, so every other marker row's DOM is exactly what it was.
+  const body = discussed ? (
+    <div className="flex items-center gap-2">
+      {line}
+      <RowCommentPill tabId={tabId} chatKey={row.toolCallId} />
+    </div>
+  ) : (
+    line
+  );
+  return embedded ? body : <Column>{body}</Column>;
 });
 
 /**
@@ -552,45 +548,76 @@ export const MarkerGroupRowView = memo(function MarkerGroupRowView({
   // recompute it on every marker state change anyway, and it is a scan of a
   // list the row already holds.
   const failed = row.markers.some((marker) => marker.state === "failed");
+  // The ids of the calls behind this line, which is what a comment on any of
+  // them is keyed by. Derived here rather than carried on the row: it is a map
+  // over a list the row already holds, and the projection would have to redo it
+  // on every marker state change.
+  const callIds = useMemo(() => row.markers.map((marker) => marker.toolCallId), [row.markers]);
+  const discussed = useGroupHasComments(tabId, callIds);
+  const summary = (
+    <button
+      type="button"
+      aria-expanded={row.open}
+      aria-controls={`${row.id}:actions`}
+      onClick={() => onExpandTurn(row.id)}
+      className={cn(
+        "atlas-marker group/tool-summary cursor-pointer text-left text-base text-[var(--muted-foreground)] hover:text-[var(--secondary-foreground)]",
+        // Discussed, the line shares its row with the pill and has to fill
+        // the space so the pill lands at the end of it.
+        discussed ? "min-w-0 flex-1" : "max-w-full",
+      )}
+    >
+      <span className="flex w-4 shrink-0 justify-center">
+        <ToolGlyph tool={row.running && row.liveTool ? row.liveTool : row.tool} failed={failed} />
+      </span>
+      <span className={cn("min-w-0 truncate", row.running && "atlas-thinking-shimmer")}>
+        {row.running ? row.liveLabel : row.summary}
+      </span>
+      {row.running &&
+        (row.liveDone > 0 || row.liveStartedAt !== null) && (
+          // Gap rather than a "·" between the two figures: the elapsed one is
+          // written straight to the DOM and is blank for its first second, so
+          // any separator React rendered beside it would dangle on its own
+          // until the first tick.
+          <span className="ml-auto flex shrink-0 items-center gap-1.5 font-mono text-2xs text-[var(--atlas-text-disabled)] tabular-nums">
+            {row.liveDone > 0 && <span>{row.liveDone} done</span>}
+            {row.liveStartedAt !== null && (
+              <LiveElapsed startedAt={row.liveStartedAt} minMs={1000} />
+            )}
+          </span>
+        )}
+      <ChevronRight
+        size={ICON_PX}
+        strokeWidth={ICON_STROKE}
+        className={cn(
+          "shrink-0",
+          row.open
+            ? "rotate-90 opacity-100"
+            : "opacity-0 group-hover/tool-summary:opacity-100 group-focus-visible/tool-summary:opacity-100",
+        )}
+      />
+    </button>
+  );
   return (
     <Column className="py-1">
-      <button
-        type="button"
-        aria-expanded={row.open}
-        aria-controls={`${row.id}:actions`}
-        onClick={() => onExpandTurn(row.id)}
-        className="atlas-marker group/tool-summary max-w-full cursor-pointer text-left text-base text-[var(--muted-foreground)] hover:text-[var(--secondary-foreground)]"
-      >
-        <span className="flex w-4 shrink-0 justify-center">
-          <ToolGlyph tool={row.running && row.liveTool ? row.liveTool : row.tool} failed={failed} />
-        </span>
-        <span className={cn("min-w-0 truncate", row.running && "atlas-thinking-shimmer")}>
-          {row.running ? row.liveLabel : row.summary}
-        </span>
-        {row.running &&
-          (row.liveDone > 0 || row.liveStartedAt !== null) && (
-            // Gap rather than a "·" between the two figures: the elapsed one is
-            // written straight to the DOM and is blank for its first second, so
-            // any separator React rendered beside it would dangle on its own
-            // until the first tick.
-            <span className="ml-auto flex shrink-0 items-center gap-1.5 font-mono text-2xs text-[var(--atlas-text-disabled)] tabular-nums">
-              {row.liveDone > 0 && <span>{row.liveDone} done</span>}
-              {row.liveStartedAt !== null && (
-                <LiveElapsed startedAt={row.liveStartedAt} minMs={1000} />
-              )}
-            </span>
-          )}
-        <ChevronRight
-          size={ICON_PX}
-          strokeWidth={ICON_STROKE}
-          className={cn(
-            "shrink-0",
-            row.open
-              ? "rotate-90 opacity-100"
-              : "opacity-0 group-hover/tool-summary:opacity-100 group-focus-visible/tool-summary:opacity-100",
-          )}
-        />
-      </button>
+      {/* A discussed sequence wears the fold's aggregate beside its summary —
+          faces and a count over the calls inside, opening the fold so the call
+          that was discussed can show its own pill. The wrapper exists only
+          then, so every other group's DOM is exactly what it was. */}
+      {discussed ? (
+        <div className="flex items-center gap-2">
+          {summary}
+          <GroupCommentPill
+            tabId={tabId}
+            chatKeys={callIds}
+            onOpen={() => {
+              if (!row.open) onExpandTurn(row.id);
+            }}
+          />
+        </div>
+      ) : (
+        summary
+      )}
       {row.open && (
         // Laid out in the thread, not in a 240px scroller. A nested scroll area
         // inside a scrolling transcript is two scrollbars fighting over the
@@ -683,7 +710,7 @@ export const WorkHeaderRowView = memo(function WorkHeaderRowView({
   );
   return (
     <Column className="pt-2 pb-2">
-      <div className="border-b border-[var(--atlas-border-subtle)] pb-2">
+      <div className="flex items-center border-b border-[var(--atlas-border-subtle)] pb-2">
         {row.foldable ? (
           <button
             type="button"

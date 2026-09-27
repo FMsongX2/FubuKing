@@ -40,6 +40,7 @@ import {
 import type { MentionData } from "../lib/mentions";
 import { markInputActivity } from "@/lib/input-activity";
 import { invoke } from "@tauri-apps/api/core";
+import { filesFromClipboard, hasFiles } from "@/lib/scratch-file";
 
 /** Wrap a path in double quotes if it contains whitespace, so the agent reads
  *  it as a single token. */
@@ -99,6 +100,10 @@ interface ChatInputProps {
    *  Return true to consume them (e.g. stage as inline attachments); false
    *  falls through to the path-paste path. Read live via ref. */
   onPasteImages?: (files: File[]) => boolean;
+  /** Finder-copied files, as absolute paths. When set, the parent attaches
+   *  them (the same way a drop does); unset, the paths are pasted as text.
+   *  Read live via ref. */
+  onPastePaths?: (paths: string[]) => void;
   /** Slot for future extensions. */
   extraExtensions?: Extension[];
   /** Min height in pixels (matches old textarea: 44). */
@@ -118,6 +123,7 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
     onSlashTrigger,
     keyInterceptor,
     onPasteImages,
+    onPastePaths,
     extraExtensions,
     minHeight = 44,
     maxHeight = 200,
@@ -146,6 +152,8 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
   keyInterceptorRef.current = keyInterceptor;
   const onPasteImagesRef = useRef(onPasteImages);
   onPasteImagesRef.current = onPasteImages;
+  const onPastePathsRef = useRef(onPastePaths);
+  onPastePathsRef.current = onPastePaths;
 
   // Build the theme once — sized to the container, transparent
   // background so the parent's chip rounding shows through.
@@ -341,31 +349,34 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
             // Paste a Finder-copied file as its absolute path. The web paste
             // event can't expose the path (sandbox), so when the clipboard
             // carries file references we ask Rust to read the native
-            // pasteboard's file URLs and insert them at the cursor. Plain
+            // pasteboard's file URLs and hand them to `onPastePaths` (or,
+            // without one, insert them at the cursor). Plain
             // text/markdown pastes (no files) fall through to CodeMirror.
             paste: (event, view) => {
               const dt = event.clipboardData;
               // Clipboard images (screenshots) first: offer them to the
               // parent, which stages them as inline base64 attachments
-              // when the agent supports image prompts. Unconsumed images
-              // fall through to the path-paste below.
-              const imageFiles = dt?.files
-                ? Array.from(dt.files).filter((f) => f.type.startsWith("image/"))
-                : [];
+              // when the agent supports image prompts. `filesFromClipboard`
+              // skips Finder's zero-byte stubs — a copied `.png` file has
+              // an image mime but no bytes, and must take the path route
+              // below instead of staging as an empty image.
+              const imageFiles = filesFromClipboard(dt).filter((f) => f.type.startsWith("image/"));
               if (imageFiles.length > 0 && onPasteImagesRef.current?.(imageFiles)) {
                 event.preventDefault();
                 markInputActivity();
                 return true;
               }
-              const hasFiles =
-                !!dt &&
-                (Array.from(dt.types).includes("Files") || (dt.files && dt.files.length > 0));
-              if (!hasFiles) return false;
+              if (!hasFiles(dt)) return false;
               event.preventDefault();
               void (async () => {
                 try {
                   const paths = await invoke<string[]>("clipboard_file_paths");
                   if (!paths || paths.length === 0) return;
+                  if (onPastePathsRef.current) {
+                    onPastePathsRef.current(paths);
+                    markInputActivity();
+                    return;
+                  }
                   const text = paths.map(quotePath).join(" ") + " ";
                   const head = view.state.selection.main.head;
                   view.dispatch({

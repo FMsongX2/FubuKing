@@ -1,0 +1,25 @@
+# Modified by Atlas from upstream OpenAI Codex (Apache-2.0). See CONTEXT.md.
+[package]
+name = "atlas-engine-feedback"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+anyhow = { workspace = true }
+atlas-engine-login = { workspace = true }
+atlas-engine-protocol = { workspace = true }
+mime_guess = { workspace = true }
+sentry-types = { version = "0.46" }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+
+[dev-dependencies]
+log = { workspace = true }
+pretty_assertions = { workspace = true }
+
+[lib]
+doctest = false

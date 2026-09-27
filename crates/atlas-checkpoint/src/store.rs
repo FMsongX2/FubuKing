@@ -33,8 +33,11 @@ pub struct Store {
     blobs: BlobStore,
     root: PathBuf,
     /// `None` when this process attached read-only because another window holds
-    /// the writer lock.
-    writer_lock: Option<WriterLock>,
+    /// the writer lock. Shared by [`Store::sibling`] connections, so the lock is
+    /// held while any of them is open. In a `Mutex` only because the lock's
+    /// connection is `Send` but not `Sync`; it is never locked — holding it is
+    /// the point.
+    writer_lock: Option<std::sync::Arc<std::sync::Mutex<WriterLock>>>,
 }
 
 impl Store {
@@ -84,7 +87,7 @@ impl Store {
 
         let writer_lock = if take_lock {
             match WriterLock::acquire(&root.join("sessions.lock")) {
-                Ok(lock) => Some(lock),
+                Ok(lock) => Some(std::sync::Arc::new(std::sync::Mutex::new(lock))),
                 Err(Error::AlreadyLocked) => None,
                 Err(e) => return Err(e),
             }
@@ -137,6 +140,29 @@ impl Store {
         // contention this would otherwise mask is prevented by the writer lock.
         conn.busy_timeout(std::time::Duration::from_secs(5))?;
         Ok(conn)
+    }
+
+    /// A second connection to this Store's database, writing under the **same**
+    /// writer lock — for work in this process that must not queue behind the
+    /// first connection: the cloud drain and the transcript import run on
+    /// their own thread with a sibling, so recording a turn never waits on
+    /// the network or a long import.
+    ///
+    /// Safe where a second [`Store::open`] is not: the lock arbitrates between
+    /// *processes*, and a sibling is the same process. SQLite serialises the
+    /// two connections' writes; every write is a short transaction (the drain
+    /// holds none across the network), so neither waits long, and the
+    /// connection's busy timeout absorbs the wait.
+    ///
+    /// The sibling of a read-only Store is read-only.
+    pub fn sibling(&self) -> Result<Self> {
+        let db_path = self.root.join("sessions.db");
+        Ok(Self {
+            conn: Self::open_connection(&db_path, false)?,
+            blobs: BlobStore::new(self.root.join("blobs")),
+            root: self.root.clone(),
+            writer_lock: self.writer_lock.clone(),
+        })
     }
 
     /// Does this process own the Project's writer lock?
@@ -813,6 +839,35 @@ impl Store {
         Ok(())
     }
 
+    /// Mark this Session's last `count` turns that are not already rewound as
+    /// rewound: the agent took them back (a retry). Returns how many were
+    /// marked. The rows are kept; only the chat's view of them changes.
+    pub fn mark_turns_rewound(&self, session_id: &str, count: i64) -> Result<usize> {
+        self.require_writer()?;
+        if count <= 0 {
+            return Ok(0);
+        }
+        Ok(self.conn.execute(
+            "UPDATE turn SET state = 'rewound', ended_at = COALESCE(ended_at, ?3)
+              WHERE session_id = ?1
+                AND turn_seq IN (SELECT turn_seq FROM turn
+                                  WHERE session_id = ?1 AND state != 'rewound'
+                                  ORDER BY turn_seq DESC LIMIT ?2)",
+            rusqlite::params![session_id, count, Utc::now().to_rfc3339()],
+        )?)
+    }
+
+    /// The turn numbers of this Session that were rewound.
+    pub fn rewound_turns(&self, session_id: &str) -> Result<std::collections::HashSet<i64>> {
+        let mut stmt = self
+            .conn
+            .prepare("SELECT turn_seq FROM turn WHERE session_id = ?1 AND state = 'rewound'")?;
+        let rows = stmt
+            .query_map([session_id], |row| row.get::<_, i64>(0))?
+            .collect::<rusqlite::Result<std::collections::HashSet<_>>>()?;
+        Ok(rows)
+    }
+
     /// The highest turn number this Session has ever used.
     ///
     /// Seeds the in-memory counter after a restart, so a resumed conversation
@@ -832,6 +887,53 @@ impl Store {
               WHERE session_id = ?1 ORDER BY seq"
         ))?;
         let rows = stmt.query_map([session_id], row_to_message)?;
+        Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
+    }
+
+    /// The identity columns of every Message in a Session, in `seq` order.
+    ///
+    /// `native_message_id` is otherwise write-only — it exists to make a
+    /// re-processed turn a no-op — but it is also the only thing that ties a
+    /// captured row back to the live chat message it was recorded from. No body,
+    /// preview or blob is read: this is the anchor list for comments, not the
+    /// transcript.
+    pub fn message_anchor_rows(&self, session_id: &str) -> Result<Vec<MessageAnchorRow>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT id, seq, turn_seq, role, mode, native_message_id FROM agent_message
+              WHERE session_id = ?1 ORDER BY seq",
+        )?;
+        let rows = stmt.query_map([session_id], |row| {
+            let role: String = row.get(3)?;
+            let mode: String = row.get(4)?;
+            Ok(MessageAnchorRow {
+                id: row.get(0)?,
+                seq: row.get(1)?,
+                turn_seq: row.get(2)?,
+                role: Role::parse(&role).unwrap_or(Role::Assistant),
+                mode: Mode::parse(&mode).unwrap_or(Mode::Text),
+                native_message_id: row.get(5)?,
+            })
+        })?;
+        Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
+    }
+
+    /// The identity columns of every tool call in a Session, in `seq` order.
+    /// See [`Self::message_anchor_rows`].
+    pub fn tool_call_anchor_rows(&self, session_id: &str) -> Result<Vec<ToolCallAnchorRow>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT id, seq, turn_seq, native_call_id, tool_name FROM tool_call
+              WHERE session_id = ?1 ORDER BY seq",
+        )?;
+        let rows = stmt.query_map([session_id], |row| {
+            let name: String = row.get(4)?;
+            Ok(ToolCallAnchorRow {
+                id: row.get(0)?,
+                seq: row.get(1)?,
+                turn_seq: row.get(2)?,
+                native_call_id: row.get(3)?,
+                tool_name: ToolName::parse(&name).unwrap_or(ToolName::Other),
+            })
+        })?;
         Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
     }
 
@@ -1228,6 +1330,18 @@ impl Store {
         ))?;
         let rows = stmt.query_map([session_id], row_to_file_touch)?;
         Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
+    }
+
+    /// For each commit that consumed touches in this Session, the latest turn
+    /// among the touches it consumed — the turn whose work the commit holds.
+    pub fn consuming_turns(&self, session_id: &str) -> Result<HashMap<String, i64>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT consumed_by_commit, MAX(turn_seq) FROM file_touch
+              WHERE session_id = ?1 AND consumed_by_commit IS NOT NULL
+              GROUP BY consumed_by_commit",
+        )?;
+        let rows = stmt.query_map([session_id], |row| Ok((row.get(0)?, row.get(1)?)))?;
+        Ok(rows.collect::<rusqlite::Result<HashMap<_, _>>>()?)
     }
 
     /// The last touch of each path in a turn — what the turn left behind, and
@@ -1965,8 +2079,15 @@ impl Store {
     /// Set the Session's starting branch, keeping any value already there.
     pub fn set_branch_if_absent(&self, session_id: &str, branch: &str) -> Result<()> {
         self.require_writer()?;
+        // Only a row that actually gains its branch is touched, so the resync
+        // below never re-queues a Session for a no-op. A branch learned after
+        // the first push (the prompt predates `git init`) must reach the
+        // Organisation's copy, which is what the header chip there reads.
         self.conn.execute(
-            "UPDATE agent_session SET branch = COALESCE(branch, ?2) WHERE id = ?1",
+            &format!(
+                "UPDATE agent_session SET branch = ?2{RESYNC_SESSION}
+                  WHERE id = ?1 AND branch IS NULL"
+            ),
             rusqlite::params![session_id, branch],
         )?;
         Ok(())
@@ -2163,7 +2284,7 @@ impl Store {
     pub fn link_candidates(&self, workspace_id: &str) -> Result<Vec<LinkCandidate>> {
         let mut stmt = self.conn.prepare(
             "SELECT id, started_at FROM agent_session
-              WHERE workspace_id = ?1 AND source IN ('acp', 'cersei')",
+              WHERE workspace_id = ?1 AND source IN ('acp', 'native')",
         )?;
         let ids: Vec<(String, String)> = stmt
             .query_map([workspace_id], |row| {
@@ -2365,6 +2486,27 @@ pub enum ToolPayload<'a> {
 }
 
 /// Everything needed to record or update one tool call.
+/// A Message's identity, for tying comments to live chat rows.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MessageAnchorRow {
+    pub id: String,
+    pub seq: i64,
+    pub turn_seq: i64,
+    pub role: Role,
+    pub mode: Mode,
+    pub native_message_id: Option<String>,
+}
+
+/// A tool call's identity, for tying comments to live chat rows.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ToolCallAnchorRow {
+    pub id: String,
+    pub seq: i64,
+    pub turn_seq: i64,
+    pub native_call_id: Option<String>,
+    pub tool_name: ToolName,
+}
+
 pub struct ToolCallInput<'a> {
     pub session_id: &'a str,
     pub turn_seq: i64,

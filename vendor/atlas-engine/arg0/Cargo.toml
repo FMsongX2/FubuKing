@@ -1,0 +1,34 @@
+# Modified by Atlas from upstream OpenAI Codex (Apache-2.0). See CONTEXT.md.
+[package]
+name = "atlas-engine-arg0"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[lib]
+name = "atlas_engine_arg0"
+path = "src/lib.rs"
+doctest = false
+
+[lints]
+workspace = true
+
+[dependencies]
+anyhow = { workspace = true }
+atlas-engine-apply-patch = { workspace = true }
+atlas-engine-exec-server = { workspace = true }
+atlas-engine-install-context = { workspace = true }
+atlas-engine-linux-sandbox = { workspace = true }
+atlas-engine-sandboxing = { workspace = true }
+atlas-engine-shell-escalation = { workspace = true }
+atlas-engine-utils-absolute-path = { workspace = true }
+atlas-engine-utils-home-dir = { workspace = true }
+dotenvy = { workspace = true }
+tempfile = { workspace = true }
+tokio = { workspace = true, features = ["rt-multi-thread"] }
+
+[target.'cfg(windows)'.dependencies]
+atlas-engine-windows-sandbox = { workspace = true }
+
+[dev-dependencies]
+pretty_assertions = { workspace = true }

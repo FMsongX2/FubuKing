@@ -1,0 +1,148 @@
+# Modified by Atlas from upstream OpenAI Codex (Apache-2.0). See CONTEXT.md.
+[package]
+name = "atlas-engine-app-server"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "atlas-engine-app-server"
+path = "src/main.rs"
+
+[[bin]]
+name = "atlas-engine-app-server-test-notify-capture"
+path = "src/bin/notify_capture.rs"
+
+[[bin]]
+name = "exec-server"
+path = "src/bin/exec_server.rs"
+
+[lib]
+name = "atlas_engine_app_server"
+path = "src/lib.rs"
+doctest = false
+
+[lints]
+workspace = true
+
+[dependencies]
+anyhow = { workspace = true }
+base64 = { workspace = true }
+axum = { workspace = true, default-features = false, features = [
+    "http1",
+    "json",
+    "tokio",
+    "ws",
+] }
+atlas-engine-analytics = { workspace = true }
+atlas-engine-agent-extension = { workspace = true }
+atlas-engine-arg0 = { workspace = true }
+atlas-engine-cloud-config = { workspace = true }
+atlas-engine-code-mode = { workspace = true }
+atlas-engine-config = { workspace = true }
+atlas-engine-connectors = { workspace = true }
+atlas-engine-core = { workspace = true }
+atlas-engine-core-plugins = { workspace = true }
+atlas-engine-diagnostics = { workspace = true }
+atlas-engine-home = { workspace = true }
+atlas-engine-exec-server = { workspace = true }
+atlas-engine-extension-api = { workspace = true }
+atlas-engine-external-agent-migration = { workspace = true }
+atlas-engine-features = { workspace = true }
+atlas-engine-goal-extension = { workspace = true }
+atlas-engine-git-attribution = { workspace = true }
+atlas-engine-guardian = { workspace = true }
+atlas-engine-guardian-v2 = { workspace = true }
+atlas-engine-git-utils = { workspace = true }
+atlas-engine-file-watcher = { workspace = true }
+atlas-engine-hooks = { workspace = true }
+atlas-engine-http-client = { workspace = true }
+atlas-engine-otel = { workspace = true }
+atlas-engine-plugin = { workspace = true }
+atlas-engine-shell-command = { workspace = true }
+atlas-engine-skills = { workspace = true }
+atlas-engine-skills-extension = { workspace = true }
+atlas-engine-utils-cli = { workspace = true }
+atlas-engine-utils-pty = { workspace = true }
+atlas-engine-backend-client = { workspace = true }
+atlas-engine-file-search = { workspace = true }
+atlas-engine-chatgpt = { workspace = true }
+atlas-engine-login = { workspace = true }
+atlas-engine-image-generation-extension = { workspace = true }
+atlas-engine-memories-extension = { workspace = true }
+atlas-engine-web-search-extension = { workspace = true }
+atlas-engine-memories-write = { workspace = true }
+atlas-engine-mcp = { workspace = true }
+atlas-engine-mcp-extension = { workspace = true }
+atlas-engine-model-provider = { workspace = true }
+atlas-engine-models-manager = { workspace = true }
+atlas-engine-protocol = { workspace = true }
+atlas-engine-queue-extension = { workspace = true }
+atlas-engine-app-server-protocol = { workspace = true }
+atlas-engine-app-server-transport = { workspace = true }
+atlas-engine-feedback = { workspace = true }
+atlas-engine-rmcp-client = { workspace = true }
+atlas-engine-rollout = { workspace = true }
+atlas-engine-sandboxing = { workspace = true }
+atlas-engine-state = { workspace = true }
+atlas-engine-thread-store = { workspace = true }
+atlas-engine-tools = { workspace = true }
+atlas-engine-utils-absolute-path = { workspace = true }
+atlas-engine-utils-json-to-toml = { workspace = true }
+atlas-engine-utils-path-uri = { workspace = true }
+chrono = { workspace = true }
+clap = { workspace = true, features = ["derive"] }
+futures = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+sha2 = { workspace = true }
+tempfile = { workspace = true }
+thiserror = { workspace = true }
+time = { workspace = true }
+toml = { workspace = true }
+toml_edit = { workspace = true }
+tokio = { workspace = true, features = [
+    "io-std",
+    "macros",
+    "process",
+    "rt-multi-thread",
+    "signal",
+] }
+tokio-util = { workspace = true }
+tracing = { workspace = true, features = ["log"] }
+tracing-subscriber = { workspace = true, features = ["env-filter", "fmt", "json"] }
+url = { workspace = true }
+uuid = { workspace = true, features = ["serde", "v7"] }
+
+[target.'cfg(windows)'.dependencies]
+atlas-engine-windows-sandbox = { workspace = true }
+
+[dev-dependencies]
+app_test_support = { workspace = true }
+axum = { workspace = true, default-features = false, features = [
+    "http1",
+    "json",
+    "tokio",
+] }
+base64 = { workspace = true }
+atlas-engine-model-provider-info = { workspace = true }
+atlas-engine-utils-cargo-bin = { workspace = true }
+core_test_support = { workspace = true }
+flate2 = { workspace = true }
+hmac = { workspace = true }
+opentelemetry = { workspace = true }
+opentelemetry_sdk = { workspace = true }
+pretty_assertions = { workspace = true }
+reqwest = { workspace = true, features = ["rustls-tls"] }
+rmcp = { workspace = true, default-features = false, features = [
+    "elicitation",
+    "server",
+    "transport-streamable-http-server",
+] }
+serial_test = { workspace = true }
+shlex = { workspace = true }
+tar = { workspace = true }
+test-case = "3.3.1"
+tokio-tungstenite = { workspace = true }
+tracing-opentelemetry = { workspace = true }
+wiremock = { workspace = true }

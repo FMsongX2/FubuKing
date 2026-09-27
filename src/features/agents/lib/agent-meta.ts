@@ -1,5 +1,5 @@
 // The ONE agent-identity resolver: label / icon source / css class for any
-// agent type or plugin id — first-party, native cersei, installed externals,
+// agent type or plugin id — first-party, native agent, installed externals,
 // and uninstalled-but-captured externals (registry metadata retained). Every
 // surface (composer menu, pill, glyphs, sidebar, memory dropdown, timeline)
 // resolves through here instead of hardcoded Records/if-ladders.
@@ -52,7 +52,7 @@ const FIRST_PARTY: readonly FirstPartyAgent[] = [
   "opencode",
   "cursor",
   "kilo",
-  "cersei",
+  "atlas-agent",
 ];
 
 /** Ids that ARE Claude Code: the retired built-in specs and the registry's

@@ -26,6 +26,7 @@
 import { useMemo } from "react";
 import { mix, withAlpha } from "@/features/theme/color";
 import { modelVendorColor, type ModelVendor } from "@/features/agents/lib/agent-brand";
+import { NATIVE_AGENT_ID } from "@/types/agent";
 import { themeBase, themeColor, useThemeVersion } from "@/features/theme/theme-values";
 
 /** The five series tokens, in the order a theme author sees them. */
@@ -118,11 +119,14 @@ function modelVendor(model: string): ModelVendor | null {
   return null;
 }
 
-/** The same question for an agent id. Cersei is Atlas's ported Codex engine. */
+/** The same question for an agent id. The native agent is Atlas itself, so it
+ *  wears the app's own identity chip (the neutral pair below) rather than a
+ *  vendor's hue — the same choice `agent-brand.ts` makes for it. */
 function agentVendor(agent: string): ModelVendor | null {
   const a = agent.toLowerCase();
+  if (a === NATIVE_AGENT_ID) return null;
   if (a.includes("claude")) return "claude";
-  if (a.includes("codex") || a.includes("cersei")) return "codex";
+  if (a.includes("codex")) return "codex";
   if (a.includes("cursor")) return "cursor";
   if (a.includes("kilo")) return "kilo";
   return null;

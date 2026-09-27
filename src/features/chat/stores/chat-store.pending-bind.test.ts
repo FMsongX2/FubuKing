@@ -104,9 +104,9 @@ describe("failPendingBinds", () => {
   it("switching a removed agent's tab to another agent clears the disconnected state", () => {
     const { actions } = useChatStore.getState();
     actions.noteAgentRemoved(pluginIdForAgent("codex"), "Codex was removed");
-    actions.switchChatAgent(BOUND, "cersei");
+    actions.switchChatAgent(BOUND, "atlas-agent");
     const s = useChatStore.getState().sessions[BOUND];
-    expect(s.agentType).toBe("cersei");
+    expect(s.agentType).toBe("atlas-agent");
     expect(s.disconnected).toBeFalsy();
     expect(s.bindError).toBeUndefined();
   });

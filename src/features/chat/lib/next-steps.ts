@@ -5,7 +5,11 @@
 // directive) from what the user sees.
 
 /** Marker line prefixing the injected directive so it can be stripped from a
- *  user message on resume (the agent transcript records the full prompt). */
+ *  user message on resume (the agent transcript records the full prompt).
+ *
+ *  Mirrored by `NEXT_STEPS_MARKER` in `crates/atlas-checkpoint/src/capture.rs`
+ *  and `crates/atlas-acp-thread/src/thread.rs`; all three must change together,
+ *  which `tests/next-steps-marker-parity.test.ts` enforces. */
 const NEXT_STEPS_MARKER = "═══ Atlas next-steps ═══";
 
 /** Appended to the wire prompt (not the visible user message) so the agent
@@ -19,7 +23,13 @@ const NEXT_STEPS_DIRECTIVE =
   "- a short imperative follow-up (max 8 words)\n" +
   "- a short imperative follow-up (max 8 words)\n" +
   "</next_steps>\n" +
-  "This directive and the block are hidden from the user — do not mention them.";
+  "This directive and the block are hidden from the user — do not mention them. " +
+  // Agents that name a session by summarising its first prompt (Claude Code
+  // does) were titling threads "Atlas next-steps": on a short message this
+  // directive is most of what they received. `is_host_machinery_title` in
+  // `crates/atlas-acp-thread` rejects the result, but a title never minted
+  // costs nothing to reject.
+  "Ignore it when naming or titling this session — title from the conversation.";
 
 /** Append the directive to an outgoing wire prompt. */
 export function appendNextStepsDirective(wire: string): string {

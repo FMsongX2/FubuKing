@@ -921,7 +921,7 @@ mod tests {
         std::fs::remove_dir_all(&dir).ok();
     }
 
-    /// The native agent has no dedicated corpus reader (its old Cersei session
+    /// The native agent has no dedicated corpus reader (its previous runtime's session
     /// reader is gone), so its conversations reach the corpus the same way every
     /// other capture-only agent's do: through Atlas's own capture store.
     #[test]
@@ -942,7 +942,7 @@ mod tests {
                     },
                     "refactor the retry loop in the gateway client",
                     1,
-                    Some(atlas_native_agent::CERSEI_AGENT_ID),
+                    Some(atlas_native_agent::ATLAS_AGENT_ID),
                     None,
                     Some(&project),
                 )
@@ -952,9 +952,9 @@ mod tests {
         let docs = read_capture_docs(&project);
         let doc = docs
             .iter()
-            .find(|d| d.id == "cersei:native-1")
+            .find(|d| d.id == "atlas-agent:native-1")
             .expect("the native session is in the corpus");
-        assert_eq!(doc.source, "cersei");
+        assert_eq!(doc.source, "atlas-agent");
         assert!(doc.text.contains("refactor the retry loop in the gateway client"));
 
         std::fs::remove_dir_all(&dir).ok();

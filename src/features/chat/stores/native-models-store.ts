@@ -16,10 +16,9 @@ import { errInfo } from "../lib/agent-signin";
 import { useActiveGatewayOrgId } from "./ai-grant-store";
 import { useChatStore } from "./chat-store";
 
-/** The agent type whose list the refresh replaces. The native agent keeps
- *  the storage id it always had (D7) — see `CERSEI_AGENT_ID` on the Rust
- *  side. */
-const NATIVE_AGENT_TYPE = "cersei";
+/** The agent type whose list the refresh replaces — the native agent's stored
+ *  id, mirrored by `ATLAS_AGENT_ID` on the Rust side. */
+const NATIVE_AGENT_TYPE = "atlas-agent";
 
 interface NativeModelsState {
   /** A refresh is in flight. */

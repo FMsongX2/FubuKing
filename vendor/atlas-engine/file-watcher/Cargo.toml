@@ -1,0 +1,23 @@
+# Modified by Atlas from upstream OpenAI Codex (Apache-2.0). See CONTEXT.md.
+[package]
+name = "atlas-engine-file-watcher"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[lib]
+name = "atlas_engine_file_watcher"
+path = "src/lib.rs"
+doctest = false
+
+[lints]
+workspace = true
+
+[dependencies]
+notify = { workspace = true }
+tokio = { workspace = true, features = ["macros", "rt", "sync", "time"] }
+tracing = { workspace = true, features = ["log"] }
+
+[dev-dependencies]
+pretty_assertions = { workspace = true }
+tempfile = { workspace = true }

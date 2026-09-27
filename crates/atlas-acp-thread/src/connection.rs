@@ -1,7 +1,7 @@
 //! The `AgentConnection` seam — ported from `zed-ref/crates/acp_thread/src/connection.rs`.
 //!
 //! This is the trait every agent implements: external ACP agents (through
-//! `atlas-agent-servers`) and the native agent (Cersei) alike. It is ported
+//! `atlas-agent-servers`) and the native agent alike. It is ported
 //! near-verbatim, because it is the contract the whole UI consumes; the
 //! deviations are only the ones forced by not being GPUI, and each is called out
 //! at the point it appears. The catalogue of them lives in [`crate`]'s module
@@ -24,7 +24,7 @@ use uuid::Uuid;
 
 use crate::{AcpThreadHandle, ElicitationStoreHandle};
 
-/// Identifies an agent (`"claude-code"`, `"cersei"`, …).
+/// Identifies an agent (`"claude-code"`, `"atlas-agent"`, …).
 ///
 /// Zed's lives in its `project` crate; the port keeps a local newtype so this
 /// crate stays leaf-level.

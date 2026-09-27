@@ -14,7 +14,7 @@ const AGENTS: Array<[string, string]> = [
   ["opencode", "OpenCode"],
   ["cursor", "Cursor"],
   ["kilo", "Kilo"],
-  ["cersei", "Atlas"],
+  ["atlas-agent", "Atlas"],
 ];
 
 export const AllAgents = () => (
@@ -38,7 +38,7 @@ export const InASessionList = () => (
     {[
       ["claude-acp", "Fix the scroll blanking"],
       ["codex-acp", "Port the ACP registry"],
-      ["cersei", "Draft release notes"],
+      ["atlas-agent", "Draft release notes"],
     ].map(([id, title]) => (
       <div key={id} style={{ display: "flex", alignItems: "center", gap: 8 }}>
         <AgentMark agentType={id} />

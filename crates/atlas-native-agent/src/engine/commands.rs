@@ -10,7 +10,7 @@
 //!
 //! # What made the cut
 //!
-//! The request was "codex's defaults, minus login". Each command lands by what
+//! The request was "the engine's defaults, minus login". Each command lands by what
 //! actually executes it:
 //!
 //! - **Protocol calls** — `/compact` (`thread/compact/start`), `/undo`

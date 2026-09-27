@@ -1,0 +1,19 @@
+# Modified by Atlas from upstream OpenAI Codex (Apache-2.0). See CONTEXT.md.
+[package]
+edition.workspace = true
+license.workspace = true
+name = "atlas-engine-utils-output-truncation"
+version.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+atlas-engine-protocol = { workspace = true }
+atlas-engine-utils-string = { workspace = true }
+
+[dev-dependencies]
+pretty_assertions = { workspace = true }
+
+[lib]
+doctest = false

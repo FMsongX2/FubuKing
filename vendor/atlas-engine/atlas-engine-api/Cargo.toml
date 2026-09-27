@@ -1,0 +1,45 @@
+# Modified by Atlas from upstream OpenAI Codex (Apache-2.0). See CONTEXT.md.
+[package]
+name = "atlas-engine-api"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+async-channel = { workspace = true }
+base64 = { workspace = true }
+bytes = { workspace = true }
+chrono = { workspace = true }
+atlas-engine-client = { workspace = true }
+atlas-engine-http-client = { workspace = true }
+atlas-engine-protocol = { workspace = true }
+atlas-engine-utils-rustls-provider = { workspace = true }
+atlas-engine-websocket-client = { workspace = true }
+futures = { workspace = true }
+http = { workspace = true }
+schemars = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true, features = ["raw_value"] }
+thiserror = { workspace = true }
+tokio = { workspace = true, features = ["fs", "macros", "net", "rt", "sync", "time"] }
+tokio-tungstenite = { workspace = true }
+tungstenite = { workspace = true }
+tracing = { workspace = true }
+eventsource-stream = { workspace = true }
+regex-lite = { workspace = true }
+tokio-util = { workspace = true, features = ["codec", "io"] }
+url = { workspace = true }
+uuid = { workspace = true }
+
+[dev-dependencies]
+anyhow = { workspace = true }
+assert_matches = { workspace = true }
+pretty_assertions = { workspace = true }
+tokio-test = { workspace = true }
+wiremock = { workspace = true }
+
+[lints]
+workspace = true
+
+[lib]
+doctest = false

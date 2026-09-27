@@ -32,7 +32,7 @@ describe("whether a session can retry its last turn", () => {
   it("asks the capability, not the agent id", () => {
     // ADR-0002: no agent gets special treatment. The gate must not recognise
     // the native agent by name — if the capability says no, the answer is no
-    // even for `cersei`, and if it says yes the answer is yes for anyone.
+    // even for `atlas-agent`, and if it says yes the answer is yes for anyone.
     expect(sessionCanRetry(session({ agentType: NATIVE_AGENT_ID }), false)).toBe(false);
     expect(sessionCanRetry(session({ agentType: "some-future-agent" }), CAN)).toBe(true);
   });

@@ -57,7 +57,7 @@ use std::path::PathBuf;
 
 use anyhow::Context;
 use anyhow::Result;
-use codex_protocol::openai_models::ModelsResponse;
+use atlas_engine_protocol::openai_models::ModelsResponse;
 use serde_json::Value;
 use serde_json::json;
 
@@ -162,7 +162,7 @@ pub fn row(
         // is wrong on every row here — the trademark scrub that fixes it is its
         // own gated piece of work, and doing it inside the catalogue would put
         // a rewritten system prompt in a commit about model metadata.
-        "model_messages": { "instructions_template": codex_models_manager::model_info::BASE_INSTRUCTIONS.as_str() },
+        "model_messages": { "instructions_template": atlas_engine_models_manager::model_info::BASE_INSTRUCTIONS.as_str() },
         "include_skills_usage_instructions": true,
         // Both name surfaces that belong to the upstream product, not to Atlas.
         "include_plugin_usage_instructions": false,
@@ -204,7 +204,7 @@ pub async fn write_models_json(home: &Path, catalogue: &ModelsResponse) -> Resul
 #[cfg(test)]
 mod tests {
     use super::*;
-    use codex_protocol::openai_models::ModelInfo;
+    use atlas_engine_protocol::openai_models::ModelInfo;
 
     fn parse(value: Value) -> ModelInfo {
         match serde_json::from_value(value) {

@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
+import { dragPositionToCss } from "@/lib/drag-position";
 import { ROOT_DROP } from "./use-file-tree-drag-drop";
 
 /* Receive OS-level file drops (Finder/Explorer → file tree) and copy
@@ -8,10 +9,8 @@ import { ROOT_DROP } from "./use-file-tree-drag-drop";
  * Tauri v2 windows have `dragDropEnabled: true` by default, so the OS
  * drag-drop is handled by the native webview and HTML5 `dataTransfer`
  * drop events never fire. We subscribe to Tauri's webview drag-drop
- * event instead. Its `position` is in PHYSICAL pixels, so we map it to
- * an element by trying the raw coords first and falling back to coords
- * divided by `devicePixelRatio` (Retina), matching how Athas resolves
- * the point.
+ * event instead. Its `position` unit differs per platform despite the
+ * `PhysicalPosition` type; `dragPositionToCss` owns that conversion.
  *
  * `dropPath` (a real directory path, the `ROOT_DROP` sentinel, or null)
  * is returned for highlighting and is folded into the same drop-target
@@ -40,16 +39,8 @@ export function useExternalFileDrop(opts: {
     // the cursor: a folder row → that folder; a file row → its parent;
     // the empty tree area → root. Returns null when not over the tree.
     const resolveDir = (position: { x: number; y: number }): string | null => {
-      const dpr = window.devicePixelRatio || 1;
-      const candidates = [
-        { x: position.x, y: position.y },
-        { x: position.x / dpr, y: position.y / dpr },
-      ];
-      let el: Element | null = null;
-      for (const c of candidates) {
-        el = document.elementFromPoint(c.x, c.y);
-        if (el) break;
-      }
+      const p = dragPositionToCss(position);
+      const el = document.elementFromPoint(p.x, p.y);
       if (!el) return null;
       const rowEl = el.closest<HTMLElement>("[data-tree-path]");
       if (rowEl) {

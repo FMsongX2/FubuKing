@@ -13,6 +13,7 @@ import {
   bucketByDay,
   formatDuration,
   groupSessions,
+  prettyModel,
   startOfDay,
   startOfMonth,
   startOfWeek,
@@ -50,6 +51,10 @@ function session(overrides: Partial<BoardSession> = {}): BoardSession {
     attentionReason: null,
     projectPath: "/tmp/atlas",
     projectName: "atlas",
+    synced: false,
+    origin: "local",
+    remoteProjectId: null,
+    authorId: null,
     ...overrides,
   };
 }
@@ -110,6 +115,28 @@ describe("bucketByDay", () => {
     const key = [...bucketByDay([late]).keys()][0];
     expect(key).toBe(startOfDay(new Date("2026-06-02T01:00:00.000Z")));
     expect(new Date(key).getHours()).toBe(0);
+  });
+});
+
+describe("prettyModel", () => {
+  it("reads a hyphenated minor version", () => {
+    // The cost card said "Sonnet 4" for a Sonnet 4.6 Session.
+    expect(prettyModel("claude-sonnet-4-6")).toBe("Sonnet 4.6");
+    expect(prettyModel("claude-opus-4-5")).toBe("Opus 4.5");
+  });
+
+  it("never reads a date suffix as a version", () => {
+    expect(prettyModel("claude-opus-4-20250514")).toBe("Opus 4");
+    expect(prettyModel("claude-sonnet-4-5-20250929")).toBe("Sonnet 4.5");
+    expect(prettyModel("claude-haiku-4-5-20251001")).toBe("Haiku 4.5");
+  });
+
+  it("keeps dotted, bare and bracketed ids working", () => {
+    expect(prettyModel("claude-opus-5.5")).toBe("Opus 5.5");
+    expect(prettyModel("claude-fable-5[1m]")).toBe("Fable 5");
+    expect(prettyModel("claude-3-5-sonnet-20240620")).toBe("Sonnet 3.5");
+    expect(prettyModel("gpt-5.5-codex")).toBe("GPT-5.5 Codex");
+    expect(prettyModel(null)).toBeNull();
   });
 });
 

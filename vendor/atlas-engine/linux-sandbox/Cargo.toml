@@ -1,0 +1,47 @@
+# Modified by Atlas from upstream OpenAI Codex (Apache-2.0). See CONTEXT.md.
+[package]
+name = "atlas-engine-linux-sandbox"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "atlas-engine-linux-sandbox"
+path = "src/main.rs"
+
+[lib]
+name = "atlas_engine_linux_sandbox"
+path = "src/lib.rs"
+doctest = false
+
+[lints]
+workspace = true
+
+[target.'cfg(target_os = "linux")'.dependencies]
+clap = { workspace = true, features = ["derive"] }
+atlas-engine-install-context = { workspace = true }
+atlas-engine-network-proxy = { workspace = true }
+atlas-engine-process-hardening = { workspace = true }
+atlas-engine-protocol = { workspace = true }
+atlas-engine-sandboxing = { workspace = true }
+atlas-engine-utils-absolute-path = { workspace = true }
+globset = { workspace = true }
+landlock = { workspace = true }
+libc = { workspace = true }
+seccompiler = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+sha2 = { workspace = true }
+url = { workspace = true }
+
+[target.'cfg(target_os = "linux")'.dev-dependencies]
+atlas-engine-core = { workspace = true }
+pretty_assertions = { workspace = true }
+tempfile = { workspace = true }
+tokio = { workspace = true, features = [
+    "io-std",
+    "macros",
+    "process",
+    "rt-multi-thread",
+    "signal",
+] }

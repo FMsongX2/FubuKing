@@ -35,9 +35,9 @@ pub enum TranscriptKind {
     /// No on-disk transcript — sessions are in-memory only and die with the
     /// process. These are the ones Atlas records itself.
     None,
-    /// Native Cersei agent — JSON transcript under the app config dir, replayed
+    /// Native agent — JSON transcript under the app config dir, replayed
     /// by the native agent itself rather than through this module.
-    CerseiJson,
+    Native,
 }
 
 /// Claude Code encodes the project cwd as a folder name by replacing every

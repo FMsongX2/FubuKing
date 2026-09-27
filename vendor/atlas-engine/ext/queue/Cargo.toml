@@ -1,0 +1,35 @@
+# Modified by Atlas from upstream OpenAI Codex (Apache-2.0). See CONTEXT.md.
+[package]
+edition.workspace = true
+license.workspace = true
+name = "atlas-engine-queue-extension"
+version.workspace = true
+
+[lib]
+name = "atlas_engine_queue_extension"
+path = "src/lib.rs"
+test = false
+doctest = false
+
+[lints]
+workspace = true
+
+[dependencies]
+atlas-engine-core = { workspace = true }
+atlas-engine-extension-api = { workspace = true }
+atlas-engine-protocol = { workspace = true }
+atlas-engine-thread-store = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true, features = ["rt", "sync", "time"] }
+tracing = { workspace = true }
+uuid = { workspace = true, features = ["v7"] }
+
+[dev-dependencies]
+anyhow = { workspace = true }
+atlas-engine-state = { workspace = true }
+atlas-engine-utils-absolute-path = { workspace = true }
+core_test_support = { workspace = true }
+pretty_assertions = { workspace = true }
+tempfile = { workspace = true }
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }

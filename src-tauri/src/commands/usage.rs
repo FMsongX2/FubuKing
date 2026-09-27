@@ -454,7 +454,7 @@ mod tests {
         let sessions = vec![
             session("ses-1", "claude-code", Some("claude-opus-4"), totals(1_000_000, 0)),
             session("ses-2", "codex", Some("gpt-5"), totals(1_000_000, 0)),
-            session("ses-3", "cersei", Some("gpt-5"), totals(0, 100_000)),
+            session("ses-3", "atlas-agent", Some("gpt-5"), totals(0, 100_000)),
         ];
         let message_counts = HashMap::from([("row-ses-1".to_string(), 4i64), ("row-ses-2".to_string(), 2)]);
 
@@ -500,7 +500,7 @@ mod tests {
     #[test]
     fn a_sessions_usage_lands_on_the_day_it_was_last_active() {
         let prices = prices();
-        let mut earlier = session("ses-1", "cersei", Some("gpt-5"), totals(1_000_000, 0));
+        let mut earlier = session("ses-1", "atlas-agent", Some("gpt-5"), totals(1_000_000, 0));
         earlier.last_activity_at = Some(Utc.with_ymd_and_hms(2026, 8, 20, 12, 0, 0).unwrap());
         let mut later = session("ses-2", "claude-code", Some("gpt-5"), totals(2_000_000, 0));
         later.last_activity_at = Some(Utc.with_ymd_and_hms(2026, 8, 21, 12, 0, 0).unwrap());
@@ -516,7 +516,7 @@ mod tests {
     fn a_session_that_recorded_nothing_at_all_does_not_invent_a_day() {
         let prices = prices();
         let usage = summarize(
-            &[session("ses-1", "cersei", None, TokenTotals::default())],
+            &[session("ses-1", "atlas-agent", None, TokenTotals::default())],
             &HashMap::new(),
             &prices,
         );

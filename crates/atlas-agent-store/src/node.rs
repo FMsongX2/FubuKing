@@ -273,8 +273,8 @@ impl NodeRuntime {
 
             // A fresh runtime starts with a fresh npm cache. This is the only
             // place the cache is wiped: keeping it across launches is what lets
-            // `--prefer-offline` answer an already-installed package without a
-            // registry round-trip.
+            // an install revalidate metadata instead of re-downloading tarballs,
+            // and lets an offline host fall back to what it already fetched.
             let _ = tokio::fs::remove_dir_all(node_dir.join("cache")).await;
         }
 
@@ -405,13 +405,16 @@ fn inherited_npm_config_keys(
 /// platform tarball alone is 220 MB. Note `fetch-timeout` is npm's per-socket
 /// *idle* timeout (`@npmcli/agent` maps it to `timeouts.idle`), not a transfer
 /// cap — it ends a stalled socket, never a slow download; the whole-invocation
-/// deadline is [`npm_timeout`]. `--prefer-offline` makes a warm cache skip the
-/// registry entirely, and audit/fund are two more round-trips that answer
-/// nothing we act on.
+/// deadline is [`npm_timeout`]. Audit/fund are two more round-trips that
+/// answer nothing we act on.
+///
+/// No cache policy here (`--prefer-offline` / `--prefer-online`): each caller
+/// picks its own, because npm resolves the two by precedence rather than by
+/// order — with both on the line `--prefer-offline` wins, so a default here
+/// silently overrode every caller that asked to go online.
 const NPM_FETCH_ARGS: &[&str] = &[
     "--no-audit",
     "--no-fund",
-    "--prefer-offline",
     "--fetch-timeout",
     "300000",
     "--fetch-retries",
@@ -599,6 +602,22 @@ pub fn installed_version_satisfies(installed: &str, wanted_spec: &str) -> bool {
     }
 }
 
+/// Whether `installed` is strictly older than the version `wanted_spec` names.
+///
+/// The ceiling check lets any older copy through on purpose — an offline host
+/// can keep running the version it has. But npm resolves the bounded range
+/// against whatever packument it has, and one cached before the wanted
+/// release was published makes it install an older version and exit 0. This
+/// is how the caller tells "npm gave us the release the registry asked for"
+/// from "npm gave us whatever its cache knew about".
+/// A spec with no ceiling, or a version that does not parse, is never below.
+pub fn installed_below_ceiling(installed: &str, wanted_spec: &str) -> bool {
+    let Some(ceiling) = package_spec_ceiling(wanted_spec) else {
+        return false;
+    };
+    Version::parse(installed.trim()).is_ok_and(|installed| installed < ceiling)
+}
+
 /// The `version` an installed npm package declares, or `None` when it is not
 /// installed or its `package.json` does not parse.
 pub async fn installed_package_version(node_modules_dir: &Path, name: &str) -> Option<String> {
@@ -780,6 +799,17 @@ mod tests {
     }
 
     #[test]
+    fn below_ceiling_is_strict_and_needs_a_ceiling() {
+        assert!(installed_below_ceiling("0.76.0", "@scope/pkg@0.81.2"));
+        assert!(installed_below_ceiling("0.81.2-preview.1", "pkg@0.81.2"));
+        assert!(!installed_below_ceiling("0.81.2", "pkg@0.81.2"));
+        assert!(!installed_below_ceiling("0.81.3", "pkg@0.81.2"));
+        assert!(!installed_below_ceiling("0.1.0", "pkg@latest"));
+        assert!(!installed_below_ceiling("0.1.0", "pkg"));
+        assert!(!installed_below_ceiling("garbage", "pkg@1.0.0"));
+    }
+
+    #[test]
     fn unparseable_installed_version_forces_a_reinstall() {
         assert!(!installed_version_satisfies("", "pkg@1.2.3"));
         assert!(!installed_version_satisfies("garbage", "pkg@1.2.3"));
@@ -813,7 +843,7 @@ mod tests {
             npm.display()
         )), "got {joined}");
         assert!(joined.contains(
-            "--no-audit --no-fund --prefer-offline --fetch-timeout 300000 --fetch-retries 2 \
+            "--no-audit --no-fund --fetch-timeout 300000 --fetch-retries 2 \
              --fetch-retry-mintimeout 2000 --fetch-retry-maxtimeout 10000"
         ), "got {joined}");
         // The caller's own args come last.

@@ -15,6 +15,7 @@ import {
 } from "../stores/knowledge-links-store";
 import { useAppStore } from "@/features/app/stores/app-store";
 import { useLayoutStore } from "@/features/layout/stores/layout-store";
+import { openFile } from "@/lib/open-file";
 import { useProjectStore } from "@/features/projects/stores/project-store";
 import { registerFlush } from "@/features/projects/lib/flush-registry";
 import {
@@ -282,14 +283,7 @@ export function KnowledgePanel() {
   // Open a non-note file (image, code) in the CodeMirror editor rather than the
   // KB note editor.
   const openInCodeMirror = useCallback((filePath: string) => {
-    useLayoutStore.getState().actions.addTab({
-      id: `editor-${filePath}`,
-      type: "editor",
-      title: filePath.split("/").pop() ?? "file",
-      closable: true,
-      dirty: false,
-      data: { filePath },
-    });
+    void openFile(filePath);
   }, []);
 
   // Import external .md files (Obsidian-style). .md → KB notes; any non-.md

@@ -1,0 +1,32 @@
+# Modified by Atlas from upstream OpenAI Codex (Apache-2.0). See CONTEXT.md.
+[package]
+name = "atlas-engine-backend-client"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+
+[lib]
+path = "src/lib.rs"
+doctest = false
+
+[lints]
+workspace = true
+
+[dependencies]
+anyhow = "1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+http = { workspace = true }
+url = { workspace = true }
+atlas-engine-backend-openapi-models = { path = "../atlas-engine-backend-openapi-models" }
+atlas-engine-api = { workspace = true }
+atlas-engine-http-client = { workspace = true }
+atlas-engine-login = { workspace = true }
+atlas-engine-model-provider = { workspace = true }
+atlas-engine-protocol = { workspace = true }
+
+[dev-dependencies]
+pretty_assertions = "1"
+tokio = { workspace = true, features = ["macros", "rt"] }
+wiremock = { workspace = true }

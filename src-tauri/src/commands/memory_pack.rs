@@ -424,7 +424,7 @@ pub(crate) mod test_support {
         let key = SessionKey {
             workspace_id: crate::commands::capture::project_id_for(std::path::Path::new(project)),
             // As live capture files it: the native agent under its own source.
-            source: if agent == atlas_native_agent::CERSEI_AGENT_ID { Source::Cersei } else { Source::Acp },
+            source: if agent == atlas_native_agent::ATLAS_AGENT_ID { Source::Native } else { Source::Acp },
             native_session_id: native_id.into(),
         };
         let (mut turn, mut row) = (0i64, String::new());
@@ -551,21 +551,21 @@ mod tests {
         }
     }
 
-    /// A Claude session followed by Atlas Agent (stored agent id `cersei`):
+    /// A Claude session followed by Atlas Agent (stored agent id `atlas-agent`):
     /// the same handoff, with no agent-identity special-casing either way.
     #[test]
     fn a_claude_session_hands_off_to_atlas_agent() {
-        let p = scratch_project("claude-cersei");
+        let p = scratch_project("claude-atlas-agent");
         record_session(
             &p,
             "claude-1",
             "claude-code",
             &[(U.0, U.1, "why does the build fail on CI?"), (A.0, A.1, "The lockfile was stale; regenerated it.")],
         );
-        record_session(&p, "cersei-now", "cersei", &[(U.0, U.1, "what next")]);
+        record_session(&p, "atlas-agent-now", "atlas-agent", &[(U.0, U.1, "what next")]);
 
         assert_eq!(
-            build_session_handoff(&p, "cersei-now", &no_transcripts()),
+            build_session_handoff(&p, "atlas-agent-now", &no_transcripts()),
             Some((
                 "User: why does the build fail on CI?\nAssistant: The lockfile was stale; regenerated it.".to_string(),
                 2

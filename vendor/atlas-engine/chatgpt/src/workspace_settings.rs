@@ -1,0 +1,149 @@
+// Modified by Atlas from upstream OpenAI Codex (Apache-2.0). See CONTEXT.md.
+use std::collections::HashMap;
+use std::sync::RwLock;
+use std::time::Duration;
+use std::time::Instant;
+
+use atlas_engine_core::config::Config;
+use atlas_engine_login::AtlasEngineAuth;
+use serde::Deserialize;
+
+use crate::chatgpt_client::chatgpt_get_request_with_timeout;
+
+const WORKSPACE_SETTINGS_TIMEOUT: Duration = Duration::from_secs(10);
+const WORKSPACE_SETTINGS_CACHE_TTL: Duration = Duration::from_secs(15 * 60);
+const ATLAS_AGENT_PLUGINS_BETA_SETTING: &str = "enable_plugins";
+
+#[derive(Debug, Deserialize)]
+struct WorkspaceSettingsResponse {
+    #[serde(default)]
+    beta_settings: HashMap<String, bool>,
+}
+
+#[derive(Debug, Default)]
+pub struct WorkspaceSettingsCache {
+    entry: RwLock<Option<CachedWorkspaceSettings>>,
+}
+
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+struct WorkspaceSettingsCacheKey {
+    chatgpt_base_url: String,
+    account_id: String,
+}
+
+#[derive(Clone, Debug)]
+struct CachedWorkspaceSettings {
+    key: WorkspaceSettingsCacheKey,
+    expires_at: Instant,
+    atlas_engine_plugins_enabled: bool,
+}
+
+impl WorkspaceSettingsCache {
+    fn get_atlas_engine_plugins_enabled(&self, key: &WorkspaceSettingsCacheKey) -> Option<bool> {
+        {
+            let entry = match self.entry.read() {
+                Ok(entry) => entry,
+                Err(err) => err.into_inner(),
+            };
+            let now = Instant::now();
+            if let Some(cached) = entry.as_ref()
+                && now < cached.expires_at
+                && cached.key == *key
+            {
+                return Some(cached.atlas_engine_plugins_enabled);
+            }
+        }
+
+        let mut entry = match self.entry.write() {
+            Ok(entry) => entry,
+            Err(err) => err.into_inner(),
+        };
+        let now = Instant::now();
+        if entry
+            .as_ref()
+            .is_some_and(|cached| now >= cached.expires_at || cached.key != *key)
+        {
+            *entry = None;
+        }
+        None
+    }
+
+    fn set_atlas_engine_plugins_enabled(&self, key: WorkspaceSettingsCacheKey, enabled: bool) {
+        let mut entry = match self.entry.write() {
+            Ok(entry) => entry,
+            Err(err) => err.into_inner(),
+        };
+        *entry = Some(CachedWorkspaceSettings {
+            key,
+            expires_at: Instant::now() + WORKSPACE_SETTINGS_CACHE_TTL,
+            atlas_engine_plugins_enabled: enabled,
+        });
+    }
+}
+
+pub async fn atlas_engine_plugins_enabled_for_workspace(
+    config: &Config,
+    auth: Option<&AtlasEngineAuth>,
+    cache: Option<&WorkspaceSettingsCache>,
+) -> anyhow::Result<bool> {
+    let Some(auth) = auth else {
+        return Ok(true);
+    };
+    if !auth.is_chatgpt_auth() {
+        return Ok(true);
+    }
+
+    if !auth.is_workspace_account() {
+        return Ok(true);
+    }
+
+    let Some(account_id) = auth.get_account_id().filter(|id| !id.is_empty()) else {
+        return Ok(true);
+    };
+
+    let cache_key = WorkspaceSettingsCacheKey {
+        chatgpt_base_url: config.chatgpt_base_url.clone(),
+        account_id: account_id.clone(),
+    };
+    if let Some(cache) = cache
+        && let Some(enabled) = cache.get_atlas_engine_plugins_enabled(&cache_key)
+    {
+        return Ok(enabled);
+    }
+
+    let encoded_account_id = encode_path_segment(&account_id);
+    let settings: WorkspaceSettingsResponse = chatgpt_get_request_with_timeout(
+        config,
+        format!("/accounts/{encoded_account_id}/settings"),
+        Some(WORKSPACE_SETTINGS_TIMEOUT),
+    )
+    .await?;
+
+    let atlas_engine_plugins_enabled = settings
+        .beta_settings
+        .get(ATLAS_AGENT_PLUGINS_BETA_SETTING)
+        .copied()
+        .unwrap_or(true);
+
+    if let Some(cache) = cache {
+        cache.set_atlas_engine_plugins_enabled(cache_key, atlas_engine_plugins_enabled);
+    }
+
+    Ok(atlas_engine_plugins_enabled)
+}
+
+fn encode_path_segment(value: &str) -> String {
+    let mut encoded = String::new();
+    for byte in value.bytes() {
+        if byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'.' | b'_' | b'~') {
+            encoded.push(byte as char);
+        } else {
+            encoded.push_str(&format!("%{byte:02X}"));
+        }
+    }
+    encoded
+}
+
+#[cfg(test)]
+#[path = "workspace_settings_tests.rs"]
+mod tests;

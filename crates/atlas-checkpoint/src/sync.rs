@@ -89,6 +89,12 @@ pub fn ingest_base() -> String {
 pub enum DrainStatus {
     /// Everything pending was sent.
     Drained,
+    /// The pass ran out of its budget ([`SyncConfig::deadline`]) with rows
+    /// still pending. Not a failure and not a reason to back off: the caller
+    /// runs the next pass when its turn comes round again, so one Project's
+    /// backlog shares the uplink with every other Project's instead of
+    /// holding it until the backlog is empty.
+    Yielded,
     /// The server could not be reached, or returned 5xx. Rows stay pending and
     /// nothing is surfaced to the developer — this is the ordinary offline case.
     Offline,
@@ -141,6 +147,11 @@ pub struct SyncConfig<'a> {
     /// which parks the drain rather than failing it.
     pub token: &'a dyn Fn() -> Option<String>,
     pub timeout: Duration,
+    /// When the pass stops starting new batches and yields
+    /// ([`DrainStatus::Yielded`]). `None` drains until the queue is empty. A
+    /// batch already started always finishes: stopping mid-batch would leave
+    /// uploaded blobs without their rows.
+    pub deadline: Option<std::time::Instant>,
 }
 
 impl SyncConfig<'_> {
@@ -148,7 +159,7 @@ impl SyncConfig<'_> {
         reqwest::blocking::Client::builder()
             .timeout(self.timeout)
             .build()
-            .map_err(|e| Error::Storage(format!("http client: {e}")))
+            .map_err(|e| Error::Remote(format!("http client: {e}")))
     }
 }
 
@@ -175,6 +186,13 @@ pub fn drain(store: &Store, config: &SyncConfig<'_>) -> Result<DrainOutcome> {
     outcome.failed +=
         store.mark_exhausted_rows_failed(&config.workspace_id, MAX_ATTEMPTS)? as usize;
 
+    // Nothing queued, nothing to send — and no token to mint. The worker ticks
+    // every 30 s per Cloud Project, and minting first cost a `GET /token` per
+    // tick on an idle Project, which is load the auth server rate-limits.
+    if store.row_count_in_state(&config.workspace_id, SyncState::Pending)? == 0 {
+        return Ok(outcome);
+    }
+
     let Some(mut token) = (config.token)() else {
         outcome.status = DrainStatus::NoCredential;
         outcome.still_pending = store.row_count_in_state(&config.workspace_id, SyncState::Pending)?;
@@ -196,6 +214,12 @@ pub fn drain(store: &Store, config: &SyncConfig<'_>) -> Result<DrainOutcome> {
     let mut max_count = MAX_BATCH_COUNT;
 
     loop {
+        // Checked between batches, never inside one. At least one batch runs
+        // per pass, so a short budget still makes progress.
+        if config.deadline.is_some_and(|d| std::time::Instant::now() >= d) && outcome.sent + outcome.failed > 0 {
+            outcome.status = DrainStatus::Yielded;
+            break;
+        }
         let batch = store.pending_artifacts(
             &config.workspace_id,
             &config.wire_workspace_id,
@@ -584,10 +608,68 @@ pub fn check_slug(config: &SyncConfig<'_>, slug: &str) -> SlugAvailability {
                     SlugAvailability::Taken
                 }
             })
-            .unwrap_or(SlugAvailability::Unknown),
+            .unwrap_or_else(|| {
+                tracing::warn!(target: "atlas_checkpoint::sync", "slug check: 2xx without an `available` field");
+                SlugAvailability::Unknown
+            }),
         Ok(response) if response.status() == 409 => SlugAvailability::Taken,
-        _ => SlugAvailability::Unknown,
+        // `Unknown` is the right answer to the developer, but the reason must
+        // land somewhere: the popover renders every refusal as "couldn't check".
+        Ok(response) => {
+            let err = server_refusal("slug check", response);
+            tracing::warn!(target: "atlas_checkpoint::sync", "{err}");
+            SlugAvailability::Unknown
+        }
+        Err(e) => {
+            tracing::warn!(target: "atlas_checkpoint::sync", "slug check: {e}");
+            SlugAvailability::Unknown
+        }
     }
+}
+
+/// Who inside the Organisation may read a Project.
+///
+/// The server's default is `Org`, and so is ours: a Project nobody restricted
+/// is one the whole Organisation can read and push to. `Restricted` is the
+/// "Restrict to named members" checkbox, and it can be changed later.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Visibility {
+    #[default]
+    Org,
+    Restricted,
+}
+
+impl Visibility {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Org => "org",
+            Self::Restricted => "restricted",
+        }
+    }
+
+    /// Anything unrecognised reads as `Org` rather than failing: visibility is
+    /// a display concern here, and the server is the one that enforces it.
+    pub fn parse(raw: &str) -> Self {
+        match raw {
+            "restricted" => Self::Restricted,
+            _ => Self::Org,
+        }
+    }
+}
+
+/// What a new Project is called, and who may see it.
+///
+/// A struct rather than five positional arguments, because four of them are
+/// `Option<&str>` and a transposed pair would compile.
+#[derive(Debug, Clone, Default)]
+pub struct Registration<'a> {
+    pub slug: &'a str,
+    /// Defaults to the Slug server-side when absent.
+    pub name: Option<&'a str>,
+    pub root_commit_sha: Option<&'a str>,
+    pub git_url: Option<&'a str>,
+    pub visibility: Visibility,
 }
 
 /// Register a Project with an Organisation.
@@ -596,38 +678,39 @@ pub fn check_slug(config: &SyncConfig<'_>, slug: &str) -> SlugAvailability {
 /// has to be settled server-side before anything local changes — otherwise a
 /// rejected Slug leaves a half-bound Project behind. The identity signals
 /// travel as advisory data: the server must accept a registration with neither.
-pub fn register_workspace(
-    config: &SyncConfig<'_>,
-    slug: &str,
-    root_commit_sha: Option<&str>,
-    git_url: Option<&str>,
-) -> Result<String> {
+pub fn register_workspace(config: &SyncConfig<'_>, reg: Registration<'_>) -> Result<String> {
     let token = (config.token)()
-        .ok_or_else(|| Error::Storage("not signed in".into()))?;
+        .ok_or_else(|| Error::Remote("not signed in".into()))?;
     let client = config.client()?;
+    let slug = reg.slug;
+
+    // Absent fields are **omitted**, never sent as `null`: the server's schema
+    // marks `name` optional-but-not-nullable, and a literal `null` there is a
+    // `422` for a registration that is otherwise fine. The fingerprints are
+    // nullable server-side, but omitting them is right by the same rule.
+    let mut body = serde_json::Map::new();
+    body.insert("orgId".into(), config.org_id.clone().into());
+    body.insert("slug".into(), slug.into());
+    body.insert("visibility".into(), reg.visibility.as_str().into());
+    insert_present(&mut body, "name", reg.name);
+    insert_present(&mut body, "rootCommitSha", reg.root_commit_sha);
+    insert_present(&mut body, "gitUrl", reg.git_url);
 
     let response = client
         .post(format!("{}/workspaces", config.base_url))
         .bearer_auth(token)
-        .json(&serde_json::json!({
-            "orgId": config.org_id,
-            "slug": slug,
-            "rootCommitSha": root_commit_sha,
-            "gitUrl": git_url,
-        }))
+        .json(&body)
         .send()
-        .map_err(|e| Error::Storage(format!("register project: {e}")))?;
+        .map_err(|e| Error::Remote(format!("register project: {e}")))?;
 
     let status = response.status();
     if status == 409 {
         // Taken between the check and the confirm. Told plainly, and nothing
         // local has changed.
-        return Err(Error::Storage(format!("the slug \"{slug}\" is already taken")));
+        return Err(Error::Remote(format!("the slug \"{slug}\" is already taken")));
     }
     if !status.is_success() {
-        return Err(Error::Storage(format!(
-            "register project: server returned {status}"
-        )));
+        return Err(server_refusal("register project", response));
     }
 
     response
@@ -639,7 +722,7 @@ pub fn register_workspace(
                 .and_then(serde_json::Value::as_str)
                 .map(str::to_string)
         })
-        .ok_or_else(|| Error::Storage("register project: no id in response".into()))
+        .ok_or_else(|| Error::Remote("register project: no id in response".into()))
 }
 
 /// A Project as the Organisation knows it.
@@ -653,6 +736,12 @@ pub struct RemoteWorkspace {
     pub root_commit_sha: Option<String>,
     #[serde(default)]
     pub git_url: Option<String>,
+    /// Display name. Defaulted because a Project registered before the server
+    /// carried one answers without the field.
+    #[serde(default)]
+    pub name: Option<String>,
+    #[serde(default)]
+    pub visibility: Visibility,
 }
 
 /// Which Project the popover should pre-select, and why.
@@ -734,7 +823,7 @@ pub fn preselect(
 
 /// Every Project in the Organisation the developer can reach.
 pub fn list_workspaces(config: &SyncConfig<'_>) -> Result<Vec<RemoteWorkspace>> {
-    let token = (config.token)().ok_or_else(|| Error::Storage("not signed in".into()))?;
+    let token = (config.token)().ok_or_else(|| Error::Remote("not signed in".into()))?;
     let client = config.client()?;
 
     let response = client
@@ -742,23 +831,180 @@ pub fn list_workspaces(config: &SyncConfig<'_>) -> Result<Vec<RemoteWorkspace>> 
         .bearer_auth(token)
         .query(&[("orgId", config.org_id.as_str())])
         .send()
-        .map_err(|e| Error::Storage(format!("list workspaces: {e}")))?;
+        .map_err(|e| Error::Remote(format!("list workspaces: {e}")))?;
 
     if !response.status().is_success() {
-        return Err(Error::Storage(format!(
-            "list workspaces: server returned {}",
-            response.status()
-        )));
+        let err = server_refusal("list workspaces", response);
+        tracing::warn!(target: "atlas_checkpoint::sync", "{err}");
+        return Err(err);
     }
-    response
+    let body: serde_json::Value = response
+        .json()
+        .map_err(|e| Error::Remote(format!("list workspaces: unreadable response: {e}")))?;
+    let rows = body
+        .get("workspaces")
+        .cloned()
+        .ok_or_else(|| Error::Remote("list workspaces: response carries no `workspaces`".into()))?;
+    serde_json::from_value(rows).map_err(|e| {
+        // A row this build cannot read is worth naming: the alternative was a
+        // bare "unreadable response" that looked like a network fault.
+        let err = Error::Remote(format!("list workspaces: a workspace row did not parse: {e}"));
+        tracing::warn!(target: "atlas_checkpoint::sync", "{err}");
+        err
+    })
+}
+
+/// What the developer is asking to connect to.
+///
+/// `workspace_id` is an explicit pick from the picker. With neither it nor
+/// `slug` set, the server matches on the fingerprints alone — which is how a
+/// teammate's fresh checkout finds the Project without being told its name.
+#[derive(Debug, Clone, Default)]
+pub struct ConnectRequest<'a> {
+    pub workspace_id: Option<&'a str>,
+    pub slug: Option<&'a str>,
+    pub root_commit_sha: Option<&'a str>,
+    pub git_url: Option<&'a str>,
+    /// Create the Project when nothing matched. Requires `slug`.
+    pub create: bool,
+}
+
+/// How the server resolved a connect request.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ConnectOutcome {
+    Connected {
+        workspace_id: String,
+        slug: Option<String>,
+        /// `explicit`, `fingerprint`, `origin_url`, `created` or
+        /// `already_connected` — worth showing, because "we matched your root
+        /// commit" and "you picked this" earn different amounts of trust.
+        reason: Option<String>,
+    },
+    /// Several Projects matched and the server bound none of them.
+    ///
+    /// Not an error: every repository made from the same template shares a root
+    /// commit, so this is the *correct* answer and the human has to pick.
+    Ambiguous { candidates: Vec<RemoteWorkspace> },
+    /// Nothing matched, and `create` was not set.
+    NoMatch,
+}
+
+/// Connect this repository to a Project, letting the server do the matching.
+///
+/// Preferred over registering blind: the server checks the root commit first
+/// and only then the origin URL, refuses to guess when several match, and opens
+/// the sync run in the same call. Idempotent — connecting twice resumes the
+/// existing run rather than starting a second one.
+pub fn connect_workspace(
+    config: &SyncConfig<'_>,
+    req: ConnectRequest<'_>,
+) -> Result<ConnectOutcome> {
+    let token = (config.token)().ok_or_else(|| Error::Remote("not signed in".into()))?;
+    let client = config.client()?;
+
+    // Same rule as `register_workspace`: `workspaceId` and `slug` are optional
+    // server-side but not nullable, and the common path — match on the
+    // fingerprints alone — sets neither.
+    let mut body = serde_json::Map::new();
+    body.insert("orgId".into(), config.org_id.clone().into());
+    body.insert("create".into(), req.create.into());
+    insert_present(&mut body, "workspaceId", req.workspace_id);
+    insert_present(&mut body, "slug", req.slug);
+    insert_present(&mut body, "rootCommitSha", req.root_commit_sha);
+    insert_present(&mut body, "gitUrl", req.git_url);
+
+    let response = client
+        .post(format!("{}/workspaces/connect", config.base_url))
+        .bearer_auth(token)
+        .json(&body)
+        .send()
+        .map_err(|e| Error::Remote(format!("connect project: {e}")))?;
+
+    let status = response.status();
+    if status == 409 {
+        let slug = req.slug.unwrap_or("that slug");
+        return Err(Error::Remote(format!("the slug \"{slug}\" is already taken")));
+    }
+    if !status.is_success() {
+        return Err(server_refusal("connect project", response));
+    }
+
+    let body: serde_json::Value = response
+        .json()
+        .map_err(|e| Error::Remote(format!("connect project: unreadable response: {e}")))?;
+
+    Ok(read_connect_outcome(&body))
+}
+
+/// Put `value` on the body only when there is one.
+///
+/// `serde_json::json!` writes an `Option::None` as `null`, and the registry's
+/// schemas accept an *absent* optional but refuse a `null` one.
+fn insert_present(body: &mut serde_json::Map<String, serde_json::Value>, key: &str, value: Option<&str>) {
+    if let Some(value) = value {
+        body.insert(key.to_string(), value.into());
+    }
+}
+
+/// Turn a refused response into an error that says what the server said.
+///
+/// The registry answers `{"error":{"code","message"}}` and the message is the
+/// first schema issue — "Expected string, received null" — which is the one
+/// fact a person debugging a `422` needs and the status alone withholds.
+fn server_refusal(what: &str, response: reqwest::blocking::Response) -> Error {
+    let status = response.status();
+    let reason = response
         .json::<serde_json::Value>()
         .ok()
-        .and_then(|v| {
-            v.get("workspaces")
+        .and_then(|v| server_error_message(&v));
+    match reason {
+        Some(reason) => Error::Remote(format!("{what}: server returned {status} ({reason})")),
+        None => Error::Remote(format!("{what}: server returned {status}")),
+    }
+}
+
+/// The `error.message` (and `error.code` when it adds something) of a
+/// registry refusal, or `None` when the body is not that shape.
+fn server_error_message(body: &serde_json::Value) -> Option<String> {
+    let error = body.get("error")?;
+    let message = error.get("message").and_then(serde_json::Value::as_str);
+    let code = error.get("code").and_then(serde_json::Value::as_str);
+    match (code, message) {
+        (Some(code), Some(message)) if message != code => Some(format!("{code}: {message}")),
+        (_, Some(message)) => Some(message.to_string()),
+        (Some(code), None) => Some(code.to_string()),
+        (None, None) => None,
+    }
+}
+
+/// Split out from the request so the response shapes are testable without a
+/// server — including the one that matters, `ambiguous` binding nothing.
+fn read_connect_outcome(body: &serde_json::Value) -> ConnectOutcome {
+    let str_at = |key: &str| {
+        body.get(key)
+            .and_then(serde_json::Value::as_str)
+            .map(str::to_string)
+    };
+
+    match body.get("status").and_then(serde_json::Value::as_str) {
+        Some("connected") => match str_at("workspaceId") {
+            Some(workspace_id) => ConnectOutcome::Connected {
+                workspace_id,
+                slug: str_at("slug"),
+                reason: str_at("reason"),
+            },
+            // `connected` without an id is not something to act on.
+            None => ConnectOutcome::NoMatch,
+        },
+        Some("ambiguous") => ConnectOutcome::Ambiguous {
+            candidates: body
+                .get("candidates")
                 .cloned()
-                .and_then(|w| serde_json::from_value(w).ok())
-        })
-        .ok_or_else(|| Error::Storage("list workspaces: unreadable response".into()))
+                .and_then(|c| serde_json::from_value(c).ok())
+                .unwrap_or_default(),
+        },
+        _ => ConnectOutcome::NoMatch,
+    }
 }
 
 #[cfg(test)]
@@ -771,7 +1017,77 @@ mod tests {
             slug: id.to_string(),
             root_commit_sha: sha.map(str::to_string),
             git_url: url.map(str::to_string),
+            name: None,
+            visibility: Visibility::Org,
         }
+    }
+
+    #[test]
+    fn a_connected_response_carries_the_id_the_server_chose() {
+        // Not the id we asked for: the server may resolve a slug, or answer
+        // `already_connected` with the Project we were bound to all along.
+        let body = serde_json::json!({
+            "status": "connected",
+            "workspaceId": "ws-remote-9",
+            "slug": "atlas",
+            "reason": "fingerprint",
+        });
+        assert_eq!(
+            read_connect_outcome(&body),
+            ConnectOutcome::Connected {
+                workspace_id: "ws-remote-9".into(),
+                slug: Some("atlas".into()),
+                reason: Some("fingerprint".into()),
+            }
+        );
+    }
+
+    #[test]
+    fn an_ambiguous_response_binds_nothing_and_keeps_the_candidates() {
+        // The rule that matters. Two repositories from one template share a
+        // root commit, and picking either would pollute a shared timeline.
+        let body = serde_json::json!({
+            "status": "ambiguous",
+            "workspaceId": serde_json::Value::Null,
+            "candidates": [
+                { "id": "a", "slug": "a", "rootCommitSha": "root-1" },
+                { "id": "b", "slug": "b", "rootCommitSha": "root-1" },
+            ],
+        });
+        let ConnectOutcome::Ambiguous { candidates } = read_connect_outcome(&body) else {
+            panic!("ambiguous must not bind");
+        };
+        assert_eq!(candidates.len(), 2);
+        // The fields the server omits must default rather than drop the row.
+        assert_eq!(candidates[0].visibility, Visibility::Org);
+        assert_eq!(candidates[0].name, None);
+    }
+
+    #[test]
+    fn connected_without_an_id_is_not_acted_on() {
+        // A malformed success is not a binding. Treating it as one would write
+        // `None` as the wire identity and fail at drain time instead of here.
+        let body = serde_json::json!({ "status": "connected" });
+        assert_eq!(read_connect_outcome(&body), ConnectOutcome::NoMatch);
+    }
+
+    #[test]
+    fn an_unrecognised_status_is_no_match() {
+        assert_eq!(
+            read_connect_outcome(&serde_json::json!({ "status": "no_match" })),
+            ConnectOutcome::NoMatch
+        );
+        assert_eq!(read_connect_outcome(&serde_json::json!({})), ConnectOutcome::NoMatch);
+    }
+
+    #[test]
+    fn visibility_round_trips_and_unknown_reads_as_org() {
+        assert_eq!(Visibility::parse("restricted"), Visibility::Restricted);
+        assert_eq!(Visibility::Restricted.as_str(), "restricted");
+        assert_eq!(Visibility::parse("org"), Visibility::Org);
+        // An unrecognised value must not fail the picker; the server enforces.
+        assert_eq!(Visibility::parse("public"), Visibility::Org);
+        assert_eq!(Visibility::default(), Visibility::Org);
     }
 
     #[test]

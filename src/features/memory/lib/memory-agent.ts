@@ -7,7 +7,7 @@
 //     nothing; that is a deliberate invariant of the ACP registry port and is
 //     locked by `agent-meta.test.ts` ("treats an agent id as opaque").
 //   * The **memory corpus** tags every doc, session and shared-memory event
-//     with a bare source — "claude", "codex", "cersei" — written by
+//     with a bare source — "claude", "codex", "atlas-agent" — written by
 //     `agent_memory.rs` long before the registry existed, and still written
 //     that way today. Session capture also stamped adapter-specific ids
 //     ("claude-code-ts") before the port settled on `*-acp`.
@@ -35,7 +35,7 @@ const SOURCE_TO_PLUGIN_ID: Record<string, string> = {
  *  through untouched — a registry-installed agent already tags its capture rows
  *  with its own plugin id, which is exactly what `agentMeta` wants. */
 export function pluginIdForSource(source: string | null | undefined): string {
-  if (typeof source !== "string" || source.length === 0) return "cersei";
+  if (typeof source !== "string" || source.length === 0) return "atlas-agent";
   return SOURCE_TO_PLUGIN_ID[source] ?? source;
 }
 

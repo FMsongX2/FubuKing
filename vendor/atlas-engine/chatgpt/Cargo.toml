@@ -1,0 +1,32 @@
+# Modified by Atlas from upstream OpenAI Codex (Apache-2.0). See CONTEXT.md.
+[package]
+name = "atlas-engine-chatgpt"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+anyhow = { workspace = true }
+clap = { workspace = true, features = ["derive"] }
+atlas-engine-connectors = { workspace = true }
+atlas-engine-core = { workspace = true }
+atlas-engine-git-utils = { workspace = true }
+atlas-engine-http-client = { workspace = true }
+atlas-engine-login = { workspace = true }
+atlas-engine-model-provider = { workspace = true }
+atlas-engine-plugin = { workspace = true }
+atlas-engine-utils-cli = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+tokio = { workspace = true, features = ["full"] }
+
+[dev-dependencies]
+atlas-engine-utils-cargo-bin = { workspace = true }
+pretty_assertions = { workspace = true }
+serde_json = { workspace = true }
+tempfile = { workspace = true }
+
+[lib]
+doctest = false

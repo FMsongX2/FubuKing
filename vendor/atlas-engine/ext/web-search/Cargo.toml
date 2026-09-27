@@ -1,0 +1,33 @@
+# Modified by Atlas from upstream OpenAI Codex (Apache-2.0). See CONTEXT.md.
+[package]
+edition.workspace = true
+license.workspace = true
+name = "atlas-engine-web-search-extension"
+version.workspace = true
+
+[lib]
+name = "atlas_engine_web_search_extension"
+path = "src/lib.rs"
+doctest = false
+
+[lints]
+workspace = true
+
+[dependencies]
+atlas-engine-api = { workspace = true }
+atlas-engine-core = { workspace = true }
+atlas-engine-extension-api = { workspace = true }
+atlas-engine-extension-items = { workspace = true }
+atlas-engine-login = { workspace = true }
+atlas-engine-model-provider = { workspace = true }
+atlas-engine-model-provider-info = { workspace = true }
+atlas-engine-otel = { workspace = true }
+atlas-engine-protocol = { workspace = true }
+atlas-engine-tools = { workspace = true }
+http = { workspace = true }
+schemars = { workspace = true }
+serde_json = { workspace = true }
+url = { workspace = true }
+
+[dev-dependencies]
+pretty_assertions = { workspace = true }

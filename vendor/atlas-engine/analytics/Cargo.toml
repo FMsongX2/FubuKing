@@ -1,0 +1,36 @@
+# Modified by Atlas from upstream OpenAI Codex (Apache-2.0). See CONTEXT.md.
+[package]
+edition.workspace = true
+license.workspace = true
+name = "atlas-engine-analytics"
+version.workspace = true
+
+[lib]
+doctest = false
+name = "atlas_engine_analytics"
+path = "src/lib.rs"
+
+[lints]
+workspace = true
+
+[dependencies]
+atlas-engine-app-server-protocol = { workspace = true }
+atlas-engine-git-utils = { workspace = true }
+atlas-engine-login = { workspace = true }
+atlas-engine-model-provider = { workspace = true }
+atlas-engine-plugin = { workspace = true }
+atlas-engine-protocol = { workspace = true }
+atlas-engine-state = { workspace = true }
+os_info = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+sha1 = { workspace = true }
+tokio = { workspace = true, features = [
+    "macros",
+    "rt-multi-thread",
+] }
+tracing = { workspace = true, features = ["log"] }
+
+[dev-dependencies]
+atlas-engine-utils-absolute-path = { workspace = true }
+pretty_assertions = { workspace = true }

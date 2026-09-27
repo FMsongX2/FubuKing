@@ -227,20 +227,6 @@ export const agents = {
   logout: (agentId: AgentId) => invoke<void>("agents_logout", { agentId }),
 };
 
-/** A session finished a turn having never read shared memory.
- *
- *  A side channel rather than a session delta: the delta wire is frozen, and
- *  this is the host observing something that did NOT happen rather than
- *  reporting something the agent did. Fired at most once per session. */
-export interface MemoryUnconsulted {
-  sessionId: string;
-}
-
-export const listenMemoryUnconsulted = (
-  handler: (p: MemoryUnconsulted) => void,
-): Promise<UnlistenFn> =>
-  listen<MemoryUnconsulted>("atlas:memory-unconsulted", (e) => handler(e.payload));
-
 /** `runId` scopes the subscription; omit it only for diagnostics. */
 export const listenAuthRunDone = (
   handler: (p: AuthRunDone) => void,

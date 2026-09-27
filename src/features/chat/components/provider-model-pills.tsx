@@ -1,7 +1,7 @@
-//! Single model combo for the native Atlas (Cersei) agent composer.
+//! Single model combo for the native Atlas agent composer.
 //!
 //! The ACP agents (Claude Code / Codex) advertise their own models through the
-//! agent process, but the in-process Cersei agent picks its provider+model from
+//! agent process, but the in-process native agent picks its provider+model from
 //! the user's BYOK keys. To keep the composer compact (it was growing a long
 //! row of pills), provider + model are collapsed into ONE Cursor-style combo:
 //! a pill showing the active model, opening a popover with provider chips + a
@@ -26,7 +26,7 @@ import {
   isPreferredModel,
   preferredModels,
 } from "@/features/settings/lib/model-catalog";
-import { loadCerseiModelPref } from "../lib/cersei-model-pref";
+import { loadNativeModelPref } from "../lib/native-model-pref";
 import { cn } from "@/lib/utils";
 import { Hint } from "@/ui/tooltip";
 
@@ -90,7 +90,7 @@ export function ProviderModelPills({
   const hasKey = useCallback((id: string) => !!keys[id], [keys]);
 
   // Last-used selection (persisted) — seeds a fresh composer.
-  const prefRef = useRef(loadCerseiModelPref());
+  const prefRef = useRef(loadNativeModelPref());
 
   // Default the committed provider: remembered (if still keyed), else first keyed.
   useEffect(() => {
@@ -342,7 +342,7 @@ export function ProviderModelPills({
               </div>
             </div>
 
-            {/* The "Compress Tokens" toggle stood here. It drove the Cersei
+            {/* The "Compress Tokens" toggle stood here. It drove the old native
                 runtime's RTK tool-output compressor, which the ported engine has
                 no counterpart for (#54, D8) — so the control is gone rather than
                 left switching nothing. */}

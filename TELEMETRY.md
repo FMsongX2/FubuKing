@@ -136,8 +136,8 @@ relaunch. Switching directly from one account to another never carries
 | `agent_turn_started` | A turn begins | `agent_family`, `plugin_id`, `session_ref`, `turn_seq` |
 | `agent_turn_completed` | A turn ends, however it ends | see below |
 
-`agent_family` is `acp` or `cersei`; `plugin_id` is the real agent (`claude-code-ts`,
-`codex`, `cersei`). `session_ref` is a salted, non-reversible 16-character digest that
+`agent_family` is `acp` or `native`; `plugin_id` is the real agent (`claude-code-ts`,
+`codex`, `atlas-agent`). `session_ref` is a salted, non-reversible 16-character digest that
 joins a start to its completion — never the agent's real session id, which for Claude
 Code appears in on-disk transcript paths. The salt is minted per launch and never
 persisted.

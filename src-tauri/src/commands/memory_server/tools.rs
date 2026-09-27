@@ -70,7 +70,7 @@ const INDEX_MAX_LIMIT: usize = 20;
 const LIST_MAX_LIMIT: usize = 200;
 /// How long a client may treat the tool list as fresh. The tools never change
 /// while the app runs.
-pub(super) const TOOLS_LIST_TTL_MS: u64 = 60 * 60 * 1000;
+pub(crate) const TOOLS_LIST_TTL_MS: u64 = 60 * 60 * 1000;
 
 const OFF_NOTE: &str = "shared memory is switched off for this project";
 

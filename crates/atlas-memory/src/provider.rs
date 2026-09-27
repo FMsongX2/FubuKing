@@ -1,5 +1,5 @@
 //! `MiniLmProvider` — bridges Atlas's on-device MiniLM embedder ([`atlas_embed::Embedder`])
-//! into Cersei's [`EmbeddingProvider`] trait, so the same HNSW pipeline can later
+//! into the old SDK's [`EmbeddingProvider`] trait, so the same HNSW pipeline can later
 //! accept a BYOK remote provider behind the same interface.
 //!
 //! Embeddings stay **on-device** (no network). The blocking candle forward pass

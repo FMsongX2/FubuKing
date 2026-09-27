@@ -1,0 +1,48 @@
+# Modified by Atlas from upstream OpenAI Codex (Apache-2.0). See CONTEXT.md.
+[package]
+edition.workspace = true
+license.workspace = true
+name = "atlas-engine-utils-pty"
+version.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+anyhow = { workspace = true }
+portable-pty = { workspace = true }
+tokio = { workspace = true, features = ["io-util", "macros", "process", "rt-multi-thread", "sync", "time"] }
+
+[dev-dependencies]
+pretty_assertions = { workspace = true }
+
+[target.'cfg(windows)'.dependencies]
+filedescriptor = "0.8.3"
+lazy_static = { workspace = true }
+log = { workspace = true }
+shared_library = "0.1.9"
+# "std" added. Without it winapi declares its own `enum c_void`,
+# so `raw_handle()` returns `*mut winapi::ctypes::c_void` while this crate's
+# `RawHandle` is `*mut std::ffi::c_void`, and src/win/{conpty,procthreadattr}.rs
+# fail to compile with E0308. With it, winapi re-exports core's `c_void` and the
+# two agree. The feature was never declared here: until the memory graph (and
+# its `fs2` dependency, which did ask for winapi/std) was removed from Atlas,
+# cargo's feature unification supplied it by accident and Windows builds worked.
+winapi = { version = "0.3.9", features = [
+    "handleapi",
+    "jobapi",
+    "jobapi2",
+    "minwinbase",
+    "processthreadsapi",
+    "std",
+    "synchapi",
+    "winbase",
+    "wincon",
+    "winerror",
+    "winnt",
+] }
+[target.'cfg(unix)'.dependencies]
+libc = { workspace = true }
+
+[lib]
+doctest = false

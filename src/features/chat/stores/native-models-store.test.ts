@@ -60,8 +60,8 @@ describe("the native model-list refresh", () => {
   });
 
   it("pushes the list to every native session, caches it, and leaves other agents alone", async () => {
-    bound("native-1", "cersei", "s-1");
-    bound("native-2", "cersei", "s-2");
+    bound("native-1", "atlas-agent", "s-1");
+    bound("native-2", "atlas-agent", "s-2");
     bound("claude", "claude-code", "s-3");
     invoke.mockResolvedValueOnce(answer());
 
@@ -72,13 +72,13 @@ describe("the native model-list refresh", () => {
     expect(session("native-1").acpAvailableModels).toEqual(LIST);
     expect(session("native-2").acpAvailableModels).toEqual(LIST);
     expect(session("claude").acpAvailableModels).toBeUndefined();
-    expect(loadCachedAcpModels("cersei")?.availableModels).toEqual(LIST);
+    expect(loadCachedAcpModels("atlas-agent")?.availableModels).toEqual(LIST);
     expect(useNativeModelsStore.getState().refreshing).toBe(false);
     expect(toastError).not.toHaveBeenCalled();
   });
 
   it("never touches a session's current model", async () => {
-    bound("native-1", "cersei", "s-1");
+    bound("native-1", "atlas-agent", "s-1");
     useChatStore.getState().actions.setAcpModels("native-1", "model-b", [LIST[1]]);
     expect(session("native-1").acpCurrentModel).toBe("model-b");
     invoke.mockResolvedValueOnce(answer());
@@ -92,7 +92,7 @@ describe("the native model-list refresh", () => {
   });
 
   it("a failed refresh keeps the last list and says so once", async () => {
-    bound("native-1", "cersei", "s-1");
+    bound("native-1", "atlas-agent", "s-1");
     useChatStore.getState().actions.setAcpModels("native-1", null, [LIST[0]]);
     invoke.mockRejectedValueOnce({ message: "could not reach the gateway", kind: "unknown" });
 
@@ -111,14 +111,14 @@ describe("the native model-list refresh", () => {
   });
 
   it("tells the user when open chats will restart", async () => {
-    bound("native-1", "cersei", "s-1");
+    bound("native-1", "atlas-agent", "s-1");
     invoke.mockResolvedValueOnce(answer({ reconnected: true }));
     await useNativeModelsStore.getState().actions.refresh();
     expect(toastInfo).toHaveBeenCalledTimes(1);
   });
 
   it("collapses concurrent clicks into one call", async () => {
-    bound("native-1", "cersei", "s-1");
+    bound("native-1", "atlas-agent", "s-1");
     let release: (v: NativeModelsRefresh) => void = () => {};
     invoke.mockReturnValueOnce(new Promise<NativeModelsRefresh>((r) => (release = r)));
 

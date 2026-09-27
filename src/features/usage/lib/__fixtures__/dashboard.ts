@@ -13,11 +13,11 @@ const PROJECTS = [
   ["/Users/adib/Desktop/erp-crm-design", "erp-crm-design"],
   ["/Users/adib/work/ledger", "ledger"],
 ] as const;
-const AGENTS = ["claude-code", "codex", "cersei"] as const;
+const AGENTS = ["claude-code", "codex", "atlas-agent"] as const;
 const MODELS: Record<string, string[]> = {
   "claude-code": ["claude-opus-5", "claude-sonnet-5"],
   codex: ["gpt-5.5-codex"],
-  cersei: ["gpt-5.5-codex", "claude-opus-5"],
+  "atlas-agent": ["gpt-5.5-codex", "claude-opus-5"],
 };
 const PRICE: Record<string, [number, number, number, number]> = {
   "claude-opus-5": [15, 75, 1.5, 18.75],
@@ -49,7 +49,7 @@ export function fixture(days = 75): UsageDashboard {
         const output = Math.round(turns * (400 + rnd() * 2_500));
         const cacheRead = agent === "codex" ? 0 : Math.round(input * (3 + rnd() * 9));
         const cacheWrite = agent === "codex" ? 0 : Math.round(input * (0.4 + rnd() * 0.8));
-        const reasoning = agent === "cersei" ? Math.round(output * 0.35) : 0;
+        const reasoning = agent === "atlas-agent" ? Math.round(output * 0.35) : 0;
         const c = cost(model, input, output, cacheRead, cacheWrite);
         const nSessions = 1 + (rnd() < 0.3 ? 1 : 0);
         daily.push({

@@ -16,7 +16,7 @@
 //!   path, before memory prefixing and before any early return (#3), reading
 //!   cheap metadata from `snapshot_meta` (#3);
 //! - `turn_seq` stamped at send time (#6);
-//! - plugin-id semantics, native-vs-ACP by `CERSEI_AGENT_ID` (#4);
+//! - plugin-id semantics, native-vs-ACP by `ATLAS_AGENT_ID` (#4);
 //! - the `atlas:capture-changed` / `atlas:git-changed` event names, untouched
 //!   because nothing here emits them (#5, #9);
 //! - agents' own transcript locations, read through `atlas-agent-transcript`
@@ -133,7 +133,7 @@ struct AnalyticsMiddleware {
 
 impl AnalyticsMiddleware {
     /// The plugin this agent was spawned from (`claude-code-ts` / `codex` /
-    /// `cersei`). A single `DashMap` lookup, safe on the delta hot path.
+    /// `atlas-agent`). A single `DashMap` lookup, safe on the delta hot path.
     ///
     /// This replaces the old `agent_kind`, which was `agent_id.0` — a random
     /// UUID minted per registration that identified nothing outside the process
@@ -148,8 +148,8 @@ impl AnalyticsMiddleware {
 
     /// Coarse bucket for funnels that don't care which ACP agent it was.
     fn family(plugin_id: &str) -> &'static str {
-        if plugin_id == atlas_native_agent::CERSEI_AGENT_ID {
-            "cersei"
+        if plugin_id == atlas_native_agent::ATLAS_AGENT_ID {
+            "native"
         } else {
             "acp"
         }
@@ -432,14 +432,6 @@ impl OutboundMiddleware<SessionDeltaEnvelope> for MemoryIngestMiddleware {
         }
 
         if is_turn_finished {
-            // A turn ended without the agent ever reading memory. Say so once,
-            // and only when saying it is honest: the session must actually
-            // have been given the tools, or the notice accuses an agent of
-            // ignoring something it was never offered. Nothing is called on
-            // the agent's behalf — ADR-0010's pull stays a pull; this only
-            // observes that the pull never happened.
-            self.note_if_memory_went_unconsulted(&envelope.session_id);
-
             // Site B — the extractor's turn-finished pass, for every agent
             // (`super::memory_extract`). The conversation is read now, off the
             // emit thread — by the time the queue reaches the job the session
@@ -483,49 +475,6 @@ impl OutboundMiddleware<SessionDeltaEnvelope> for MemoryIngestMiddleware {
             }
         }
     }
-}
-
-impl MemoryIngestMiddleware {
-    /// Tell the UI, once per session, that a turn finished without memory ever
-    /// being read.
-    ///
-    /// Whether an agent consults memory varies run to run, and until now
-    /// nothing recorded or showed that it had not — so a confident answer
-    /// derived from the code looked exactly like one informed by a recorded
-    /// fact. This does not change that behaviour, it makes it visible.
-    ///
-    /// Silent unless all three hold: the session was given the memory tools,
-    /// it never used one, and nothing has been said about it yet.
-    fn note_if_memory_went_unconsulted(&self, session_id: &str) {
-        let Some(server) = self.app.try_state::<Arc<super::memory_server::MemoryServerHost>>() else {
-            return;
-        };
-        if server.tokens().token_for(session_id).is_none() {
-            return;
-        }
-        if !server.reads().should_say_unread(session_id) {
-            return;
-        }
-        let _ = self.app.emit(
-            MEMORY_UNCONSULTED_EVENT,
-            MemoryUnconsulted {
-                session_id: session_id.to_string(),
-            },
-        );
-    }
-}
-
-/// A session finished a turn having never read shared memory.
-///
-/// A side channel rather than a `SessionDelta`, for the same reason
-/// `atlas:agent-elicitation` is one: the delta wire is frozen, and this is a
-/// host observation about a session rather than something the agent did.
-pub const MEMORY_UNCONSULTED_EVENT: &str = "atlas:memory-unconsulted";
-
-#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct MemoryUnconsulted {
-    pub session_id: String,
 }
 
 /// Emitted whenever Atlas's session history changes. Carries no payload: a
@@ -654,8 +603,8 @@ impl super::agent_host::SessionLifecycle for SharingGatedLifecycle {
 /// sink, because their middleware resolves them on the first delta; the sink
 /// must exist before the host, because the host builds the projector around it.
 pub fn install_manager(app: &AppHandle) {
-    // App config dir holds the native agent's own state
-    // and `cersei-sessions/` (its persisted transcripts). Best-effort: fall
+    // App config dir holds the native agent's own state (the engine home
+    // lives under it). Best-effort: fall
     // back to a temp dir if the platform path is unavailable. Resolved up here
     // because `TranscriptState` needs it to re-seed a session's buffer from the
     // transcript already on disk.
@@ -719,13 +668,74 @@ pub fn install_manager(app: &AppHandle) {
         let gate_app = app.clone();
         let gate: super::memory_server::SharingGate =
             Arc::new(move |cwd: &str| gate_app.state::<MemorySharingState>().is_enabled(cwd));
+        // The UI tool server (ADR-0012): each call is one UI action, emitted
+        // to the window and answered through `ui_action_respond`. The
+        // organisation tool server's window tools cross on the same bridge,
+        // under their own event name.
+        let emit_app = app.clone();
+        let ui_bridge = Arc::new(super::ui_server::UiBridge::new(Arc::new(
+            move |request: &super::ui_server::UiRequest| {
+                emit_app.emit(super::ui_server::action_event(request), request).map_err(|e| e.to_string())
+            },
+        )));
+        app.manage(ui_bridge.clone());
+        // The user's "Let Atlas Agent navigate the app" setting, read on every
+        // offer and every call so switching it off stops the agent at once.
+        let nav_app = app.clone();
+        let navigation: super::ui_server::NavigationGate = Arc::new(move || {
+            nav_app
+                .try_state::<crate::state::AtlasConfigHandle>()
+                .is_some_and(|config| config.lock().effective().agent_ui_navigation)
+        });
+        let ui_router =
+            super::ui_server::router(super::ui_server::UiTools::new(ui_bridge.clone(), navigation.clone()));
+        // The organisation tool server (ADR-0014): calls act in the
+        // organisation the session's Project is bound to, through the clients
+        // the app already holds. Its setting, "Let Atlas Agent act in your
+        // organisation", is read on every offer and every call, like the
+        // navigation one.
+        let org_app = app.clone();
+        let org_access: super::org_server::OrgAccessGate = Arc::new(move || {
+            org_app
+                .try_state::<crate::state::AtlasConfigHandle>()
+                .is_some_and(|config| config.lock().effective().agent_org_access)
+        });
+        // Every call is audited: its record goes to the window, which writes
+        // the call's Logs row.
+        let audit_app = app.clone();
+        // The account and the Project's binding, read by the offer and again
+        // by every call, so signing out or unbinding stops a running session.
+        let session_orgs: Arc<dyn super::org_server::SessionOrgs> =
+            Arc::new(super::org_server::AppSessionOrgs::new(app.clone()));
+        let org_tools = super::org_server::OrgTools::new(
+            Arc::new(super::org_server::AppOrganisationCloud::new(app.clone())),
+            org_access.clone(),
+            session_orgs.clone(),
+        )
+        .with_audit(Arc::new(move |record: &super::org_server::OrgActionRecord| {
+            let _ = audit_app.emit(super::org_server::ORG_ACTION_EVENT, record);
+        }))
+        // Drawing on a Space page crosses to the window: the page's codec
+        // lives in the frontend.
+        .with_window(ui_bridge);
+        let org_router = super::org_server::router(org_tools.clone());
         // Every agent that can take the server is handed it on each session
         // request, with a token of its own. It is the only way memory reaches
-        // an agent (ADR-0010): nothing is prepended to a prompt.
-        host.set_session_mcp(Arc::new(super::memory_server::MemorySessionOffers::new(
-            server.clone(),
-            gate.clone(),
-        )));
+        // an agent (ADR-0010): nothing is prepended to a prompt. A connection
+        // that carries UI control is also handed the UI tool server, and one
+        // that carries organisation access the organisation tool server, all
+        // on the same token.
+        host.set_session_mcp(Arc::new(
+            super::memory_server::MemorySessionOffers::new(server.clone(), gate.clone())
+                .with_ui(super::ui_server::UiOffer::new(navigation))
+                // The same tools describe an outward call on the approval
+                // card — whom it reaches, and the full body — and keep the
+                // user's approval of it, which the call checks (ADR-0014).
+                .with_org(
+                    super::org_server::OrgOffer::new(org_access, session_orgs)
+                        .describing_with(org_tools),
+                ),
+        ));
         // `memory_search` also answers from the project's indexed documents.
         let index_app = app.clone();
         let index: super::memory_server::IndexSearch = Arc::new(move |cwd, query, limit| {
@@ -770,6 +780,7 @@ pub fn install_manager(app: &AppHandle) {
                 bootstrap: Some(bootstrap),
                 evict: Some(evict),
             },
+            vec![ui_router, org_router],
         );
     }
 
@@ -777,13 +788,24 @@ pub fn install_manager(app: &AppHandle) {
     // status text ("Downloading Node.js…") for the `Starting …` row, and a
     // connect that gave up at its deadline, counted so the next stall report
     // comes with the phase and not a screenshot of a timer.
+    // One queue for both the bump announcements below and the background
+    // pass after them, so an agent found behind by either waits only once.
+    let pending_updates = PendingUpdates::default();
     {
         let app = app.clone();
+        let host = host.clone();
         let mut events = host.manager().subscribe();
+        let updates = pending_updates.clone();
         tauri::async_runtime::spawn(async move {
             use atlas_agent_manager::{Agent, AgentManagerEvent};
             loop {
                 match events.recv().await {
+                    Ok(AgentManagerEvent::NewVersionAvailable {
+                        agent: Agent::Custom { id },
+                        version,
+                    }) => {
+                        updates.schedule(&app, &host, id.to_string(), version);
+                    }
                     Ok(AgentManagerEvent::LoadingStatusChanged {
                         agent: Agent::Custom { id },
                         status,
@@ -818,6 +840,48 @@ pub fn install_manager(app: &AppHandle) {
                     Ok(_) => {}
                     Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {}
                     Err(tokio::sync::broadcast::error::RecvError::Closed) => return,
+                }
+            }
+        });
+    }
+
+    // Background updates, on every rebuild of the installed table (app start
+    // and each registry refresh above all). Agents that are not running have
+    // their copy on disk brought up to the registry's version now, so their
+    // next start is instant. Running ones that are behind join the idle-restart
+    // queue — that covers a copy left behind with no registry move to announce
+    // it, which the bump path alone never saw. The `watch` coalesces: a burst
+    // of rebuilds while one pass runs is one more pass, not one per rebuild.
+    {
+        let app = app.clone();
+        let host = host.clone();
+        let updates = pending_updates;
+        let mut rebuilds = host.store().updates();
+        tauri::async_runtime::spawn(async move {
+            let running = |host: &AgentHost, id: &atlas_acp_thread::AgentId| {
+                host.manager()
+                    .entry(&atlas_agent_manager::Agent::Custom { id: id.clone() })
+                    .is_some()
+            };
+            loop {
+                for (id, version) in host.store().pending_updates(|id| running(&host, id)).await {
+                    updates.schedule(&app, &host, id.to_string(), version);
+                }
+                let updated = host.store().prefetch_updates(|id| running(&host, id)).await;
+                for id in &updated {
+                    let version = host
+                        .store()
+                        .entry(id)
+                        .and_then(|entry| entry.version)
+                        .map(|version| version.to_string())
+                        .unwrap_or_default();
+                    emit_agent_update(&app, id.as_str(), &version, AgentUpdatePhase::Ready);
+                }
+                if !updated.is_empty() {
+                    super::catalog::emit_catalog_changed(&app, "update");
+                }
+                if rebuilds.changed().await.is_err() {
+                    return;
                 }
             }
         });
@@ -1243,6 +1307,7 @@ fn transcript_to_messages(t: super::agent_transcript::StoredTranscript) -> Vec<M
             tool_calls: Vec::new(),
             plan: None,
             model: m.model,
+            images: Vec::new(),
             timestamp: m
                 .timestamp
                 .parse::<chrono::DateTime<chrono::Utc>>()
@@ -1252,7 +1317,7 @@ fn transcript_to_messages(t: super::agent_transcript::StoredTranscript) -> Vec<M
 }
 
 /// Session-history rows for agents Atlas records itself. Merged into the
-/// sidebar alongside the Claude / Codex / Cersei / Kilo listings; returns an
+/// sidebar alongside the Claude / Codex / native / Kilo listings; returns an
 /// empty vec for a project with no such sessions.
 #[tauri::command]
 pub async fn agent_transcripts_list(
@@ -1615,7 +1680,7 @@ pub fn agents_set_effort(
 }
 
 // `agents_set_compress` is gone (#54). Tool-output compression was a knob on
-// the Cersei runtime's RTK compressor and the engine has no counterpart — a
+// the old native runtime's RTK compressor and the engine has no counterpart — a
 // named casualty (D8). Removed rather than stubbed, so the toggle disappears
 // instead of sitting there doing nothing.
 
@@ -2065,5 +2130,122 @@ impl atlas_native_agent::engine::auth::AtlasTokenSource for AccountTokenSource {
                 std::io::Error::other(text)
             })
         })
+    }
+}
+
+/// Where an agent update is, as the webview hears it on `atlas:agents`
+/// (`{kind: "agent_update", plugin_id, version, phase, error?}`). Not a
+/// session delta — that wire is frozen, and an update belongs to a plugin,
+/// not to one session.
+#[derive(Clone, Copy)]
+pub(crate) enum AgentUpdatePhase<'a> {
+    /// Queued behind a reply that is still running. Nothing is interrupted.
+    Waiting,
+    /// The old process was dropped; open chats reconnect on their next send.
+    Restarting,
+    /// The new version is downloading.
+    Installing,
+    /// The new version is installed.
+    Ready,
+    /// The install failed. The next connect retries it in the foreground.
+    Failed(&'a str),
+}
+
+pub(crate) fn emit_agent_update(
+    app: &AppHandle,
+    plugin_id: &str,
+    version: &str,
+    phase: AgentUpdatePhase<'_>,
+) {
+    let (phase, error) = match phase {
+        AgentUpdatePhase::Waiting => ("waiting", None),
+        AgentUpdatePhase::Restarting => ("restarting", None),
+        AgentUpdatePhase::Installing => ("installing", None),
+        AgentUpdatePhase::Ready => ("ready", None),
+        AgentUpdatePhase::Failed(error) => ("failed", Some(error)),
+    };
+    let _ = app.emit(
+        "atlas:agents",
+        serde_json::json!({
+            "kind": "agent_update",
+            "plugin_id": plugin_id,
+            "version": version,
+            "phase": phase,
+            "error": error,
+        }),
+    );
+}
+
+/// Registry bumps for running agents, applied once each agent is idle.
+///
+/// The manager only announces a bump; this is the half that acts on it. Per
+/// plugin, one waiter: it polls until no turn is running on the agent, then
+/// restarts it (`AgentHost::restart_for_update`) and installs the new version
+/// before anything asks for it. A second bump while one waits just raises the
+/// version the waiter will report — it reads the latest when it fires.
+///
+/// Polled, not evented: nothing emits "turn ended" per agent, and a turn
+/// lasts seconds to minutes, so a two-second look costs nothing and keeps
+/// this independent of the projector's internals.
+#[derive(Clone, Default)]
+struct PendingUpdates(Arc<std::sync::Mutex<std::collections::HashMap<String, String>>>);
+
+impl PendingUpdates {
+    const IDLE_POLL: std::time::Duration = std::time::Duration::from_secs(2);
+
+    fn version_of(&self, plugin_id: &str) -> String {
+        self.0
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .get(plugin_id)
+            .cloned()
+            .unwrap_or_default()
+    }
+
+    fn schedule(&self, app: &AppHandle, host: &Arc<AgentHost>, plugin_id: String, version: String) {
+        let first = {
+            let mut pending = self.0.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+            pending.insert(plugin_id.clone(), version).is_none()
+        };
+        if !first {
+            return;
+        }
+        let this = self.clone();
+        let app = app.clone();
+        let host = host.clone();
+        tauri::async_runtime::spawn(async move {
+            if host.agent_turn_running(&plugin_id) {
+                let version = this.version_of(&plugin_id);
+                emit_agent_update(&app, &plugin_id, &version, AgentUpdatePhase::Waiting);
+            }
+            while host.agent_turn_running(&plugin_id) {
+                tokio::time::sleep(Self::IDLE_POLL).await;
+            }
+            let Some(version) = this
+                .0
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .remove(&plugin_id)
+            else {
+                return;
+            };
+            // Uninstalled while we waited: nothing to update.
+            if host.restart_for_update(&plugin_id, &version).is_err() {
+                return;
+            }
+            tracing::info!(target: "atlas::agents", %plugin_id, %version, "restarted agent for update");
+            emit_agent_update(&app, &plugin_id, &version, AgentUpdatePhase::Restarting);
+            emit_agent_update(&app, &plugin_id, &version, AgentUpdatePhase::Installing);
+            let id = atlas_acp_thread::AgentId::new(plugin_id.as_str());
+            match host.store().prefetch_update(&id).await {
+                Ok(_) => emit_agent_update(&app, &plugin_id, &version, AgentUpdatePhase::Ready),
+                Err(error) => {
+                    let error = format!("{error:#}");
+                    tracing::warn!(target: "atlas::agents", %plugin_id, %error, "agent update install failed");
+                    emit_agent_update(&app, &plugin_id, &version, AgentUpdatePhase::Failed(&error));
+                }
+            }
+            super::catalog::emit_catalog_changed(&app, "update");
+        });
     }
 }

@@ -1,0 +1,15 @@
+# Modified by Atlas from upstream OpenAI Codex (Apache-2.0). See CONTEXT.md.
+[package]
+edition.workspace = true
+license.workspace = true
+name = "atlas-engine-collaboration-mode-templates"
+version.workspace = true
+
+[lib]
+doctest = false
+name = "atlas_engine_collaboration_mode_templates"
+path = "src/lib.rs"
+test = false
+
+[lints]
+workspace = true

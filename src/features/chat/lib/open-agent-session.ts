@@ -27,7 +27,7 @@ function activeCwd(): string {
 /** Nudge the history sidebar to refetch all three agent session lists. The
  *  sidebar listens for the Tauri `atlas:sessions-changed` event (gated on cwd),
  *  so re-emit it from the frontend after a local mutation (e.g. abandoning a
- *  chat via New Chat) — Codex/Cersei have no file watcher and Claude's is async,
+ *  chat via New Chat) — Codex and the native agent have no file watcher and Claude's is async,
  *  so the just-abandoned conversation would otherwise not re-list immediately. */
 function refreshSessionLists(): void {
   const cwd = activeCwd();
@@ -123,7 +123,7 @@ export async function openAgentSession({
 
   // If we're reusing the current tab in place and it held a real (messaged)
   // chat, that chat loses its live sidebar row on clear — refresh the disk
-  // lists so it re-lists from history immediately (Cersei/Codex have no watcher).
+  // lists so it re-lists from history immediately (the native agent and Codex have no watcher).
   const abandoningCurrent =
     reuse &&
     targetTabId === activeId &&

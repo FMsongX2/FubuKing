@@ -127,4 +127,17 @@ describe("resolvePinIndex", () => {
     const messages = [msg("x", "assistant", "hello", t1)];
     expect(resolvePinIndex(messages, pin("gone", "hello", t1))).toBe(-1);
   });
+
+  it("resolves a pinned response on its own side, past a re-mint", () => {
+    const messages = [
+      msg("msg-9-0", "user", "hello", t1),
+      msg("msg-9-1", "assistant", "hello", t1),
+      msg("msg-9-2", "assistant", "an answer", t2),
+    ];
+    const response = { ...pin("gone", "hello", t1), role: "assistant" as const };
+    expect(resolvePinIndex(messages, response)).toBe(1);
+    expect(resolvePinIndex(messages, { ...pin("gone", "an answer", t2), role: "assistant" })).toBe(
+      2,
+    );
+  });
 });

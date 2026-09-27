@@ -20,7 +20,7 @@ import { openGitDiff } from "../../lib/git-diff-api";
 import { hunkWireLines, type DiffHunk } from "../../lib/diff";
 import { GitOpOutput } from "./git-op-output";
 import { ConflictsView } from "./conflicts-view";
-import { useLayoutStore } from "@/features/layout/stores/layout-store";
+import { openFile as openFileTab } from "@/lib/open-file";
 import { useAppStore } from "@/features/app/stores/app-store";
 import { DiffView } from "../diff-view";
 import { classifyFile } from "@/lib/file-types";
@@ -174,7 +174,6 @@ export function ChangesView() {
   const inProgress = useGitStore.use.inProgress();
   const repoPath = useGitStore.use.repoPath();
   const actions = useGitStore.use.actions();
-  const { addTab } = useLayoutStore.use.actions();
   const currentProject = useAppStore.use.currentProject();
 
   // This is the only reader of the whole-working-tree `diff` — the store
@@ -315,15 +314,7 @@ export function ChangesView() {
 
   const openFile = (p: string) => {
     if (!currentProject) return;
-    const full = `${currentProject.path}/${p}`;
-    addTab({
-      id: `editor-${full}`,
-      type: "editor",
-      title: p.split("/").pop() ?? p,
-      closable: true,
-      dirty: false,
-      data: { filePath: full },
-    });
+    void openFileTab(`${currentProject.path}/${p}`);
   };
 
   const inProgressLabel = inProgress

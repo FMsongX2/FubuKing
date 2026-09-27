@@ -50,7 +50,7 @@ const BRAND: Record<FirstPartyAgent, string | null> = {
   opencode: OPENCODE,
   cursor: CURSOR,
   kilo: KILO,
-  cersei: null,
+  "atlas-agent": null,
 };
 
 /**

@@ -76,16 +76,63 @@ const MENTION_PREFIX_KIND: Record<string, string> = {
   "@branch": "branch",
   "@msg": "past_message",
   "@session": "past_session",
+  "@member": "member",
+  "@conversation": "conversation",
+  "@recorded-session": "recorded_session",
   "#skill": "skill",
   "#command": "command",
   "#agent": "agent",
   "#rule": "rule",
 };
 
-// Not anchored inside words (avoids emails like `a@file:x`). Value runs to the
-// next whitespace; trailing punctuation is peeled back off into plain text.
+// Not anchored inside words (avoids emails like `a@file:x`). A value with
+// whitespace in it is serialized quoted (`@file:"My Shot.png"`, see
+// `mentions.ts` `toShortForm`) and runs to the closing quote; a bare value runs
+// to the next whitespace, and its trailing punctuation is peeled back off into
+// plain text.
 const MENTION_TOKEN_RE =
-  /(?<![\w/])([@#](?:file|folder|symbol|note|repo|branch|msg|session|skill|command|agent|rule)):(\S+)/g;
+  /(?<![\w/])([@#](?:file|folder|symbol|note|repo|branch|msg|session|member|conversation|recorded-session|skill|command|agent|rule)):(?:"([^"\n]+)"|(?!")(\S+))/g;
+
+// Tokens are lifted out of the source BEFORE remark parses it, and parked
+// behind private-use placeholders. Left in, GFM gets to them first: a Retina
+// screenshot's `Shot@2x.png` is an email autolink literal, `*` in a name is
+// emphasis, and either splits the token across nodes before any hast pass
+// could see it whole.
+const PH_OPEN = "\uE000";
+const PH_CLOSE = "\uE001";
+const PLACEHOLDER_RE = /\uE000(\d+)\uE001/g;
+
+interface MentionToken {
+  prefix: string;
+  value: string;
+  /** The source text, restored verbatim where no chip is drawn (code). */
+  raw: string;
+}
+
+function protectMentions(src: string): { text: string; tokens: MentionToken[] } {
+  const tokens: MentionToken[] = [];
+  MENTION_TOKEN_RE.lastIndex = 0;
+  const text = src.replace(
+    MENTION_TOKEN_RE,
+    (match, prefix: string, quoted: string | undefined, bare: string | undefined) => {
+      let value = quoted ?? bare ?? "";
+      let raw = match;
+      let trailing = "";
+      if (quoted === undefined) {
+        const tm = value.match(/[.,;:!?)\]]+$/);
+        if (tm) {
+          trailing = tm[0];
+          value = value.slice(0, -trailing.length);
+          raw = match.slice(0, -trailing.length);
+        }
+      }
+      if (!value) return match;
+      tokens.push({ prefix, value, raw });
+      return `${PH_OPEN}${tokens.length - 1}${PH_CLOSE}${trailing}`;
+    },
+  );
+  return { text, tokens };
+}
 
 function baseName(s: string): string {
   const i = s.lastIndexOf("/");
@@ -171,6 +218,34 @@ const MENTION_GLYPH: Record<string, [string, Record<string, string | number>][]>
   ],
   past_message: [["path", { d: "M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" }]],
   past_session: [["path", { d: "M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" }]],
+  member: [
+    ["path", { d: "M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2" }],
+    ["circle", { cx: "12", cy: "7", r: "4" }],
+  ],
+  conversation: [
+    [
+      "path",
+      {
+        d: "M16 10a2 2 0 0 1-2 2H6.828a2 2 0 0 0-1.414.586l-2.202 2.202A.71.71 0 0 1 2 14.286V4a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z",
+      },
+    ],
+    [
+      "path",
+      {
+        d: "M20 9a2 2 0 0 1 2 2v10.286a.71.71 0 0 1-1.212.502l-2.202-2.202A2 2 0 0 0 17.172 19H10a2 2 0 0 1-2-2v-1",
+      },
+    ],
+  ],
+  recorded_session: [
+    [
+      "path",
+      {
+        d: "M12.83 2.18a2 2 0 0 0-1.66 0L2.6 6.08a1 1 0 0 0 0 1.83l8.58 3.91a2 2 0 0 0 1.66 0l8.58-3.9a1 1 0 0 0 0-1.83z",
+      },
+    ],
+    ["path", { d: "M2 12a1 1 0 0 0 .58.91l8.6 3.91a2 2 0 0 0 1.65 0l8.58-3.9A1 1 0 0 0 22 12" }],
+    ["path", { d: "M2 17a1 1 0 0 0 .58.91l8.6 3.91a2 2 0 0 0 1.65 0l8.58-3.9A1 1 0 0 0 22 17" }],
+  ],
 };
 
 /** Build the kind glyph as a hast `<span class=icon><svg>…</svg></span>`. */
@@ -232,59 +307,56 @@ function chipNode(prefix: string, value: string): Hast {
   };
 }
 
-/** Split one text value into [text, chip, text, …]; null when no token matched. */
-function splitMentionText(value: string): Hast[] | null {
-  MENTION_TOKEN_RE.lastIndex = 0;
+/** Split one text value into [text, chip, text, …]; null when it holds no
+ *  placeholder. Inside code the token goes back in as literal text instead. */
+function splitMentionText(value: string, tokens: MentionToken[], literal: boolean): Hast[] | null {
+  PLACEHOLDER_RE.lastIndex = 0;
   const out: Hast[] = [];
   let last = 0;
   let found = false;
   let m: RegExpExecArray | null;
-  while ((m = MENTION_TOKEN_RE.exec(value)) !== null) {
+  while ((m = PLACEHOLDER_RE.exec(value)) !== null) {
     found = true;
+    const token = tokens[Number(m[1])];
     if (m.index > last) out.push({ type: "text", value: value.slice(last, m.index) });
-    let val = m[2];
-    let trailing = "";
-    const tm = val.match(/[.,;:!?)\]]+$/);
-    if (tm) {
-      trailing = tm[0];
-      val = val.slice(0, -trailing.length);
-    }
-    out.push(chipNode(m[1], val));
-    if (trailing) out.push({ type: "text", value: trailing });
+    if (!token) out.push({ type: "text", value: m[0] });
+    else if (literal) out.push({ type: "text", value: token.raw });
+    else out.push(chipNode(token.prefix, token.value));
     last = m.index + m[0].length;
   }
   if (!found) return null;
   if (last < value.length) out.push({ type: "text", value: value.slice(last) });
+  if (literal) {
+    // Adjacent text nodes merge back into one, so highlighters see the line whole.
+    return [{ type: "text", value: out.map((n) => n.value ?? "").join("") }];
+  }
   return out;
 }
 
 const MENTION_SKIP_TAGS = new Set(["code", "pre"]);
 
 function rehypeMentionChips() {
-  return (tree: Hast) => {
-    const walk = (node: Hast) => {
+  return (tree: Hast, file: { data: { mentionTokens?: MentionToken[] } }) => {
+    const tokens = file.data.mentionTokens;
+    if (!tokens || tokens.length === 0) return;
+    const walk = (node: Hast, literal: boolean) => {
       if (!node.children) return;
       const next: Hast[] = [];
       for (const child of node.children) {
-        if (child.type === "element" && child.tagName && MENTION_SKIP_TAGS.has(child.tagName)) {
-          next.push(child); // leave tokens inside code literal
-          continue;
-        }
         if (child.type === "text" && typeof child.value === "string") {
-          const split = splitMentionText(child.value);
-          if (split) {
-            next.push(...split);
-            continue;
-          }
-          next.push(child);
+          const split = splitMentionText(child.value, tokens, literal);
+          next.push(...(split ?? [child]));
           continue;
         }
-        if (child.type === "element") walk(child);
+        if (child.type === "element") {
+          // Tokens inside code stay literal.
+          walk(child, literal || (!!child.tagName && MENTION_SKIP_TAGS.has(child.tagName)));
+        }
         next.push(child);
       }
       node.children = next;
     };
-    walk(tree);
+    walk(tree, false);
   };
 }
 
@@ -323,7 +395,8 @@ function escapeHtml(s: string): string {
  *  paragraph on parser error. */
 export function parseMarkdown(src: string): string {
   try {
-    return String(getProcessor().processSync(src));
+    const { text, tokens } = protectMentions(src);
+    return String(getProcessor().processSync({ value: text, data: { mentionTokens: tokens } }));
   } catch {
     return `<p>${escapeHtml(src)}</p>`;
   }

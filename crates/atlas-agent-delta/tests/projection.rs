@@ -705,6 +705,50 @@ fn an_elicitation_can_be_answered_by_the_id_the_wire_carried() {
         .is_none());
 }
 
+/// A replayed user message with an image (claude-agent-acp replays one as an
+/// image chunk followed by the prose) snapshots as its prose plus the image.
+/// It used to come out as the text `` `Image` `` + prose, the image dropped —
+/// so a reopened conversation showed a code span where the picture had been.
+#[test]
+fn a_snapshot_keeps_the_images_a_user_message_carried() {
+    let harness = Harness::start();
+    for content in [
+        serde_json::json!({ "type": "image", "mimeType": "image/png", "data": "iVBORw0K" }),
+        serde_json::json!({ "type": "text", "text": "can you see this issue?" }),
+    ] {
+        harness.update(serde_json::json!({
+            "sessionUpdate": "user_message_chunk",
+            "messageId": "u1",
+            "content": content,
+        }));
+    }
+
+    let messages = atlas_agent_delta::project::snapshot_messages(&lock(&harness.thread), None);
+    assert_eq!(messages.len(), 1);
+    assert_eq!(messages[0].content, "can you see this issue?");
+    assert_eq!(
+        messages[0].images,
+        [atlas_agent_wire::MessageImage {
+            mime_type: "image/png".into(),
+            data: "iVBORw0K".into(),
+        }]
+    );
+}
+
+/// No images, no key: every message that never had one serializes exactly as
+/// it did before the field existed.
+#[test]
+fn a_snapshot_message_without_images_omits_the_key() {
+    let harness = Harness::start();
+    lock(&harness.thread).push_user_content_block(
+        None,
+        acp::ContentBlock::Text(acp::TextContent::new("plain".to_string())),
+    );
+    let messages = atlas_agent_delta::project::snapshot_messages(&lock(&harness.thread), None);
+    let json = serde_json::to_value(&messages[0]).unwrap();
+    assert!(json.get("images").is_none(), "got: {json}");
+}
+
 /// A snapshot is what the frontend paints before any delta arrives, so it has
 /// to describe the same conversation the deltas do — including the user's half,
 /// which the live stream deliberately omits.

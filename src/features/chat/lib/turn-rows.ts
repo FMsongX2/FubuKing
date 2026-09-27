@@ -14,7 +14,12 @@
 // vocabulary of the transcript, not an ad-hoc branch in a render function.
 
 import type { ChatMessage, ToolCallDisplay, TurnFile } from "@/types/agent";
+import type { ImageAttachment } from "@/types/agents";
+
+// Shared so a row without images keeps a stable prop for the row's `memo`.
+const NO_ATTACHMENTS: readonly ImageAttachment[] = Object.freeze([]);
 import { isBashToolCall, bashCommandOf } from "./tool-calls";
+import { orgToolOf, orgToolRow } from "@/features/org-actions/lib/org-tool-rows";
 import { parseShellCommand } from "./parse-shell-command";
 import {
   getFilePathFromInput,
@@ -61,7 +66,8 @@ export interface UserRow extends RowBase {
   /** Set once the user has expanded a clamped bubble. Expanding swaps the row
    *  for a taller one — a data change with a known new height, never a reflow. */
   expanded: boolean;
-  attachments: number;
+  /** The images sent with the prompt, shown as tiles above the bubble. */
+  attachments: readonly ImageAttachment[];
   timestamp: string;
 }
 
@@ -112,6 +118,7 @@ export type MarkerTool =
   | "delete"
   | "move"
   | "file"
+  | "org"
   | "tool";
 
 export interface MarkerRow extends RowBase {
@@ -342,7 +349,7 @@ function diffEditOf(tc: ToolCallDisplay): FileEdit | null {
 }
 
 /** Trim a path to something that reads in one line without the eye scanning. */
-function shortPath(p: string): string {
+export function shortPath(p: string): string {
   const parts = p.split("/").filter(Boolean);
   if (parts.length <= 2) return parts.join("/");
   return parts.slice(-2).join("/");
@@ -369,7 +376,7 @@ const TOOL_ICON_BY_KIND: Record<string, MarkerTool> = {
  * Substrings that appear inside unrelated words ("rm" in "confirm", "web" in
  * "webhook") are not in it for that reason.
  */
-function toolIconFor(kind: string | null | undefined, toolName: string): MarkerTool {
+export function toolIconFor(kind: string | null | undefined, toolName: string): MarkerTool {
   const byKind = TOOL_ICON_BY_KIND[kind ?? ""];
   if (byKind) return byKind;
   const name = toolName.toLowerCase();
@@ -423,6 +430,7 @@ const SUMMARY_BUCKET: Record<MarkerTool, SummaryBucket> = {
   tool: "tool",
   fetch: "tool",
   think: "tool",
+  org: "tool",
 };
 
 /** Fixed order — note 2 above. `edit`'s slot is the one we chose. */
@@ -506,6 +514,9 @@ function liveMarkerLabel(marker: MarkerRow): string {
       return target ? `Fetching ${target}` : "Fetching content";
     case "think":
       return "Thinking…";
+    // An organisation call's line is already a phrase ("Looked up Grace").
+    case "org":
+      return target ? `${marker.verb} ${target}` : marker.verb;
     default:
       return target ? `Running ${marker.verb} ${target}` : "Using a tool";
   }
@@ -557,7 +568,17 @@ function markerFor(tc: ToolCallDisplay, turnId: string, first: boolean): MarkerR
   // the diff blocks did. It is what the diff viewer lands on.
   const path = argsPath ?? edit?.path ?? null;
 
-  if (isBashToolCall(tc)) {
+  const orgTool = orgToolOf(tc.toolName);
+  if (orgTool) {
+    // An organisation call (ADR-0014): the organisation icon, and the line
+    // that names what it was about — the member, conversation or recorded
+    // session — from the table the Logs row reads too. A failed call's text
+    // is its reason, so only a settled success's answer improves the name.
+    const row = orgToolRow(orgTool, args, tc.status === "completed" ? tc.result : null);
+    tool = "org";
+    verb = row.verb;
+    detail = row.detail;
+  } else if (isBashToolCall(tc)) {
     // Every one of these is the same tool. What separates `cat file` from
     // `cargo test` is the command itself, so that is what gets read — see
     // `parse-shell-command.ts` for why this is a port and not a wire field.
@@ -713,6 +734,12 @@ export function userMessageText(m: ChatMessage): string {
   return derivedUser(m).text;
 }
 
+/** The prose a response row SHOWS — the assistant half of a pin's durable
+ *  key, the same way `userMessageText` is the prompt half. */
+export function assistantMessageText(m: ChatMessage): string {
+  return derivedProse(m);
+}
+
 function derivedProse(m: ChatMessage): string {
   const hit = proseCache.get(m);
   if (hit !== undefined) return hit;
@@ -785,7 +812,7 @@ export function projectRows(
         text,
         contextBlocks: derived.contextBlocks,
         expanded: opts.expanded.has(`u:${m.id}`),
-        attachments: m.attachments?.length ?? 0,
+        attachments: m.attachments ?? NO_ATTACHMENTS,
         timestamp: m.timestamp,
       });
 

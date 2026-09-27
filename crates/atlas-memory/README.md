@@ -9,7 +9,7 @@ installed ACP agent) shares it without special-casing.
 > New to the codebase? Read this top-to-bottom. Upgrading an existing install or
 > debugging on-disk state? See [`MIGRATION.md`](./MIGRATION.md).
 
-> **This crate no longer depends on the Cersei SDK.** Session-memory
+> **This crate no longer depends on the old native-agent SDK.** Session-memory
 > extraction/persistence and the embedding-provider trait (`src/session.rs`,
 > `src/embedding.rs`) came from the SDK, which was deleted in #54; they are
 > Atlas's own code now. `tests/behaviour.rs` pins their behaviour — run it before
@@ -41,7 +41,7 @@ store promotes Facts seen in two or more repositories.
 ## 2. Why it's split this way
 
 - **`atlas-memory` is a LOW crate**: no Tauri dependency, and it never depends on
-  `atlas-cersei`. It owns the engine (embed, index, retrieve, extraction, the
+  the agent seam. It owns the engine (embed, index, retrieve, extraction, the
   record store, global). This keeps it unit-testable and reusable.
 - **The Tauri app layer** (`src-tauri/src/commands/memory_indexer.rs` +
   `memory_retrieve.rs`) owns orchestration: the per-project engine registry, the

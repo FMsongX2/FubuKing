@@ -17,13 +17,18 @@
 //! V2 adds `backfilled_agents`, which Zed has no equivalent of: the one-time
 //! import pass is Atlas's own (spec #15) and needs somewhere durable to
 //! remember it already ran.
+//!
+//! V3 is a data step, not a shape change: the native agent's stored id was
+//! renamed (ADR-0011) and, by decision, rows under the retired id are dropped
+//! rather than aliased. Nothing resolves them any more, so leaving them would
+//! only put unopenable rows in the sidebar.
 
 use rusqlite::Connection;
 
 use crate::error::{Error, Result};
 
 /// Bump when adding a migration, and add the matching arm in [`migrate`].
-pub const SCHEMA_VERSION: i64 = 2;
+pub const SCHEMA_VERSION: i64 = 3;
 
 pub fn migrate(conn: &Connection) -> Result<()> {
     // Fast path, outside any transaction: the common case is a database
@@ -53,6 +58,9 @@ pub fn migrate(conn: &Connection) -> Result<()> {
         }
         if found < 2 {
             conn.execute_batch(V2)?;
+        }
+        if found < 3 {
+            conn.execute_batch(V3)?;
         }
         conn.pragma_update(None, "user_version", SCHEMA_VERSION)?;
         Ok(())
@@ -114,6 +122,18 @@ CREATE TABLE IF NOT EXISTS backfilled_agents(
 ) STRICT;
 ";
 
+/// Drop the rows recorded under the native agent's retired id.
+///
+/// The id is the literal it used to be, spelled out here and nowhere else in
+/// the tree: this is the one place that still needs to know it, and the guard
+/// test that keeps the old names out of the code allowlists exactly this
+/// file for it. The backfill marker goes with the rows, so a backfill under
+/// the new id is free to run.
+const V3: &str = "
+DELETE FROM threads WHERE agent_id = 'cersei';
+DELETE FROM backfilled_agents WHERE agent_id = 'cersei';
+";
+
 #[cfg(test)]
 mod tests {
     use std::path::{Path, PathBuf};
@@ -156,7 +176,7 @@ mod tests {
         conn.execute(
             "INSERT INTO threads (thread_id, session_id, agent_id, title, title_override, \
                  updated_at, created_at, interacted_at, folder_paths, folder_paths_order, archived) \
-             VALUES (?1, 'sess-1', 'cersei', 'Fix the build', 'My rename', \
+             VALUES (?1, 'sess-1', 'atlas-agent', 'Fix the build', 'My rename', \
                  '2026-05-02T00:00:00+00:00', '2026-05-01T00:00:00+00:00', \
                  '2026-05-02T00:00:00+00:00', ?2, ?3, 0)",
             rusqlite::params![SENT.as_slice(), folders.paths, folders.order],
@@ -170,7 +190,7 @@ mod tests {
         .unwrap();
         conn.execute(
             "INSERT INTO threads (thread_id, agent_id, updated_at) \
-             VALUES (?1, 'cersei', '2026-05-03T00:00:00+00:00')",
+             VALUES (?1, 'atlas-agent', '2026-05-03T00:00:00+00:00')",
             [DRAFT.as_slice()],
         )
         .unwrap();
@@ -206,7 +226,7 @@ mod tests {
         let path = dir.path().join("threads.db");
         seed_v1(&path);
 
-        let agent = AgentId::new("cersei");
+        let agent = AgentId::new("atlas-agent");
         {
             let store = ThreadMetadataStore::open(&path).expect("a V1 store opens");
             let mut threads = store.threads();
@@ -223,7 +243,7 @@ mod tests {
                 sent.session_id.as_ref().map(|s| s.0.to_string()).as_deref(),
                 Some("sess-1")
             );
-            assert_eq!(sent.agent_id.as_str(), "cersei");
+            assert_eq!(sent.agent_id.as_str(), "atlas-agent");
             assert_eq!(sent.title.as_deref(), Some("Fix the build"));
             assert_eq!(sent.title_override.as_deref(), Some("My rename"));
             assert!(sent.created_at.is_some() && sent.interacted_at.is_some());
@@ -247,6 +267,51 @@ mod tests {
         let store = ThreadMetadataStore::open(&path).unwrap();
         assert_eq!(store.threads().len(), 2);
         assert!(store.has_backfilled(&agent), "the V2 table is durable");
+    }
+
+    /// A V2 database carrying rows under the retired native id next to rows
+    /// under the current one: the upgrade drops exactly the former.
+    #[test]
+    fn a_v2_database_loses_the_rows_under_the_retired_native_id() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("threads.db");
+        seed_v1(&path);
+        {
+            let conn = Connection::open(&path).unwrap();
+            conn.execute_batch(V2).unwrap();
+            conn.pragma_update(None, "user_version", 2).unwrap();
+            conn.execute(
+                "INSERT INTO threads (thread_id, session_id, agent_id, updated_at) \
+                 VALUES (?1, 'sess-old', 'cersei', '2026-05-04T00:00:00+00:00')",
+                [[4u8; 16].as_slice()],
+            )
+            .unwrap();
+            conn.execute(
+                "INSERT INTO backfilled_agents (agent_id, at) VALUES ('cersei', 'then')",
+                [],
+            )
+            .unwrap();
+        }
+
+        let conn = Connection::open(&path).unwrap();
+        migrate(&conn).unwrap();
+        assert_eq!(version_of(&conn), SCHEMA_VERSION);
+        let retired: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM threads WHERE agent_id = 'cersei'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(retired, 0, "rows under the retired id are dropped, not aliased");
+        let kept: i64 = conn
+            .query_row("SELECT COUNT(*) FROM threads", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(kept, 3, "every row under a live id survives");
+        let marker: i64 = conn
+            .query_row("SELECT COUNT(*) FROM backfilled_agents", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(marker, 0, "the retired id's backfill marker goes with its rows");
     }
 
     #[test]

@@ -1,6 +1,6 @@
 //! `HnswStore` — a thin owner of a persistent [`usearch::Index`] (HNSW).
 //!
-//! Cersei's `EmbeddingStore`/`VectorIndex` are in-memory only (no save/load/remove —
+//! the old SDK's `EmbeddingStore`/`VectorIndex` are in-memory only (no save/load/remove —
 //! verified in Step 0), so persistence is built directly on `usearch 2.25.3`:
 //! `Index::save` / `Index::load` / `Index::remove` (hard deletes). Keys are `u64`;
 //! the id↔key bijection lives in [`crate::manifest::Manifest`].

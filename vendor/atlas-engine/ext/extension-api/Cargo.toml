@@ -1,0 +1,30 @@
+# Modified by Atlas from upstream OpenAI Codex (Apache-2.0). See CONTEXT.md.
+[package]
+edition.workspace = true
+license.workspace = true
+name = "atlas-engine-extension-api"
+version.workspace = true
+
+[lib]
+name = "atlas_engine_extension_api"
+path = "src/lib.rs"
+test = false
+doctest = false
+
+[lints]
+workspace = true
+
+[dependencies]
+atlas-engine-config = { workspace = true }
+atlas-engine-context-fragments = { workspace = true }
+atlas-engine-exec-server-protocol = { workspace = true }
+atlas-engine-mcp = { workspace = true }
+atlas-engine-protocol = { workspace = true }
+atlas-engine-tools = { workspace = true }
+atlas-engine-utils-absolute-path = { workspace = true }
+atlas-engine-utils-path-uri = { workspace = true }
+serde_json = { workspace = true }
+
+[dev-dependencies]
+pretty_assertions = { workspace = true }
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }

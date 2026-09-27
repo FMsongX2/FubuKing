@@ -57,7 +57,7 @@ use anyhow::Context;
 use anyhow::Result;
 use atlas_acp_thread::AgentModelId;
 use atlas_acp_thread::AgentModelInfo;
-use codex_protocol::openai_models::ModelsResponse;
+use atlas_engine_protocol::openai_models::ModelsResponse;
 use futures::future::BoxFuture;
 use futures::FutureExt;
 use serde::Deserialize;
@@ -220,7 +220,7 @@ impl GatewayCatalogueFetcher {
         Self {
             base_url: base_url.into(),
             token: None,
-            org: Arc::new(codex_api::atlas_chat::org::current_org),
+            org: Arc::new(atlas_engine_api::atlas_chat::org::current_org),
         }
     }
 

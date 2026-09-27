@@ -18,6 +18,13 @@ import type { AgentCatalogEntry } from "@/types/agent-catalog";
 import { agents, listenCatalogChanged } from "@/features/chat/lib/agents-api";
 import { acpRegistry, type AcpRegistryEntry } from "../lib/agent-registry-api";
 
+/** An agent update in flight, as the backend last reported it
+ *  (`agent_update` on `atlas:agents`). Absent when none is running. */
+export interface AgentUpdatePhase {
+  phase: "waiting" | "restarting" | "installing";
+  version: string;
+}
+
 interface AgentRegistryState {
   registryEntries: AcpRegistryEntry[];
   catalog: AgentCatalogEntry[];
@@ -46,10 +53,17 @@ interface AgentRegistryState {
   /** RFC3339 time of the last successful fetch; `null` = never confirmed
    *  against the network (cold boot, or disk cache only). */
   registryRefreshedAt: string | null;
+  /** Updates in flight, by plugin id. Replaced wholesale on every change, so a
+   *  selector on one plugin's entry stays referentially stable otherwise. */
+  updatePhases: Record<string, AgentUpdatePhase>;
 }
 
 function signatureOf(entries: AcpRegistryEntry[], catalog: AgentCatalogEntry[]): string {
-  const e = entries.map((s) => `${s.id}:${s.installed ? 1 : 0}:${s.version}`).join(",");
+  // `installedVersion` too: an update changes nothing else about a card, and
+  // the card has to lose its Update button when one lands.
+  const e = entries
+    .map((s) => `${s.id}:${s.installed ? 1 : 0}:${s.version}:${s.installedVersion ?? ""}`)
+    .join(",");
   // Kinds only, never resolved paths: a discovery scan that re-resolves the
   // same binary to the same place must not re-render every agent surface.
   // `installed` is in here because it is what the agent picker is keyed off —
@@ -77,7 +91,17 @@ export const useAgentRegistryStore = create<AgentRegistryState>(() => ({
   registryRefreshing: false,
   registryError: null,
   registryRefreshedAt: null,
+  updatePhases: {},
 }));
+
+/** Record (or with `null`, clear) the update in flight for `pluginId`. */
+export function setAgentUpdatePhase(pluginId: string, phase: AgentUpdatePhase | null): void {
+  const current = useAgentRegistryStore.getState().updatePhases;
+  const next = { ...current };
+  if (phase) next[pluginId] = phase;
+  else delete next[pluginId];
+  useAgentRegistryStore.setState({ updatePhases: next });
+}
 
 /** Re-fetch the agent catalog and the registry listing.
  *  Safe to call repeatedly; failures leave the previous state in place.

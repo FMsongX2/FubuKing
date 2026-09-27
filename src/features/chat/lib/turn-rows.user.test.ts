@@ -115,14 +115,15 @@ describe("what a user bubble shows", () => {
     expect(turns[0].preview.length).toBe(80);
   });
 
-  it("carries the attachment count, the timestamp and the row/message id link", () => {
+  it("carries the images, the timestamp and the row/message id link", () => {
     const row = bubble("look", {
       attachments: [
         { mimeType: "image/png", dataBase64: "AA==" },
         { mimeType: "image/png", dataBase64: "AA==" },
       ],
     });
-    expect(row).toMatchObject({ id: "u:u1", turnId: "t:u1", attachments: 2, timestamp: at(0) });
+    expect(row).toMatchObject({ id: "u:u1", turnId: "t:u1", timestamp: at(0) });
+    expect(row.attachments).toHaveLength(2);
   });
 
   it("is expanded only when the reader expanded that bubble", () => {

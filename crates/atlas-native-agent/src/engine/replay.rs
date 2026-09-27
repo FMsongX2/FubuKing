@@ -38,7 +38,7 @@
 
 use agent_client_protocol::schema::v1 as acp;
 use atlas_acp_thread::AcpThread;
-use codex_app_server_protocol as v2;
+use atlas_engine_app_server_protocol as v2;
 
 /// What a reopened thread says about a turn the process never finished.
 ///
@@ -328,7 +328,7 @@ mod tests {
         t.error = Some(
             serde_json::from_value(json!({
                 "message": "stream disconnected",
-                "codexErrorInfo": null,
+                "atlasEngineErrorInfo": null,
             }))
             .expect("a turn error the protocol accepts"),
         );

@@ -14,7 +14,11 @@ import { createSelectors } from "@/lib/create-selectors";
 /** Which Session the board is showing, and where inside it to land. */
 export interface OpenSession {
   sessionId: string;
+  /** Empty for a Session from a Project this machine has no checkout of. */
   projectPath: string;
+  /** The server Project id, for comments and the realtime subscription.
+   *  `null` or absent on a Session that is not shared. */
+  remoteProjectId?: string | null;
   /** Arrived from a commit: scroll to that Checkpoint instead of the top. A
    *  Session can produce many commits, and the one you clicked is the only part
    *  of it you asked about. */

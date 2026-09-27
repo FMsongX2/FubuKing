@@ -1,0 +1,35 @@
+# Modified by Atlas from upstream OpenAI Codex (Apache-2.0). See CONTEXT.md.
+[package]
+name = "atlas-engine-execpolicy"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Atlas Agent exec policy: prefix-based Starlark rules for command decisions."
+
+[lib]
+name = "atlas_engine_execpolicy"
+path = "src/lib.rs"
+doctest = false
+
+[[bin]]
+name = "atlas-engine-execpolicy"
+path = "src/main.rs"
+
+[lints]
+workspace = true
+
+[dependencies]
+anyhow = { workspace = true }
+clap = { workspace = true, features = ["derive"] }
+atlas-engine-utils-absolute-path = { workspace = true }
+multimap = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+shlex = { workspace = true }
+starlark = { workspace = true }
+tempfile = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true, features = ["fs", "io-util", "macros", "rt"] }
+
+[dev-dependencies]
+pretty_assertions = { workspace = true }

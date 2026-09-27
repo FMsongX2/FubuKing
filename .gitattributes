@@ -11,7 +11,7 @@
 # whatever the machine's `core.autocrlf` says.
 #
 # `text=auto` lets Git detect binary files by content and leave them alone.
-# `vendor/codex/apply-patch/tests/fixtures/scenarios/.gitattributes` marks the
+# `vendor/atlas-engine/apply-patch/tests/fixtures/scenarios/.gitattributes` marks the
 # engine's CRLF-preservation fixtures `-text`, and a nested file wins over
 # this one for its subtree, so those bytes stay exactly as committed.
 #

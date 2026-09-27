@@ -3,11 +3,17 @@ import type { MentionData } from "@/features/chat/lib/mentions";
 
 /** The agents Atlas has first-party BRANDING for — labels, brand icons and
  *  `.agent-*` CSS tokens, which are Atlas's own design rather than registry
- *  metadata. It is not a list of agents that exist: apart from `cersei` (the
+ *  metadata. It is not a list of agents that exist: apart from `atlas-agent` (the
  *  native agent) every one of these must be installed from the Marketplace
  *  before it can run (ADR-0002), and an installed agent with no entry here
  *  simply renders from its registry metadata. */
-export type FirstPartyAgent = "claude-code" | "codex" | "opencode" | "cursor" | "kilo" | "cersei";
+export type FirstPartyAgent =
+  | "claude-code"
+  | "codex"
+  | "opencode"
+  | "cursor"
+  | "kilo"
+  | "atlas-agent";
 
 /** Agent identity is plugin-id-first and OPEN (Paseo-style): the first-party
  *  literals keep autocomplete/narrowing, but any registry-installed plugin id
@@ -27,7 +33,7 @@ export type SwitchableAgent = FirstPartyAgent | (string & {});
  *  This is NOT a default ACP agent and must never be used as a stand-in for
  *  one; it is the identity of "Atlas itself". The switchable list is otherwise
  *  entirely catalog-derived — see `switchableAgentIds()` in features/agents. */
-export const NATIVE_AGENT_ID = "cersei";
+export const NATIVE_AGENT_ID = "atlas-agent";
 
 /** Upstream 0.3.0-x's name for the same constant — its identity model calls
  *  the native agent `NATIVE_AGENT` and files merged from that line import it
@@ -42,10 +48,9 @@ export const AGENT_LABEL: Record<FirstPartyAgent, string> = {
   opencode: "OpenCode",
   cursor: "Cursor",
   kilo: "Kilo",
-  // The key is the stored agent id, which stays `cersei` forever because every
-  // recorded thread resolves through it (D7). The label is the product name.
-  // They are deliberately different things.
-  cersei: "Atlas Agent",
+  // The key is the stored agent id (`NATIVE_AGENT_ID`); every recorded thread
+  // resolves through it. The label is the product name. Keep them separate.
+  "atlas-agent": "Atlas Agent",
 };
 
 /** The Rust-side spawnable plugin id for each first-party agent (see
@@ -57,7 +62,7 @@ export const PLUGIN_ID_BY_AGENT: Record<FirstPartyAgent, string> = {
   opencode: "opencode",
   cursor: "cursor",
   kilo: "kilo",
-  cersei: "cersei",
+  "atlas-agent": "atlas-agent",
 };
 
 function isFirstPartyAgent(agentType: string): agentType is FirstPartyAgent {
@@ -88,7 +93,7 @@ export function agentTypeFromPluginId(pluginId: string): AgentType {
   if (pluginId === "opencode") return "opencode";
   if (pluginId === "cursor") return "cursor";
   if (pluginId === "kilo") return "kilo";
-  if (pluginId === "cersei") return "cersei";
+  if (pluginId === "atlas-agent") return "atlas-agent";
   // The NATIVE claude ids only — the current spec id and the legacy one old
   // history rows recorded. A `startsWith("claude")` here also swallowed the
   // EXTERNAL registry agent "claude-acp", whose identity is its plugin id:
@@ -184,6 +189,10 @@ export interface ChatSession {
    *  affordance) respawns the agent and load_session-resumes where the
    *  transcript kind supports it. Never auto-restarted silently. */
   disconnected?: boolean;
+  /** Set with `disconnected` when the process went away because its agent
+   *  was updated (`noteAgentUpdated`): the version it restarts on. The banner
+   *  says "updated" rather than "exited". Cleared with `disconnected`. */
+  updatedTo?: string;
   /** Why the last bind for this tab gave up, when it did so without a
    *  session (`failPendingBinds`): the manager's reason for the lost
    *  connection. Shown beside the Restart affordance; cleared on (re)bind. */
@@ -207,7 +216,7 @@ export interface ChatSession {
    *  Rust `turn_seq` on status/terminal deltas. Used to reject a stale terminal
    *  (idle/error) belonging to a turn already superseded by a newer send —
    *  the guard against premature "done" under parallel / queued / wake timing.
-   *  Absent (or 0) for the native cersei agent, which is treated as current. */
+   *  Absent (or 0) for the native agent, which is treated as current. */
   currentTurnSeq?: number;
   /** The current turn's live plan (ACP `plan` / TodoWrite), mirrored here from
    *  the trailing assistant message so the docked plan panel above the composer
@@ -257,8 +266,8 @@ export interface ChatSession {
    *  per-agent modes cache so switching feels instant. Cleared by `setAcpModes`. */
   acpModesPending?: boolean;
   /** Currently selected ACP model id (default / sonnet / haiku / …). For the
-   *  native Cersei agent this is the bare model id; the provider lives in
-   *  `cerseiProvider` and the two are pushed to the backend as `provider/model`. */
+   *  native agent this is the bare model id; the provider lives in
+   *  `nativeProvider` and the two are pushed to the backend as `provider/model`. */
   acpCurrentModel?: string;
   /** Raw ACP `configOptions` for this session (P2.2). Kept current by the
    *  `config_options_updated` delta so a knob toggled INSIDE the agent is
@@ -277,9 +286,9 @@ export interface ChatSession {
    *  composer's model picker. Seeded from the snapshot's `available_models`;
    *  empty for agents (or the native one) that don't expose ACP model lists. */
   acpAvailableModels?: SessionModeInfo[];
-  /** BYOK provider id backing the native Cersei agent's model selection
+  /** BYOK provider id backing the native agent's model selection
    *  (e.g. "anthropic", "openai"). Unused by the ACP agents. */
-  cerseiProvider?: string;
+  nativeProvider?: string;
   /** Cumulative token split for the session, from `usage_updated` deltas.
    *  The native engine reports it as a running total; an ACP agent's
    *  end-of-turn usage is folded into the same counters in Rust. Drives the
@@ -300,9 +309,9 @@ export interface ChatSession {
   };
   /** Reasoning-effort level for the native agent ("" / low / medium / high /
    *  max). Only meaningful for Anthropic models (maps to a thinking budget). */
-  cerseiEffort?: string;
+  nativeEffort?: string;
   /** RTK tool-output compression for the native agent (default on). */
-  cerseiCompress?: boolean;
+  nativeCompress?: boolean;
   /** Cumulative usage snapshot at the end of the previous turn — used to derive
    *  per-turn usage for the message footer. */
   lastUsageSnapshot?: { input: number; output: number; cost: number };

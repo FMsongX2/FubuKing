@@ -5,6 +5,12 @@ import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import type { BoardSession } from "../types";
 import { TimelineSidebar } from "./timeline-sidebar";
 
+// The sidebar's import graph reaches `settings-store`, which subscribes to
+// Tauri config events at module load. There is no Tauri bridge under happy-dom,
+// so without this the real `listen` rejects and vitest fails the run on an
+// unhandled rejection.
+vi.mock("@tauri-apps/api/event", () => ({ listen: vi.fn(async () => () => {}) }));
+
 // vitest runs with `globals: false`, so RTL's auto-cleanup is not registered.
 beforeEach(cleanup);
 
@@ -75,6 +81,10 @@ function session(over: Partial<BoardSession> & { id: string }): BoardSession {
     attentionReason: null,
     projectPath: "/tmp/atlas",
     projectName: "atlas",
+    synced: false,
+    origin: "local",
+    remoteProjectId: null,
+    authorId: null,
     ...over,
   } as BoardSession;
 }
@@ -103,9 +113,69 @@ describe("TimelineSidebar", () => {
     expect(screen.getByText("Yesterday")).toBeTruthy();
     expect(screen.getByText("First today")).toBeTruthy();
     expect(screen.getByText("Old")).toBeTruthy();
-    // Title only: nothing else from the row's old grid leaks in.
-    expect(screen.queryByText("atlas")).toBeNull();
+    // Title and Project only. The row's old grid — token counts, model, the
+    // Checkpoint tally — stays out; that is what the results table is for.
     expect(screen.queryByText(/tok/)).toBeNull();
+    expect(screen.queryByText("claude-opus-5")).toBeNull();
+  });
+
+  it("says which Project a row came from, and whether it is shared", () => {
+    render(
+      <TimelineSidebar
+        sessions={[
+          session({ id: "a", title: "Local work", projectName: "scratch" }),
+          session({
+            id: "b",
+            title: "Shared work",
+            projectName: "atlas",
+            synced: true,
+            origin: "both",
+            remoteProjectId: "rw_1",
+          }),
+        ]}
+        loading={false}
+        filtered={false}
+        openId={null}
+        period="day"
+        onOpen={() => {}}
+      />,
+    );
+    expect(screen.getByText("scratch")).toBeTruthy();
+    expect(screen.getByText("atlas")).toBeTruthy();
+    // The icon carries the state, so it is what the assertion reads — a
+    // synced row must be distinguishable without opening it.
+    expect(screen.getByLabelText("This machine only")).toBeTruthy();
+    expect(screen.getByLabelText("Shared with your Organisation")).toBeTruthy();
+  });
+
+  it("says whose work each row is, and never prints a raw id", () => {
+    // An opaque author key in the byline is noise — it is what the row used to
+    // show. With no directory loaded a colleague is still *named*, just not by
+    // name; your own work says "You" whether or not it has been pushed.
+    render(
+      <TimelineSidebar
+        sessions={[
+          session({ id: "a", title: "Mine", synced: true, origin: "both" }),
+          session({
+            id: "b",
+            title: "Theirs",
+            projectPath: "",
+            projectName: "acme-infra",
+            synced: true,
+            origin: "remote",
+            authorId: "user_grace",
+          }),
+        ]}
+        loading={false}
+        filtered={false}
+        openId={null}
+        period="day"
+        onOpen={() => {}}
+      />,
+    );
+    expect(screen.getByText("You")).toBeTruthy();
+    expect(screen.getByText("A member")).toBeTruthy();
+    expect(screen.queryByText("user_grace")).toBeNull();
   });
 
   it("highlights the open session and opens on click", () => {
@@ -124,7 +194,9 @@ describe("TimelineSidebar", () => {
     expect(beta.getAttribute("data-selected")).toBe("true");
     expect(screen.getByText("Alpha").closest("button")!.getAttribute("data-selected")).toBeNull();
     fireEvent.click(screen.getByText("Alpha"));
-    expect(onOpen).toHaveBeenCalledWith("a", "/tmp/atlas");
+    // The server Project id rides along: it is what the detail pane needs to
+    // load comments and subscribe, and a remote-only row has no path to use.
+    expect(onOpen).toHaveBeenCalledWith("a", "/tmp/atlas", null);
   });
 
   it("folds three identical imported titles into one row that expands", () => {

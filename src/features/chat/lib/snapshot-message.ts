@@ -25,6 +25,11 @@ export function snapshotMessageToWire(m: SessionMessage) {
     content: m.content,
     timestamp: m.timestamp,
     model: m.model ?? null,
+    // Snake-case wire pair → the composer's attachment shape, so a reopened
+    // message draws the same tiles it showed when it was sent.
+    ...(m.images?.length
+      ? { attachments: m.images.map((i) => ({ mimeType: i.mime_type, dataBase64: i.data })) }
+      : {}),
     toolCalls: m.tool_calls.map((tc) => ({
       id: tc.id,
       toolName: tc.tool_name,

@@ -17,7 +17,7 @@ import {
   ExternalAgentIcon,
   AgentMonogram,
 } from "@/components/agent-icons";
-import { pluginIdForAgent, type SwitchableAgent } from "@/types/agent";
+import { pluginIdForAgent } from "@/types/agent";
 import { agentMeta } from "@/features/agents/lib/agent-meta";
 import { AtlasLoader } from "@/components/atlas-loader";
 import { timeAgo } from "@/lib/time-ago";
@@ -41,41 +41,10 @@ import { AtlasIcon } from "@/components/atlas-icon";
 import { useRecentChatsStore } from "@/features/projects/stores/recent-chats-store";
 import { resumeThreadFast, ResumeError } from "../lib/resume-session";
 import { applyModeOnResume } from "../lib/resume-mode";
+import { AGENT_TYPE_BY_SIDEBAR, sidebarAgentOf, type SidebarAgent } from "../lib/sidebar-agents";
 
 /** One key for the whole sidebar: history is one store, so there is one query. */
 const THREAD_PROJECTS_KEY = ["thread-projects"] as const;
-
-/** Short per-row agent tag. "claude" doubles as the legacy default for rows
- *  with no metadata, so the mapping from AgentType is centralised here instead
- *  of repeated ternaries that silently mislabel new agents. */
-type SidebarAgent = "claude" | "codex" | "opencode" | "cursor" | "kilo" | "cersei" | (string & {});
-
-export function sidebarAgentOf(agentType: string | undefined): SidebarAgent {
-  // The registry ids and the older native ids a thread row may carry fold
-  // into one band per agent, or the row icon and resume routing split.
-  if (agentType === "codex-acp") return "codex";
-  if (
-    agentType === "codex" ||
-    agentType === "opencode" ||
-    agentType === "cursor" ||
-    agentType === "kilo" ||
-    agentType === "cersei"
-  )
-    return agentType;
-  // The real Claude ids only. A `startsWith("claude")` also caught registry
-  // agents such as "claude-foo" and resumed their history through claude-acp.
-  if (
-    !agentType ||
-    agentType === "custom" ||
-    agentType === "claude" ||
-    agentType === "claude-acp" ||
-    agentType === "claude-code" ||
-    agentType === "claude-code-ts"
-  )
-    return "claude";
-  // Registry-installed external agent: its plugin id IS its identity.
-  return agentType;
-}
 
 /** One history row, as the list renders it. Used by the sidebar's own list and
  *  by the history view handing a row back to be opened — one builder, so the
@@ -101,20 +70,6 @@ function itemFromThread(thread: ThreadRow, projectName: string, isCurrent: boole
     cwd: thread.folderPaths[0] ?? "",
   };
 }
-
-/** Band → the registry id resume must spawn through. The claude/codex bands
- *  fold several ids (see `sidebarAgentOf`), so they need an explicit mapping
- *  back to the registry entries that own those threads. The
- *  old values ("claude-code"/"codex") named plugin ids the registry-only port
- *  deleted, so resuming those rows spawned UnknownSpec — a silent dead click. */
-export const AGENT_TYPE_BY_SIDEBAR: Partial<Record<string, SwitchableAgent>> = {
-  claude: "claude-acp",
-  codex: "codex-acp",
-  opencode: "opencode",
-  cursor: "cursor",
-  kilo: "kilo",
-  cersei: "cersei",
-};
 
 /** Compact token count: 1234 → "1.2k", 1_200_000 → "1.2M". */
 
@@ -325,7 +280,7 @@ export const SessionSidebar = memo(function SessionSidebar({
   const [historyOpen, setHistoryOpen] = useState(false);
 
   // Atlas's own history — the only source. It used to be six: Claude's JSONL
-  // directory, Codex's SQLite, Kilo's SQLite, Cersei's store, Atlas's
+  // directory, Codex's SQLite, Kilo's SQLite, the old native store, Atlas's
   // transcripts and a live ACP `session/list`, merged by session id. That
   // coupled the sidebar to four private storage formats and meant an agent
   // nobody had written a reader for had no history at all (ADR-0001).
@@ -783,7 +738,7 @@ export const SessionSidebar = memo(function SessionSidebar({
                         <CursorIcon className="size-3" />
                       ) : item.agent === "kilo" ? (
                         <KiloIcon className="size-3" />
-                      ) : item.agent === "cersei" ? (
+                      ) : item.agent === "atlas-agent" ? (
                         <AtlasIcon size={12} />
                       ) : item.agent === "claude" ? (
                         <ClaudeIcon className="size-3" />

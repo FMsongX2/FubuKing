@@ -1,0 +1,50 @@
+# Modified by Atlas from upstream OpenAI Codex (Apache-2.0). See CONTEXT.md.
+[package]
+edition.workspace = true
+license.workspace = true
+name = "atlas-engine-memories-write"
+version.workspace = true
+
+[lib]
+name = "atlas_engine_memories_write"
+path = "src/lib.rs"
+doctest = false
+
+[lints]
+workspace = true
+
+[dependencies]
+anyhow = { workspace = true }
+chrono = { workspace = true }
+atlas-engine-backend-client = { workspace = true }
+atlas-engine-core = { workspace = true }
+atlas-engine-config = { workspace = true }
+atlas-engine-features = { workspace = true }
+atlas-engine-git-utils = { workspace = true }
+atlas-engine-login = { workspace = true }
+atlas-engine-model-provider = { workspace = true }
+atlas-engine-otel = { workspace = true }
+atlas-engine-protocol = { workspace = true }
+atlas-engine-rollout = { workspace = true }
+atlas-engine-rollout-trace = { workspace = true }
+atlas-engine-secrets = { workspace = true }
+atlas-engine-state = { workspace = true }
+atlas-engine-terminal-detection = { workspace = true }
+atlas-engine-utils-absolute-path = { workspace = true }
+atlas-engine-utils-output-truncation = { workspace = true }
+atlas-engine-utils-template = { workspace = true }
+futures = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+tokio = { workspace = true, features = ["fs", "rt", "sync", "time"] }
+tracing = { workspace = true, features = ["log"] }
+uuid = { workspace = true, features = ["v4", "v5"] }
+
+[dev-dependencies]
+atlas-engine-model-provider-info = { workspace = true }
+atlas-engine-models-manager = { workspace = true }
+core_test_support = { workspace = true }
+pretty_assertions = { workspace = true }
+tempfile = { workspace = true }
+tokio = { workspace = true, features = ["fs", "macros"] }
+wiremock = { workspace = true }

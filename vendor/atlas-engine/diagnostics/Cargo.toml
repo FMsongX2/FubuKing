@@ -1,0 +1,20 @@
+# Modified by Atlas from upstream OpenAI Codex (Apache-2.0). See CONTEXT.md.
+[package]
+name = "atlas-engine-diagnostics"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[lib]
+name = "atlas_engine_diagnostics"
+path = "src/lib.rs"
+doctest = false
+
+[lints]
+workspace = true
+
+[dependencies]
+libc = { workspace = true }
+
+[dev-dependencies]
+pretty_assertions = { workspace = true }

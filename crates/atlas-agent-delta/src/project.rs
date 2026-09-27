@@ -10,7 +10,8 @@ use atlas_acp_thread::{
     ToolCallContent, ToolCallStatus as ThreadToolCallStatus,
 };
 use atlas_agent_wire::{
-    Message, MessageMode, MessageRole, PlanEntry, ToolCall, ToolCallStatus, ToolContentBlock,
+    Message, MessageImage, MessageMode, MessageRole, PlanEntry, ToolCall, ToolCallStatus,
+    ToolContentBlock,
 };
 
 /// One run of same-kind chunks inside an assistant entry.
@@ -112,6 +113,31 @@ pub fn runs(chunks: &[AssistantMessageChunk]) -> Vec<Run> {
 /// A resource link contributes its URI rather than nothing: the agent referred
 /// to a file, and dropping the reference would make the transcript read as
 /// though it never did. Images have no text and contribute none.
+/// A user message's prose and its images, from the raw chunks.
+///
+/// Not from `UserMessage::content`: that merges every chunk into one block, and
+/// an image followed by text merges into the literal `` `Image` `` plus the
+/// text — the image itself gone. Rebuilding the prose from the non-image chunks
+/// gives the same text `content` would have had without them. An image with no
+/// bytes (Claude's replay of a URL-sourced image carries only `uri`) is skipped:
+/// the wire carries base64, and a URL would be fetched by the renderer.
+pub fn user_message_parts(chunks: &[acp::ContentBlock]) -> (String, Vec<MessageImage>) {
+    let mut images = Vec::new();
+    let prose = ContentBlock::new_combined(chunks.iter().filter_map(|chunk| match chunk {
+        acp::ContentBlock::Image(image) => {
+            if !image.data.is_empty() && !image.mime_type.is_empty() {
+                images.push(MessageImage {
+                    mime_type: image.mime_type.clone(),
+                    data: image.data.clone(),
+                });
+            }
+            None
+        }
+        other => Some(other.clone()),
+    }));
+    (block_text(&prose), images)
+}
+
 pub fn block_text(block: &ContentBlock) -> String {
     block_str(block).to_string()
 }
@@ -154,6 +180,7 @@ pub fn run_message(
         tool_calls: Vec::new(),
         plan: None,
         model,
+        images: Vec::new(),
         timestamp,
     }
 }
@@ -177,6 +204,7 @@ pub fn tool_message(
         tool_calls: vec![tool_call],
         plan: None,
         model,
+        images: Vec::new(),
         timestamp,
     }
 }
@@ -391,15 +419,45 @@ pub fn permission_options(options: &PermissionOptions) -> serde_json::Value {
 }
 
 /// The tool call a permission prompt is about, as the wire carries it.
+///
+/// `toolName` is the call's own name by the same rule as a tool row's
+/// ([`tool_call_meta`]), so a card whose title names the act ("Reply on Ada's
+/// comment") still says which tool it is. `content` is the call's text, one
+/// string per block, when it has any: what an outward action's card shows as
+/// the recipient and the full body (ADR-0014). Neither is shortened here.
 pub fn permission_tool_call(call: &ThreadToolCall) -> serde_json::Value {
-    serde_json::json!({
+    let tool_name = call.tool_name.as_ref().map_or_else(
+        || {
+            if call.label.is_empty() {
+                tool_kind_token(call.kind).to_string()
+            } else {
+                call.label.clone()
+            }
+        },
+        std::string::ToString::to_string,
+    );
+    let mut out = serde_json::json!({
         "toolCallId": call.id.to_string(),
         "title": call.label,
         "kind": tool_kind_token(call.kind),
         "status": "pending",
         "rawInput": call.raw_input.clone().unwrap_or(serde_json::Value::Null),
-    })
+        "toolName": tool_name,
+    });
+    let content: Vec<&str> = call
+        .content
+        .iter()
+        .filter_map(|block| match block {
+            ToolCallContent::ContentBlock(ContentBlock::Text(text)) => Some(text.as_str()),
+            _ => None,
+        })
+        .collect();
+    if !content.is_empty() {
+        out["content"] = serde_json::json!(content);
+    }
+    out
 }
+
 
 /// The protocol's own stop-reason token.
 ///
@@ -449,17 +507,21 @@ pub fn snapshot_messages(
         // no recorded time, which the accessor's contract makes unreachable.
         let at = thread.entry_created_at(ix).unwrap_or_else(chrono::Utc::now);
         match entry {
-            AgentThreadEntry::UserMessage(message) => out.push(Message {
-                id: format!("msg-{ix}"),
-                role: MessageRole::User,
-                mode: MessageMode::Text,
-                content: block_text(&message.content),
-                thinking: String::new(),
-                tool_calls: Vec::new(),
-                plan: None,
-                model: None,
-                timestamp: at,
-            }),
+            AgentThreadEntry::UserMessage(message) => {
+                let (content, images) = user_message_parts(&message.chunks);
+                out.push(Message {
+                    id: format!("msg-{ix}"),
+                    role: MessageRole::User,
+                    mode: MessageMode::Text,
+                    content,
+                    thinking: String::new(),
+                    tool_calls: Vec::new(),
+                    plan: None,
+                    model: None,
+                    images,
+                    timestamp: at,
+                })
+            }
             AgentThreadEntry::AssistantMessage(message) => {
                 // `run_ix` counts over the UNFILTERED list, so skipping an
                 // empty run does not shift the ids of the ones after it.
@@ -495,4 +557,41 @@ pub fn snapshot_messages(
         }
     }
     out
+}
+
+#[cfg(test)]
+mod permission_tests {
+    use super::*;
+
+    fn call(update: acp::ToolCall) -> ThreadToolCall {
+        ThreadToolCall::from_acp(update, atlas_acp_thread::ToolCallStatus::InProgress).expect("a call")
+    }
+
+    #[test]
+    fn a_plain_approval_keeps_its_shape_and_names_its_tool() {
+        let wire = permission_tool_call(&call(
+            acp::ToolCall::new("call-1", "git push").kind(acp::ToolKind::Execute).raw_input(serde_json::json!({ "command": "git push" })),
+        ));
+        assert_eq!(wire["title"], "git push");
+        assert_eq!(wire["rawInput"]["command"], "git push");
+        assert_eq!(wire["toolName"], "git push", "falls back to the title, as a row does");
+        assert!(wire.get("content").is_none(), "no text, no content");
+    }
+
+    #[test]
+    fn an_outward_actions_card_carries_its_text_in_full_and_the_tool_behind_its_title() {
+        let body = "Renamed the keys.\n".repeat(500);
+        let mut meta = acp::Meta::new();
+        meta.insert("tool_name".into(), serde_json::json!("atlas_org.org_comment_reply"));
+        let text = |t: &str| acp::ToolCallContent::Content(acp::Content::new(acp::ContentBlock::Text(acp::TextContent::new(t.to_string()))));
+        let wire = permission_tool_call(&call(
+            acp::ToolCall::new("call-1", "Reply on Sam Lee's comment")
+                .kind(acp::ToolKind::Other)
+                .content(vec![text("Sam Lee, on their comment"), text(&body)])
+                .meta(meta),
+        ));
+        assert_eq!(wire["title"], "Reply on Sam Lee's comment");
+        assert_eq!(wire["toolName"], "atlas_org.org_comment_reply");
+        assert_eq!(wire["content"], serde_json::json!(["Sam Lee, on their comment", body]));
+    }
 }

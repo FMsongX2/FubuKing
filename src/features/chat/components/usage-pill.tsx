@@ -2,7 +2,12 @@ import { memo } from "react";
 import { ChevronDown, Gauge } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useSessionUsage } from "../lib/use-session-usage";
-import { ComposerDropup, composerPillClass, useComposerDropup } from "./composer-dropup";
+import {
+  ComposerDropup,
+  composerPillClass,
+  composerPillLabelClass,
+  useComposerDropup,
+} from "./composer-dropup";
 import { UsageRing } from "./usage-meter";
 import { UsagePopup } from "./usage-popup";
 
@@ -64,7 +69,8 @@ export const UsagePill = memo(function UsagePill({ tabId }: { tabId: string }) {
           </span>
           <span
             className={cn(
-              "ml-1.5 whitespace-nowrap tabular-nums",
+              composerPillLabelClass("early"),
+              "tabular-nums",
               pill.tint !== "none" && tint,
               pill.state === "compacting" && tint,
             )}

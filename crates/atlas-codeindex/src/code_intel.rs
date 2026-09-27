@@ -1,10 +1,10 @@
 //! Tree-sitter code intelligence: extract a file's imports and top-level symbols.
 //!
 //! Supports Rust, TypeScript/JavaScript, Python and Go. Ported into Atlas from
-//! the Cersei SDK's `tool_primitives::code_intel` so the indexer owns its own
+//! the old SDK's `tool_primitives::code_intel` so the indexer owns its own
 //! parsing and depends on nothing but the upstream tree-sitter grammars.
 //!
-//! Only the per-file analysis was carried over. Cersei's `scan_project` /
+//! Only the per-file analysis was carried over. the old SDK's `scan_project` /
 //! `format_project_intel` / config loading are not here: [`crate::scan`] does
 //! Atlas's own gitignore-respecting walk and builds its own embeddable text.
 //!

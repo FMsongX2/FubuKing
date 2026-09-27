@@ -1,4 +1,5 @@
-import { useState, useRef, useCallback, useEffect, useMemo } from "react";
+import { useState, useRef, useCallback, useEffect, useLayoutEffect, useMemo } from "react";
+import { createPortal } from "react-dom";
 import { useActionShortcut } from "@/features/keybindings/lib/use-action-shortcut";
 import { cn } from "@/lib/utils";
 import { Hint } from "@/ui/tooltip";
@@ -16,6 +17,7 @@ import {
   Search,
   Plus,
   RotateCw,
+  AtSign,
 } from "lucide-react";
 import { invoke } from "@tauri-apps/api/core";
 import { useChatStore } from "../stores/chat-store";
@@ -38,7 +40,7 @@ import { canSignIn, promptSignIn } from "../lib/agent-signin";
 import { forkSessionToNewTab } from "../lib/fork-session";
 import { switchAgentForTab } from "@/features/chat/lib/switch-agent";
 import { AgentMark } from "@/components/agent-mark";
-import { loadCerseiEffort } from "../lib/cersei-model-pref";
+import { loadNativeEffort } from "../lib/native-model-pref";
 import { loadCachedAcpModels } from "../lib/acp-models-cache";
 import { modelLabel } from "../lib/model-label";
 // `ChatInput` pulls in CodeMirror (~870 KB) via `cm-mention-extension`.
@@ -67,6 +69,8 @@ import { PlanTasksPill } from "./plan-tasks-pill";
 import { openSettingsSection } from "@/features/settings/lib/open-settings";
 import { ComposerOptionsPill } from "./composer-options-pill";
 import { UsagePill } from "./usage-pill";
+import { composerPillLabelClass } from "./composer-dropup";
+import { ImageAttachmentStrip } from "./image-attachments";
 import { FeaturedAgentOffers } from "./featured-agent-offers";
 import { RetryPill } from "./retry-pill";
 import { AiGrantBar } from "./ai-grant-bar";
@@ -93,6 +97,7 @@ import type {
 } from "../lib/mentions";
 import { toast } from "sonner";
 import { useComposerFileDrop } from "../hooks/use-composer-file-drop";
+import { scratchPathForFile } from "@/lib/scratch-file";
 import { useAppStore } from "@/features/app/stores/app-store";
 import type { MentionTrigger } from "../lib/cm-mention-extension";
 import type { SlashTrigger } from "../lib/cm-slash-extension";
@@ -235,7 +240,7 @@ interface CodebaseIndexStatus {
 /** Codebase-index status pill for the native agent — the index that grounds
  *  `memory_search`. Shows file count (or "Index memory" when unbuilt), flips to
  *  "Indexing…" while the auto-indexer runs, and re-indexes on click. */
-function CerseiMemoryPill() {
+function NativeMemoryPill() {
   const projectPath = useAppStore((s) => s.currentProject?.path ?? null);
   const [status, setStatus] = useState<CodebaseIndexStatus | null>(null);
   const [indexing, setIndexing] = useState(false);
@@ -259,8 +264,8 @@ function CerseiMemoryPill() {
       setIndexing(d.active);
       if (!d.active) refresh();
     };
-    window.addEventListener("atlas:cersei-index", onIdx);
-    return () => window.removeEventListener("atlas:cersei-index", onIdx);
+    window.addEventListener("atlas:agent-index", onIdx);
+    return () => window.removeEventListener("atlas:agent-index", onIdx);
   }, [projectPath, refresh]);
 
   const reindex = () => {
@@ -288,7 +293,7 @@ function CerseiMemoryPill() {
       onClick={reindex}
       disabled={indexing}
       title="Codebase index that grounds the agent's memory recall — click to re-index"
-      className="flex items-center gap-1.5 px-2 h-6.5 rounded-full border border-[var(--border)] bg-[var(--card)] text-2xs leading-none font-medium text-[var(--muted-foreground)] hover:bg-[var(--atlas-element-hover)] hover:text-[var(--foreground)] transition-colors cursor-pointer tabular-nums disabled:cursor-default"
+      className="flex items-center px-2 h-6.5 rounded-full border border-[var(--border)] bg-[var(--card)] text-2xs leading-none font-medium text-[var(--muted-foreground)] hover:bg-[var(--atlas-element-hover)] hover:text-[var(--foreground)] transition-colors cursor-pointer tabular-nums disabled:cursor-default"
     >
       {indexing ? (
         <Loader2 size={11} className="animate-spin text-[var(--primary)]" />
@@ -298,7 +303,7 @@ function CerseiMemoryPill() {
           className={status?.indexed ? "text-[var(--primary)]" : "text-[var(--muted-foreground)]"}
         />
       )}
-      {label}
+      <span className={composerPillLabelClass("early")}>{label}</span>
     </button>
   );
 }
@@ -309,26 +314,28 @@ const EFFORT_CYCLE = ["", "low", "medium", "high", "max"] as const;
  *  thinking budget). Cycles off → low → medium → high → max. Hidden for
  *  providers that don't support a thinking budget. */
 function EffortPill({ tabId }: { tabId: string }) {
-  const provider = useChatStore((s) => s.sessions[tabId]?.cerseiProvider ?? "");
-  const effort = useChatStore((s) => s.sessions[tabId]?.cerseiEffort ?? "");
-  const { setCerseiEffort } = useChatStore.use.actions();
+  const provider = useChatStore((s) => s.sessions[tabId]?.nativeProvider ?? "");
+  const effort = useChatStore((s) => s.sessions[tabId]?.nativeEffort ?? "");
+  const { setNativeEffort } = useChatStore.use.actions();
   if (provider !== "anthropic") return null;
   const cycle = () => {
     const i = EFFORT_CYCLE.indexOf(effort as (typeof EFFORT_CYCLE)[number]);
-    setCerseiEffort(tabId, EFFORT_CYCLE[(i + 1) % EFFORT_CYCLE.length]);
+    setNativeEffort(tabId, EFFORT_CYCLE[(i + 1) % EFFORT_CYCLE.length]);
   };
   const active = effort !== "";
   return (
     <button
       onClick={cycle}
-      className="flex items-center gap-1.5 px-2 h-6.5 rounded-full border border-[var(--border)] bg-[var(--card)] text-2xs leading-none font-medium text-[var(--secondary-foreground)] hover:bg-[var(--atlas-element-hover)] hover:text-[var(--foreground)] transition-colors cursor-pointer"
+      className="flex items-center px-2 h-6.5 rounded-full border border-[var(--border)] bg-[var(--card)] text-2xs leading-none font-medium text-[var(--secondary-foreground)] hover:bg-[var(--atlas-element-hover)] hover:text-[var(--foreground)] transition-colors cursor-pointer"
       title="Reasoning effort (thinking budget) — Anthropic models"
     >
       <Brain
         size={11}
         className={active ? "text-[var(--primary)]" : "text-[var(--muted-foreground)]"}
       />
-      {active ? `Think: ${effort}` : "Think"}
+      <span className={composerPillLabelClass("early")}>
+        {active ? `Think: ${effort}` : "Think"}
+      </span>
     </button>
   );
 }
@@ -440,7 +447,7 @@ function ComposerGroupsMenu({
     };
   }, [openGroup]);
 
-  const isNative = agentType === "cersei";
+  const isNative = agentType === "atlas-agent";
   const refreshingModels = useNativeModelsStore.use.refreshing();
   const refreshNativeModels = useNativeModelsStore.use.actions().refresh;
 
@@ -502,7 +509,6 @@ function ComposerGroupsMenu({
   // Labels stay visible on every pill — the reference folds unselected tabs
   // to icon-only, but on a toolbar whose pills are real controls that reads
   // worse than it looks (deliberately skipped).
-  const labelCls = (_active: boolean) => "ml-1.5 whitespace-nowrap";
   const pillCls = (active: boolean) =>
     cn(
       "flex items-center px-1.5 h-6.5 rounded-full border text-2xs leading-none font-medium transition-colors cursor-pointer",
@@ -751,7 +757,7 @@ function ComposerGroupsMenu({
         }
       >
         <AgentMark agentType={agentType} className="!h-4 !w-4 !text-3xs !rounded" />
-        <span className={labelCls(openGroup === "agent")}>{agentMeta(currentAgent).label}</span>
+        <span className={composerPillLabelClass("late")}>{agentMeta(currentAgent).label}</span>
       </button>
 
       {showMode && (
@@ -773,7 +779,7 @@ function ComposerGroupsMenu({
               style={{ background: acpModeColor(currentMode) }}
             />
           )}
-          <span className={labelCls(openGroup === "mode")}>
+          <span className={composerPillLabelClass("late")}>
             {isClaude
               ? CLAUDE_PERMISSION_MODE_LABEL[permissionMode]
               : currentAcpMode
@@ -792,7 +798,9 @@ function ComposerGroupsMenu({
           title="Model"
         >
           <Cpu size={11} className="shrink-0 text-[var(--muted-foreground)]" />
-          <span className={cn(labelCls(openGroup === "model"), "max-w-[120px] truncate")}>
+          <span
+            className={cn(composerPillLabelClass(), "max-w-[80px] truncate @[460px]:max-w-[120px]")}
+          >
             {currentModelInfo ? modelLabel(currentModelInfo) : (currentModel ?? "Model")}
           </span>
           <ChevronDown size={10} className="ml-0.5 shrink-0 text-[var(--muted-foreground)]" />
@@ -811,7 +819,7 @@ export function MessageInput({
   disabled: disabledProp = false,
   placeholder = "Message Atlas... (@ to mention, / for commands)",
 }: MessageInputProps) {
-  const { enqueueMessage, removeQueueItem, setAcpModes, setAcpModesPending, setCerseiEffort } =
+  const { enqueueMessage, removeQueueItem, setAcpModes, setAcpModesPending, setNativeEffort } =
     useChatStore.use.actions();
   // Show the picker as soon as the agent is non-Claude — even before its modes
   // load — so the composer can render a loading pill instead of nothing during
@@ -906,29 +914,29 @@ export function MessageInput({
   // button — the toolbar, and with it the switcher, stays live, so the user can
   // always move to an agent that runs. Verified against the escape hatch: this
   // must never disable the toolbar.
-  const blockedByGrant = noAiGrant && agentType === "cersei";
+  const blockedByGrant = noAiGrant && agentType === "atlas-agent";
   const disabled = disabledProp || blockedByGrant;
   // The BYOK provider/model bindings for the native agent stood here — the
   // provider pick, the model re-push on bind, the whole BYOK selection path.
   // Gone: the native agent's model comes from the seam's published catalogue
   // through the same `setAcpModel` path every other agent uses, and its
   // "provider" is the Atlas gateway, which is not a choice.
-  // Seed the reasoning-effort from the saved preference once per cersei session,
+  // Seed the reasoning-effort from the saved preference once per native session,
   // then re-push it whenever the session is bound (mirrors the model re-push).
-  const cerseiEffort = useChatStore((s) => s.sessions[tabId]?.cerseiEffort);
-  const cerseiBound = useChatStore((s) => {
+  const nativeEffort = useChatStore((s) => s.sessions[tabId]?.nativeEffort);
+  const nativeBound = useChatStore((s) => {
     const sess = s.sessions[tabId];
-    return sess?.agentType === "cersei" && !!sess.acpAgentId && !!sess.acpSessionId
+    return sess?.agentType === "atlas-agent" && !!sess.acpAgentId && !!sess.acpSessionId
       ? `${sess.acpAgentId}::${sess.acpSessionId}`
       : null;
   });
   useEffect(() => {
-    if (agentType !== "cersei") return;
+    if (agentType !== "atlas-agent") return;
     // Undefined = never set for this session → seed from the global pref.
-    const eff = cerseiEffort ?? loadCerseiEffort();
-    if (cerseiBound || cerseiEffort === undefined) setCerseiEffort(tabId, eff);
+    const eff = nativeEffort ?? loadNativeEffort();
+    if (nativeBound || nativeEffort === undefined) setNativeEffort(tabId, eff);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tabId, agentType, cerseiBound]);
+  }, [tabId, agentType, nativeBound]);
   // The RTK compression toggle was seeded and re-pushed here. It is gone with
   // the runtime that implemented it (#54) — the ported engine has no
   // tool-output compressor, so the control had nothing to switch (D8).
@@ -1151,9 +1159,11 @@ export function MessageInput({
     // the caret; the plugin will fire the null transition for us.
   }, []);
 
-  // ── Drag-and-drop OS files onto the composer → attach as mention chips ──
+  // ── File chips ──────────────────────────────────────────────────────────
+  // A path the agent reads off disk. `attachPaths` (below) decides between
+  // this and an inline image; only that and the screenshot fallback call it.
   const composerRef = useRef<HTMLDivElement>(null);
-  const handleDropFiles = useCallback(
+  const insertFileChips = useCallback(
     (paths: string[]) => {
       const root = projectPath && !projectPath.endsWith("/") ? `${projectPath}/` : projectPath;
       for (const abs of paths) {
@@ -1173,18 +1183,16 @@ export function MessageInput({
     },
     [projectPath],
   );
-  const { isDropTarget } = useComposerFileDrop({
-    targetRef: composerRef,
-    enabled: !disabled,
-    onDropFiles: handleDropFiles,
-  });
-
   // ── Image attachments (multimodal input) ─────────────────────────────────
   // Images staged for the next send, shown as thumbnails above the input.
   // Only populated when the bound agent advertised promptCapabilities.image;
   // otherwise picked images degrade to path mention chips (any agent can
   // read those off disk).
   const [stagedImages, setStagedImages] = useState<ImageAttachment[]>([]);
+  const removeStagedImage = useCallback(
+    (index: number) => setStagedImages((prev) => prev.filter((_, j) => j !== index)),
+    [],
+  );
   // Non-null (the repo's full_name) while a GitHub repo is cloning into
   // `.atlas/repos`. The composer is locked for the duration so the user can't
   // send a prompt that references a half-synced repo.
@@ -1240,22 +1248,17 @@ export function MessageInput({
     if (!stagedOverAggregateBudget) warnedAggregateRef.current = false;
   }, [stagedOverAggregateBudget]);
 
-  // "+" menu → "Add files or photos". The Tauri dialog hands back real
-  // paths (a browser file input wouldn't), which is what makes the routing
-  // possible: images become inline base64 attachments when the agent
-  // supports them; everything else — and any unreadable image — becomes a
-  // path mention chip via the same handler the drag-drop path uses.
-  const pickFilesOrPhotos = useCallback(async () => {
-    try {
-      const { open } = await import("@tauri-apps/plugin-dialog");
-      const picked = await open({
-        multiple: true,
-        title: "Attach files or photos",
-      });
-      if (!picked) return;
-      const paths = (Array.isArray(picked) ? picked : [picked]) as string[];
+  // ── Attaching files by path ──────────────────────────────────────────────
+  // The one routing rule for every way a file with a path arrives — dropped
+  // from Finder, picked in the "+" menu, copied in Finder and pasted: images
+  // become inline base64 attachments when the agent supports them; everything
+  // else — and any image that won't read — becomes a path chip. A drop used to
+  // skip the image branch, so a dropped screenshot reached the agent as a path
+  // it might never open, while the same image pasted arrived inline.
+  const attachPaths = useCallback(
+    async (paths: string[]) => {
       const images: ImageAttachment[] = [];
-      const mentionPaths: string[] = [];
+      const chipPaths: string[] = [];
       for (const p of paths) {
         const mime = imageSupported ? imageMimeFromPath(p) : null;
         if (mime) {
@@ -1264,28 +1267,75 @@ export function MessageInput({
             images.push(await downscaleAttachment({ mimeType: mime, dataBase64: data }));
             continue;
           } catch {
-            // Unreadable as base64 → fall through to a path mention.
+            // Unreadable as base64 → fall through to a path chip.
           }
         }
-        mentionPaths.push(p);
+        chipPaths.push(p);
       }
       if (images.length) setStagedImages((prev) => [...prev, ...images]);
-      if (mentionPaths.length) handleDropFiles(mentionPaths);
+      if (chipPaths.length) insertFileChips(chipPaths);
       requestAnimationFrame(() => inputRef.current?.focus());
+    },
+    [imageSupported, insertFileChips],
+  );
+
+  // Drag-and-drop from the OS. The zone is the whole conversation column
+  // (`data-chat-drop-zone` in chat-panel.tsx), not this composer: a thin
+  // target under a drag image that hangs off the cursor lit up and went dark
+  // seemingly at random. Each split pane has its own column, so a drop still
+  // lands in the pane under the cursor. Outside a chat panel, the composer.
+  //
+  // A drop ALWAYS becomes an inline `@file` chip at the caret — it does not go
+  // through `attachPaths`, and an image is no exception. Dragging a file into
+  // the conversation is a pointing gesture: "this one, here, in the sentence I
+  // am writing". Routing a dropped image to the thumbnail strip above the
+  // field answered a question the user had not asked — it detached the file
+  // from the place they aimed it, and left the prompt with no reference to it
+  // at all, so the sentence read "look at this" with no "this" in it. The
+  // explicit attach gestures ("+" ▸ Add files / Attach media, and paste) still
+  // route through `attachPaths`, where a thumbnail IS the thing being asked
+  // for. The chip carries the absolute path, which rides to the agent as an
+  // ACP `ResourceLink` (`compose_prompt`) — every agent reads those, and a
+  // vision agent opens the image itself.
+  const dropZoneRef = useRef<HTMLElement | null>(null);
+  const [dropZoneEl, setDropZoneEl] = useState<HTMLElement | null>(null);
+  useLayoutEffect(() => {
+    const composer = composerRef.current;
+    const zone = composer?.closest<HTMLElement>("[data-chat-drop-zone]") ?? composer ?? null;
+    dropZoneRef.current = zone;
+    setDropZoneEl(zone);
+  }, []);
+  const onDropFiles = useCallback((paths: string[]) => insertFileChips(paths), [insertFileChips]);
+  const { isDropTarget } = useComposerFileDrop({
+    targetRef: dropZoneRef,
+    enabled: !disabled,
+    onDropFiles,
+  });
+
+  // "+" menu → "Add files or photos". The Tauri dialog hands back real
+  // paths (a browser file input wouldn't), which is what makes the
+  // `attachPaths` routing possible.
+  const pickFilesOrPhotos = useCallback(async () => {
+    try {
+      const { open } = await import("@tauri-apps/plugin-dialog");
+      const picked = await open({
+        multiple: true,
+        title: "Attach files or photos",
+      });
+      if (!picked) return;
+      await attachPaths((Array.isArray(picked) ? picked : [picked]) as string[]);
     } catch (err) {
       console.warn("attach picker failed:", err);
     }
-  }, [imageSupported, handleDropFiles]);
+  }, [attachPaths]);
 
   const handlePickProject = useCallback((project: MentionProject) => {
     inputRef.current?.insertMention(project);
     requestAnimationFrame(() => inputRef.current?.focus());
   }, []);
 
-  // "+" menu → "Attach media". Same routing as the files picker, but the OS
-  // dialog is filtered to image/video extensions. Images ride along as inline
-  // base64 (when the agent supports it); video and anything unreadable become
-  // path mention chips the agent reads off disk.
+  // "+" menu → "Attach media". The files picker, with the OS dialog filtered
+  // to image/video extensions; video becomes a path chip via `attachPaths`.
   const pickMedia = useCallback(async () => {
     try {
       const { open } = await import("@tauri-apps/plugin-dialog");
@@ -1315,29 +1365,11 @@ export function MessageInput({
         ],
       });
       if (!picked) return;
-      const paths = (Array.isArray(picked) ? picked : [picked]) as string[];
-      const images: ImageAttachment[] = [];
-      const mentionPaths: string[] = [];
-      for (const p of paths) {
-        const mime = imageSupported ? imageMimeFromPath(p) : null;
-        if (mime) {
-          try {
-            const data = await invoke<string>("read_file_base64", { path: p });
-            images.push(await downscaleAttachment({ mimeType: mime, dataBase64: data }));
-            continue;
-          } catch {
-            // Unreadable as base64 → fall through to a path mention.
-          }
-        }
-        mentionPaths.push(p);
-      }
-      if (images.length) setStagedImages((prev) => [...prev, ...images]);
-      if (mentionPaths.length) handleDropFiles(mentionPaths);
-      requestAnimationFrame(() => inputRef.current?.focus());
+      await attachPaths((Array.isArray(picked) ? picked : [picked]) as string[]);
     } catch (err) {
       console.warn("media picker failed:", err);
     }
-  }, [imageSupported, handleDropFiles]);
+  }, [attachPaths]);
 
   // "+" menu → "Take a screenshot". Shells out to the native macOS
   // `screencapture` CLI (region selection or whole desktop), then attaches the
@@ -1365,14 +1397,14 @@ export function MessageInput({
           });
           setStagedImages((prev) => [...prev, shrunk]);
         } else {
-          handleDropFiles([res.path]);
+          insertFileChips([res.path]);
         }
         requestAnimationFrame(() => inputRef.current?.focus());
       } catch (err) {
         toast.error(`Screenshot failed: ${err instanceof Error ? err.message : String(err)}`);
       }
     },
-    [imageSupported, handleDropFiles],
+    [imageSupported, insertFileChips],
   );
 
   // "+" menu → "Add from GitHub". Shorthand for the GitHub panel's search+clone:
@@ -1441,16 +1473,28 @@ export function MessageInput({
   // Clipboard images (screenshots) → staged attachments. Returning false
   // lets chat-input's default file-paste (native pasteboard → quoted paths)
   // handle everything else.
+  // A pasted screenshot is bytes with no path. Inline when the agent takes
+  // images; otherwise spooled to a scratch file and attached as a path chip,
+  // like the screenshot tool does — declining it left the paste to a handler
+  // that only knows Finder paths, and the image vanished without a word.
   const handlePasteImages = useCallback(
     (files: File[]) => {
-      if (!imageSupported) return false;
-      void Promise.all(files.map(fileToImageAttachment)).then((atts) => {
-        const ok = atts.filter((a): a is ImageAttachment => a !== null);
-        if (ok.length) setStagedImages((prev) => [...prev, ...ok]);
-      });
+      if (imageSupported) {
+        void Promise.all(files.map(fileToImageAttachment)).then((atts) => {
+          const ok = atts.filter((a): a is ImageAttachment => a !== null);
+          if (ok.length) setStagedImages((prev) => [...prev, ...ok]);
+        });
+        return true;
+      }
+      void Promise.all(files.map(scratchPathForFile))
+        .then(insertFileChips)
+        .catch((err) => {
+          console.warn("image paste failed:", err);
+          toast.error("Could not attach the pasted image.");
+        });
       return true;
     },
-    [imageSupported],
+    [imageSupported, insertFileChips],
   );
 
   // `submit` (below) is defined after `handleSlashSelect` but the latter
@@ -1850,7 +1894,7 @@ export function MessageInput({
             Scoped to the native agent for the same reason the lock is: the
             other agents do not use the Atlas gateway, so an org with no grant
             is not their problem and a bar over a working composer is noise. */}
-        {agentType === "cersei" && <AiGrantBar />}
+        {agentType === "atlas-agent" && <AiGrantBar />}
 
         {/* The tab's agent was uninstalled — same strip, same reason: the
             input below cannot send until the chat is switched. */}
@@ -1880,9 +1924,9 @@ export function MessageInput({
             // input + send button (the focus ring lives there — the "active
             // field" is the input surface, not the toolbar).
             "relative z-30 rounded-2xl border border-[var(--border)] bg-[var(--card)]",
+            // The footer pills' labels collapse against THIS width.
+            "@container",
             "shadow-md",
-            // Drag-over highlight: a clear accent ring while OS files hover.
-            isDropTarget && "border-[var(--primary)] ring-2 ring-[var(--primary)]/40",
             // NOTE: the disabled dim is NOT applied here. It used to be
             // (`disabled && "opacity-60"` on this shell), and it faded the
             // whole composer — footer pills, the agent switcher, and every
@@ -1903,13 +1947,43 @@ export function MessageInput({
               </span>
             </div>
           )}
-          {isDropTarget && (
-            <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center rounded-2xl bg-[var(--primary)]/8 backdrop-blur-[1px]">
-              <span className="rounded-full bg-[var(--card)] px-3 py-1 text-xs font-medium text-[var(--secondary-foreground)] shadow">
-                Drop files to attach
-              </span>
-            </div>
-          )}
+          {dropZoneEl &&
+            createPortal(
+              // In with no transition: this is direct feedback to the pointer
+              // crossing into the zone, and any fade reads as lag behind the
+              // hand. Out over `duration-instant`, so it doesn't vanish in the
+              // same frame the dropped attachment appears. Always mounted
+              // (toggled by `data-active`) so the exit can transition at all.
+              // Opacity only; nothing travels, so reduced motion needs no variant.
+              // `z-40` clears the composer's own `z-30` in the same stacking
+              // context; a named layer would escape the column and cover toasts.
+              <div
+                aria-hidden="true"
+                data-active={isDropTarget}
+                className={cn(
+                  "pointer-events-none absolute inset-2 z-40 flex items-center justify-center",
+                  // The scrim dims the thread behind: the label must read as the one
+                  // live layer, not float among the welcome tiles.
+                  "rounded-xl border border-dashed border-[var(--primary)] bg-[var(--background)]/80",
+                  "opacity-0 transition-opacity duration-instant ease-out-strong",
+                  "data-[active=true]:opacity-100 data-[active=true]:duration-0",
+                )}
+              >
+                <div className="flex flex-col items-center gap-1 rounded-xl border border-[var(--border)] bg-[var(--card)] px-4 py-3 shadow-md">
+                  <AtSign size={16} className="text-[var(--primary)]" />
+                  <span className="text-sm font-medium text-[var(--foreground)]">
+                    Drop to reference
+                  </span>
+                  {/* Says what will happen, because the two gestures now differ:
+                      a drop writes a chip into the sentence, the "+" menu
+                      attaches. */}
+                  <span className="text-xs text-[var(--muted-foreground)]">
+                    Added as an @mention in your message
+                  </span>
+                </div>
+              </div>,
+              dropZoneEl,
+            )}
           {/* Inner input surface — nested card with its own border + focus
               glow, sitting proud of the muted shell (reference: the Skiper
               double-layer composer). The send button lives INSIDE it. */}
@@ -1935,41 +2009,11 @@ export function MessageInput({
               disabled && "opacity-60",
             )}
           >
-            {stagedImages.length > 0 && (
-              <div className="flex flex-wrap gap-2 px-3 pt-3">
-                {stagedImages.map((img, i) => {
-                  const src = `data:${img.mimeType};base64,${img.dataBase64}`;
-                  return (
-                    <div key={i} className="relative group">
-                      <img
-                        src={src}
-                        alt="attachment"
-                        className="h-14 w-14 object-cover rounded-lg border border-[var(--border)]"
-                      />
-                      {/* Right, not top: the hover preview opens above the thumbnail. */}
-                      <Hint label="Remove image" side="right">
-                        <button
-                          onClick={() => setStagedImages((prev) => prev.filter((_, j) => j !== i))}
-                          className="absolute -top-1.5 -right-1.5 hidden group-hover:flex items-center justify-center w-4 h-4 rounded-full bg-[var(--card)] border border-[var(--border)] text-[var(--secondary-foreground)] hover:text-[var(--foreground)] cursor-pointer"
-                        >
-                          <X size={9} />
-                        </button>
-                      </Hint>
-                      {/* Zed-style hover preview — a larger floating image above the
-                        thumbnail. `pointer-events-none` so it never blocks the
-                        remove button; only shown on hover. */}
-                      <div className="pointer-events-none absolute bottom-full left-0 z-popover mb-2 hidden group-hover:block">
-                        <img
-                          src={src}
-                          alt=""
-                          className="max-h-[320px] max-w-[400px] rounded-lg border border-[var(--border)] object-contain bg-[var(--card)] shadow-md"
-                        />
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            )}
+            <ImageAttachmentStrip
+              images={stagedImages}
+              onRemove={removeStagedImage}
+              className="px-3 pt-3"
+            />
             {/* Only the text area is pointer-blocked while `disabled`:
               `pointer-events-none` stops click-to-focus/typing AND the focus
               event, so we never trigger the agent-bind listener against a CLI
@@ -1989,6 +2033,7 @@ export function MessageInput({
                   onMentionTrigger={setTrigger}
                   onSlashTrigger={setSlashTrigger}
                   onPasteImages={handlePasteImages}
+                  onPastePaths={attachPaths}
                   keyInterceptor={keyInterceptor}
                 />
               ) : (
@@ -2050,9 +2095,12 @@ export function MessageInput({
               </button>
             </Hint>
           </div>
-          {/* Footer strip — the exposed band of the outer shell. */}
-          <div className="flex items-center justify-between px-2 pb-1.5 pt-1">
-            <div className="flex items-center gap-1">
+          {/* Footer strip — the exposed band of the outer shell. Pill labels
+              collapse to icons as the shell narrows (`composerPillLabelClass`),
+              so the row never wraps or runs past the edge. No overflow clip:
+              the pills' dropups are children and would be cut off. */}
+          <div className="flex items-center justify-between gap-2 px-2 pb-1.5 pt-1">
+            <div className="flex min-w-0 items-center gap-1">
               <ComposerAddMenu
                 // `disabledProp`, NOT `disabled`: a missing org AI grant locks
                 // the input, not the toolbar. Greying the + here made the whole
@@ -2083,8 +2131,8 @@ export function MessageInput({
                   gateway agent cannot use. Model choice now goes through the
                   same ACP model pill as every other agent, fed by the seam's
                   published catalogue. */}
-              {agentType === "cersei" && <EffortPill tabId={tabId} />}
-              {agentType === "cersei" && <CerseiMemoryPill />}
+              {agentType === "atlas-agent" && <EffortPill tabId={tabId} />}
+              {agentType === "atlas-agent" && <NativeMemoryPill />}
             </div>
             {/* Right side, in this order: the session's usage, the agent's own
                 knobs, then the live
@@ -2092,7 +2140,7 @@ export function MessageInput({
                 progress + count; opens its own morphing task-list panel, and
                 replaces the PlanDock strip that used to sit above the
                 composer). Both are right-anchored dropups. */}
-            <div className="flex items-center gap-1">
+            <div className="flex shrink-0 items-center gap-1">
               <UsagePill tabId={tabId} />
               <ComposerOptionsPill tabId={tabId} />
               <PlanTasksPill tabId={tabId} />

@@ -1,0 +1,41 @@
+# Modified by Atlas from upstream OpenAI Codex (Apache-2.0). See CONTEXT.md.
+[package]
+edition.workspace = true
+license.workspace = true
+name = "atlas-engine-tools"
+version.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+bitflags = { workspace = true }
+atlas-engine-code-mode = { workspace = true }
+atlas-engine-connectors = { workspace = true }
+atlas-engine-features = { workspace = true }
+atlas-engine-file-system = { workspace = true }
+atlas-engine-extension-items = { workspace = true }
+atlas-engine-protocol = { workspace = true }
+atlas-engine-utils-absolute-path = { workspace = true }
+atlas-engine-utils-output-truncation = { workspace = true }
+atlas-engine-utils-pty = { workspace = true }
+atlas-engine-utils-string = { workspace = true }
+jsonptr = { workspace = true }
+rmcp = { workspace = true, default-features = false, features = [
+    "base64",
+    "macros",
+    "schemars",
+    "server",
+] }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true, features = ["raw_value"] }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+urlencoding = { workspace = true }
+
+[dev-dependencies]
+atlas-engine-utils-cargo-bin = { workspace = true }
+pretty_assertions = { workspace = true }
+
+[lib]
+doctest = false

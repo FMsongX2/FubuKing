@@ -205,7 +205,7 @@ mod tests {
     /// excluded the native agent. Every edited file gets its own event.
     #[test]
     fn a_native_agent_edit_reaches_shared_memory() {
-        let evs = classify(&native_edit_delta(), "s1", "cersei");
+        let evs = classify(&native_edit_delta(), "s1", "atlas-agent");
         assert_eq!(evs.len(), 2, "one file_changed per edited file");
         assert!(evs.iter().all(|e| e.kind == EventKind::FileChanged));
         assert_eq!(evs[0].key, "src/foo.rs");

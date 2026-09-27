@@ -8,7 +8,7 @@
 //! settings map, not the registry. A registry agent nobody installed is looked
 //! up only when a settings entry names it, so an empty map produces an empty
 //! table no matter how large the catalogue is. That is the mechanism behind "a
-//! fresh install shows only Cersei", and it is why there is nothing here to
+//! fresh install shows only the native agent", and it is why there is nothing here to
 //! disable.
 
 use std::collections::HashMap;
@@ -29,6 +29,9 @@ use crate::servers::{
 };
 use crate::settings::{AgentServerSettings, AllAgentServersSettings};
 use crate::{registry_dir, sanitize_path_component};
+
+/// An installed agent's resolver, with the registry version it serves.
+type VersionedServer = (AgentId, Arc<dyn ExternalAgentServer>, Option<Arc<str>>);
 
 /// Where an installed agent came from. The marketplace uses it to decide
 /// whether "Remove" means deleting a registry entry or a hand-written one.
@@ -212,6 +215,77 @@ impl AgentServerStore {
 
     pub fn agent_display_name(&self, id: &AgentId) -> Option<String> {
         self.entry(id).and_then(|entry| entry.display_name)
+    }
+
+    /// Bring every registry agent that already has a copy on disk up to the
+    /// registry's version, without starting any of them. Returns the ids that
+    /// installed something.
+    ///
+    /// `skip` names agents to leave alone — the caller's running ones. An npx
+    /// install wipes and rebuilds the tree a live process is loading its
+    /// modules from; those update after their restart instead.
+    ///
+    /// One at a time: these are npm installs and archive downloads, and the
+    /// point is to be done before the user needs them, not to compete with
+    /// whatever they are doing. A failure is logged and left for the next
+    /// connect, which retries the same install in the foreground.
+    pub async fn prefetch_updates(&self, skip: impl Fn(&AgentId) -> bool) -> Vec<AgentId> {
+        let registry_agents: Vec<(AgentId, Arc<dyn ExternalAgentServer>)> = {
+            let state = self.state.lock().unwrap();
+            state
+                .external_agents
+                .iter()
+                .filter(|(id, entry)| entry.source == ExternalAgentSource::Registry && !skip(id))
+                .map(|(id, entry)| (id.clone(), entry.server.clone()))
+                .collect()
+        };
+        let mut updated = Vec::new();
+        for (id, server) in registry_agents {
+            match server.prefetch_update().await {
+                Ok(true) => {
+                    tracing::info!(agent = %id, "prefetched agent update");
+                    updated.push(id);
+                }
+                Ok(false) => {}
+                Err(error) => tracing::warn!(
+                    agent = %id,
+                    error = %format!("{error:#}"),
+                    "background agent update failed; the next connect retries it"
+                ),
+            }
+        }
+        updated
+    }
+
+    /// The registry agents among `only` whose copy on disk is behind the
+    /// registry ([`ExternalAgentServer::update_pending`]), with the version
+    /// each should be on. Installs nothing.
+    pub async fn pending_updates(&self, only: impl Fn(&AgentId) -> bool) -> Vec<(AgentId, String)> {
+        let candidates: Vec<VersionedServer> = {
+            let state = self.state.lock().unwrap();
+            state
+                .external_agents
+                .iter()
+                .filter(|(id, entry)| entry.source == ExternalAgentSource::Registry && only(id))
+                .map(|(id, entry)| (id.clone(), entry.server.clone(), entry.version.clone()))
+                .collect()
+        };
+        let mut pending = Vec::new();
+        for (id, server, version) in candidates {
+            if server.update_pending().await {
+                pending.push((id, version.map(|v| v.to_string()).unwrap_or_default()));
+            }
+        }
+        pending
+    }
+
+    /// [`ExternalAgentServer::prefetch_update`] for one agent. `Ok(false)`
+    /// when it is not installed or had nothing to update.
+    pub async fn prefetch_update(&self, id: &AgentId) -> anyhow::Result<bool> {
+        match self.agent_server(id) {
+            Some(server) => server.prefetch_update().await,
+            None => Ok(false),
+        }
     }
 
     /// Fires with the new version when a registry refresh moves an installed

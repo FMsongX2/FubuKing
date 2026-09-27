@@ -392,7 +392,7 @@ async fn memory_search_also_returns_indexed_project_documents() {
         })
     });
     let server = serve(ticking_memory(), tokens.clone(), always_on(), Sources { index: Some(index), bootstrap: None, evict: None }).await;
-    let client = connect(&server.url(), &tokens.mint("s1", "cersei", &project)).await.unwrap();
+    let client = connect(&server.url(), &tokens.mint("s1", "atlas-agent", &project)).await.unwrap();
 
     let (err, found) = call(&client, "memory_search", json!({ "query": "the engine fork" })).await;
     assert!(!err, "{found}");
@@ -431,7 +431,7 @@ async fn forgetting_through_the_tool_evicts_the_document_before_returning() {
         Sources { index: None, bootstrap: None, evict: Some(evict) },
     )
     .await;
-    let client = connect(&server.url(), &tokens.mint("s1", "cersei", &project)).await.unwrap();
+    let client = connect(&server.url(), &tokens.mint("s1", "atlas-agent", &project)).await.unwrap();
 
     let (err, remembered) = call(
         &client,
@@ -471,7 +471,7 @@ async fn search_never_returns_a_shared_document_whose_entry_is_gone() {
     let memory = ticking_memory();
 
     let writer = crate::commands::shared_memory::Writer {
-        agent: "cersei".to_string(),
+        agent: "atlas-agent".to_string(),
         session_id: "s1".to_string(),
     };
     let live = memory
@@ -488,13 +488,13 @@ async fn search_never_returns_a_shared_document_whose_entry_is_gone() {
                     id: Some(format!("shared:fact:{live}")),
                     title: "live".to_string(),
                     source: "shared".to_string(),
-                    text: "[cersei] a fact worth keeping".to_string(),
+                    text: "[atlas-agent] a fact worth keeping".to_string(),
                 },
                 IndexDoc {
                     id: Some(format!("shared:fact:{gone}")),
                     title: "forgotten".to_string(),
                     source: "shared".to_string(),
-                    text: "[cersei] QUOKKA-9042".to_string(),
+                    text: "[atlas-agent] QUOKKA-9042".to_string(),
                 },
                 IndexDoc {
                     id: Some("docs/adr/0010.md".to_string()),
@@ -512,7 +512,7 @@ async fn search_never_returns_a_shared_document_whose_entry_is_gone() {
         Sources { index: Some(index), bootstrap: None, evict: None },
     )
     .await;
-    let client = connect(&server.url(), &tokens.mint("s1", "cersei", &project)).await.unwrap();
+    let client = connect(&server.url(), &tokens.mint("s1", "atlas-agent", &project)).await.unwrap();
 
     let (err, found) = call(&client, "memory_search", json!({ "query": "anything at all" })).await;
     assert!(!err, "{found}");
@@ -552,7 +552,7 @@ async fn a_search_counts_as_consulting_memory_even_though_it_moves_no_clock() {
     )
     .await
     .unwrap();
-    let client = connect(&server.url(), &tokens.mint("s1", "cersei", &project)).await.unwrap();
+    let client = connect(&server.url(), &tokens.mint("s1", "atlas-agent", &project)).await.unwrap();
 
     assert!(!reads.has_read("s1"), "nothing read yet");
 
@@ -583,7 +583,7 @@ async fn remembering_something_is_not_consulting_memory() {
     )
     .await
     .unwrap();
-    let client = connect(&server.url(), &tokens.mint("s1", "cersei", &project)).await.unwrap();
+    let client = connect(&server.url(), &tokens.mint("s1", "atlas-agent", &project)).await.unwrap();
 
     let (err, _) = call(
         &client,
@@ -597,26 +597,6 @@ async fn remembering_something_is_not_consulting_memory() {
 
     client.cancel().await.ok();
     let _ = std::fs::remove_dir_all(&project);
-}
-
-/// The notice is said once per session, not once per turn, and a session that
-/// ends forgets it said anything.
-#[test]
-fn the_unread_notice_is_said_once_per_session_and_never_to_a_session_that_read() {
-    let reads = SessionReads::default();
-
-    assert!(reads.should_say_unread("s1"));
-    assert!(!reads.should_say_unread("s1"), "only once, not once per turn");
-    assert!(reads.should_say_unread("s2"), "and it is per session");
-
-    // A session that read memory is never told it did not, however many
-    // turns it takes afterwards.
-    reads.read("s3");
-    assert!(!reads.should_say_unread("s3"));
-    assert!(!reads.should_say_unread("s3"));
-
-    reads.forget("s1");
-    assert!(reads.should_say_unread("s1"), "a new session may be told again");
 }
 
 /// The list the dispatcher marks reads from has to stay the record's actual
@@ -757,6 +737,8 @@ fn request(http_mcp: bool, cwd: &str, session: Option<&str>) -> SessionMcpReques
     SessionMcpRequest {
         agent_id: atlas_acp_thread::AgentId::new("claude-code"),
         http_mcp,
+        ui_control: false,
+        org_access: false,
         cwd: std::path::PathBuf::from(cwd),
         session_id: session.map(acp::SessionId::new),
     }
@@ -860,8 +842,8 @@ fn each_decision_is_one_log_line_naming_the_agent_its_capability_and_the_outcome
          reason=\"agent did not advertise mcpCapabilities.http\"",
     );
     assert_eq!(
-        OfferDecision::decide(true, false, true).log_line("cersei", true),
-        "memory tool server offer: agent=cersei http_mcp=true memory_server=omitted \
+        OfferDecision::decide(true, false, true).log_line("atlas-agent", true),
+        "memory tool server offer: agent=atlas-agent http_mcp=true memory_server=omitted \
          reason=\"shared memory is off for this project\"",
     );
 }

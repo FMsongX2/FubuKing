@@ -22,8 +22,11 @@ import { diffGutter, applyDiffStatus } from "../lib/diff-gutter";
 import { gitDiffLineStatus } from "@/features/git/lib/git-diff-api";
 import { blameInline, applyBlame } from "../lib/blame-inline";
 import { loadLanguageExtension } from "../lib/languages";
+import { applyReveal } from "../lib/reveal";
+import { registerEditorView } from "../lib/editor-views";
 import { gitBlameFile } from "@/features/git/lib/git-blame-api";
 import { MarkdownFile } from "@/lib/markdown-fileviewer";
+import { openFileAs } from "@/lib/open-file";
 import { cn } from "@/lib/utils";
 import { useSettingsStore } from "@/features/settings/stores/settings-store";
 
@@ -60,6 +63,12 @@ export function EditorPanel({ tabId, filePath, containerHeight }: EditorPanelPro
   const dirtyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const [renderMode, setRenderMode] = useState<"editor" | "preview">("editor");
+  // Bumped when a view is built, so a reveal that arrived before the view
+  // existed (a file opened at a line) is applied the moment it does.
+  const [viewGen, setViewGen] = useState(0);
+  const unregisterViewRef = useRef<(() => void) | null>(null);
+  const pendingReveal = useEditorStore((s) => s.pendingReveals[path]);
+  const consumeReveal = useEditorStore.use.actions().consumeReveal;
   const resolvedFileType = (
     buffer?.language ??
     path.split(".").pop()?.toLowerCase() ??
@@ -126,14 +135,7 @@ export function EditorPanel({ tabId, filePath, containerHeight }: EditorPanelPro
         // Swap the tab in place: close untitled, open real-path tab
         // with the same activation behavior addTab gives.
         layoutActions.closeTab(tabId);
-        layoutActions.addTab({
-          id: `editor-${newPath}`,
-          type: "editor",
-          title: newPath.split("/").pop() ?? newPath,
-          closable: true,
-          dirty: false,
-          data: { filePath: newPath },
-        });
+        openFileAs(newPath, "text");
         logEvent({
           source: "editor",
           kind: "save",
@@ -390,17 +392,36 @@ export function EditorPanel({ tabId, filePath, containerHeight }: EditorPanelPro
       if (latest !== undefined) replaceViewDoc(latest);
       refreshDiffGutter();
       refreshBlameRef.current();
+      unregisterViewRef.current = registerEditorView(tabId, view);
+      setViewGen((g) => g + 1);
     })();
 
     return () => {
       cancelled = true;
       if (dirtyTimerRef.current) clearTimeout(dirtyTimerRef.current);
+      unregisterViewRef.current?.();
+      unregisterViewRef.current = null;
       if (viewRef.current) {
         viewRef.current.destroy();
         viewRef.current = null;
       }
     };
   }, [path, !!buffer]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Apply a pending reveal ("open at line") once the view exists. Editor tabs
+  // stay mounted while hidden, so a reveal on an open tab lands at once; one
+  // for a file still loading waits for `viewGen`. Markdown preview hides the
+  // view, so it switches to the editor first and applies on the next render.
+  useEffect(() => {
+    const view = viewRef.current;
+    if (!pendingReveal || !view) return;
+    if (effectiveMode !== "editor") {
+      setRenderMode("editor");
+      return;
+    }
+    applyReveal(view, pendingReveal);
+    consumeReveal(path, pendingReveal.nonce);
+  }, [pendingReveal, viewGen, effectiveMode, path, consumeReveal]);
 
   // Live-reskin the editor when the persisted theme changes — reconfigure the
   // theme compartment in place so the buffer/undo history survive.

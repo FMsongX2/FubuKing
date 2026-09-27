@@ -78,20 +78,17 @@ impl SessionClocks {
     }
 }
 
-/// Which sessions have read shared memory, and which have already been told
-/// they did not.
+/// Which sessions have read shared memory.
 ///
 /// Separate from [`SessionClocks`] because it answers a different question.
 /// The clock moves only on a briefing or a changes call, so a session that
 /// answered perfectly well from `memory_search` has no clock at all — and
 /// reading "never looked" off the clock would accuse an agent of ignoring
-/// memory it had just used. A false accusation is worse than silence, so
-/// every read counts here, and writes do not: recording a fact is not looking
-/// at what was already there.
+/// memory it had just used. Every read counts here, and writes do not:
+/// recording a fact is not looking at what was already there.
 #[derive(Default)]
 pub struct SessionReads {
     read: Mutex<HashSet<String>>,
-    told: Mutex<HashSet<String>>,
 }
 
 impl SessionReads {
@@ -100,27 +97,17 @@ impl SessionReads {
         self.read.lock().insert(session_id.to_string());
     }
 
-    /// Whether `session_id` has read memory at all.
+    /// Whether `session_id` has read memory at all. Asserted by the tests
+    /// that pin "writing is not reading"; nothing in the app asks any more.
+    #[cfg(test)]
     pub fn has_read(&self, session_id: &str) -> bool {
         self.read.lock().contains(session_id)
     }
 
-    /// Whether the host should now say this session never read memory.
-    ///
-    /// True at most once per session, and only for a session that really has
-    /// read nothing. Claiming is the same act as asking, so two turns of one
-    /// session cannot both be told.
-    pub fn should_say_unread(&self, session_id: &str) -> bool {
-        if self.has_read(session_id) {
-            return false;
-        }
-        self.told.lock().insert(session_id.to_string())
-    }
-
     /// Drop what is remembered about `session_id` (its session ended).
+    #[cfg(test)]
     pub fn forget(&self, session_id: &str) {
         self.read.lock().remove(session_id);
-        self.told.lock().remove(session_id);
     }
 }
 

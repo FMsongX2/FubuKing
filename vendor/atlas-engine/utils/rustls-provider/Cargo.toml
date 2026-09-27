@@ -1,0 +1,16 @@
+# Modified by Atlas from upstream OpenAI Codex (Apache-2.0). See CONTEXT.md.
+[package]
+name = "atlas-engine-utils-rustls-provider"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+rustls = { workspace = true }
+
+[lib]
+test = false
+doctest = false

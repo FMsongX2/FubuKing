@@ -19,6 +19,12 @@ export interface AcpRegistryEntry {
   /** Binary distribution with no published sha256. */
   unverified: boolean;
   unsupportedReason: string | null;
+  /** The version on disk, for an installed npx agent that has been fetched.
+   *  `null` for binaries (keyed by version, so they cannot lag) and for an
+   *  agent not fetched yet. */
+  installedVersion: string | null;
+  /** The copy on disk is older than `version` — the card offers Update. */
+  updateAvailable: boolean;
 }
 
 export interface AcpRegistryListing {
@@ -46,6 +52,10 @@ export const acpRegistry = {
    *  as a `custom` entry pointing at the found binary. The only non-registry
    *  install path — see `acp_registry_install_detected`. */
   installDetected: (agentId: string) => invoke<void>("acp_registry_install_detected", { agentId }),
+  /** Reinstall from the registry now and restart the agent on it. Resolves
+   *  once the new copy is connected; the agent's open sessions are dropped,
+   *  as on any registry version bump. */
+  update: (agentId: string) => invoke<void>("acp_registry_update", { agentId }),
   uninstall: (agentId: string, purgeCache = true) =>
     invoke<void>("acp_registry_uninstall", { agentId, purgeCache }),
   metadata: (agentId: string) =>

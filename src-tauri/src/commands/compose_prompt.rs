@@ -16,6 +16,8 @@ use std::path::Path;
 
 use serde::Deserialize;
 
+use crate::commands::org_server::OrgLink;
+
 /// Cap how much body content a single mention can dump into the
 /// context block. Tuned for chat agents: ~32 KB is enough for a
 /// medium source file.
@@ -117,6 +119,37 @@ pub enum MentionSpec {
         #[serde(default)]
         inline_body: Option<String>,
     },
+    /// A member of the chat's organisation, referenced with `@member:<name>`.
+    /// Rides as an organisation link carrying the user id
+    /// (`atlas-org://member/<user id>`), which the org tools take wherever
+    /// they take a member — so "send it to @Grace" needs no name resolution.
+    /// No body: the id is the payload.
+    Member {
+        /// The member's user id (never the membership id).
+        id: String,
+        display_name: String,
+    },
+    /// A channel, DM or group DM, referenced with `@conversation:<name>`;
+    /// rides as `atlas-org://conversation/<id>`.
+    Conversation {
+        id: String,
+        display_name: String,
+    },
+    /// A **recorded session** on the Workspace's board (the Timeline),
+    /// referenced with `@recorded-session:<title>`; rides as
+    /// `atlas-org://recorded-session/<Workspace id>/<session id>`.
+    ///
+    /// Not a [`MentionSpec::PastSession`]: that is a local transcript, read
+    /// from this disk and inlined; this is the organisation's record, which
+    /// the org tools read by id. The two never share a tag, a short form, a
+    /// dedupe key or a link.
+    RecordedSession {
+        /// The session id — the same on the board and on the server.
+        id: String,
+        display_name: String,
+        /// The server's Workspace id the session is recorded in.
+        workspace_id: String,
+    },
 }
 
 impl MentionSpec {
@@ -132,28 +165,62 @@ impl MentionSpec {
             | MentionSpec::Paper { id, .. }
             | MentionSpec::Branch { id, .. }
             | MentionSpec::PastMessage { id, .. }
-            | MentionSpec::PastSession { id, .. } => id,
+            | MentionSpec::PastSession { id, .. }
+            | MentionSpec::Member { id, .. }
+            | MentionSpec::Conversation { id, .. }
+            | MentionSpec::RecordedSession { id, .. } => id,
         }
     }
 
+    /// What a send dedupes on: the kind and the id, so two mentions of
+    /// different kinds that happen to share an id — a recorded session and a
+    /// local past session, say — are never collapsed into one.
+    fn dedupe_key(&self) -> (std::mem::Discriminant<MentionSpec>, String) {
+        (std::mem::discriminant(self), self.id().to_string())
+    }
+
     fn short_form(&self) -> String {
+        let v = short_form_value;
         match self {
-            MentionSpec::File { display_name, .. } => format!("@file:{display_name}"),
-            MentionSpec::Folder { display_name, .. } => format!("@folder:{display_name}"),
-            MentionSpec::Symbol { display_name, .. } => format!("@symbol:{display_name}"),
+            MentionSpec::File { display_name, .. } => format!("@file:{}", v(display_name)),
+            MentionSpec::Folder { display_name, .. } => format!("@folder:{}", v(display_name)),
+            MentionSpec::Symbol { display_name, .. } => format!("@symbol:{}", v(display_name)),
             MentionSpec::Knowledge { id, .. } => format!("@note:{id}"),
             MentionSpec::Component {
                 component_kind,
                 display_name,
                 ..
-            } => format!("#{component_kind}:{display_name}"),
-            MentionSpec::Repo { display_name, .. } => format!("@repo:{display_name}"),
-            MentionSpec::Workspace { display_name, .. } => format!("@workspace:{display_name}"),
-            MentionSpec::Paper { display_name, .. } => format!("@paper:{display_name}"),
-            MentionSpec::Branch { display_name, .. } => format!("@branch:{display_name}"),
+            } => format!("#{component_kind}:{}", v(display_name)),
+            MentionSpec::Repo { display_name, .. } => format!("@repo:{}", v(display_name)),
+            MentionSpec::Workspace { display_name, .. } => {
+                format!("@workspace:{}", v(display_name))
+            }
+            MentionSpec::Paper { display_name, .. } => format!("@paper:{}", v(display_name)),
+            MentionSpec::Branch { display_name, .. } => format!("@branch:{}", v(display_name)),
             MentionSpec::PastMessage { id, .. } => format!("@msg:{id}"),
-            MentionSpec::PastSession { display_name, .. } => format!("@session:{display_name}"),
+            MentionSpec::PastSession { display_name, .. } => {
+                format!("@session:{}", v(display_name))
+            }
+            MentionSpec::Member { display_name, .. } => format!("@member:{}", v(display_name)),
+            MentionSpec::Conversation { display_name, .. } => {
+                format!("@conversation:{}", v(display_name))
+            }
+            MentionSpec::RecordedSession { display_name, .. } => {
+                format!("@recorded-session:{}", v(display_name))
+            }
         }
+    }
+}
+
+/// A short-form value, quoted when it holds whitespace: a bare value ends at the
+/// first space, so `@file:My Shot.png` would read back as `My`. Mirrors
+/// `shortFormValue` in `src/features/chat/lib/mentions.ts`, which writes the
+/// same token into the prose this function's output has to match.
+fn short_form_value(v: &str) -> std::borrow::Cow<'_, str> {
+    if v.chars().any(char::is_whitespace) {
+        std::borrow::Cow::Owned(format!("\"{v}\""))
+    } else {
+        std::borrow::Cow::Borrowed(v)
     }
 }
 
@@ -173,11 +240,13 @@ pub struct ComposedPrompt {
     pub resource_links: Vec<ResourceLinkSpec>,
 }
 
-/// One `@`-mention that points at something on disk.
+/// One `@`-mention that points at something the agent reaches itself: a path
+/// on disk (`file://`), or an organisation member, conversation or recorded
+/// session (`atlas-org://`, read by the org tools).
 #[derive(Debug, Clone, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ResourceLinkSpec {
-    /// `file://` URI — ACP wants a URI, not a bare path.
+    /// `file://` or `atlas-org://` URI — ACP wants a URI, not a bare path.
     pub uri: String,
     /// What the user typed, so the agent can echo it back recognisably.
     pub name: String,
@@ -214,6 +283,27 @@ fn mention_path(m: &MentionSpec) -> Option<&str> {
     }
 }
 
+/// The organisation link a mention rides as, when it is an organisation
+/// mention ([`OrgLink`], the one definition the org tools also parse).
+fn mention_org_link(m: &MentionSpec) -> Option<OrgLink> {
+    match m {
+        MentionSpec::Member { id, .. } => Some(OrgLink::Member { user_id: id.clone() }),
+        MentionSpec::Conversation { id, .. } => Some(OrgLink::Conversation { id: id.clone() }),
+        MentionSpec::RecordedSession { id, workspace_id, .. } => Some(OrgLink::RecordedSession {
+            workspace_id: workspace_id.clone(),
+            session_id: id.clone(),
+        }),
+        _ => None,
+    }
+}
+
+/// The URI a mention rides as, when it has one.
+fn mention_uri(m: &MentionSpec) -> Option<String> {
+    mention_path(m)
+        .map(file_uri)
+        .or_else(|| mention_org_link(m).map(|link| link.uri()))
+}
+
 #[tauri::command]
 pub async fn compose_prompt(
     prose: String,
@@ -229,23 +319,24 @@ pub async fn compose_prompt(
     // Dedupe by id preserving first-seen order — a user can reference
     // the same file twice in one message but the context block should
     // only carry it once.
-    let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
+    let mut seen = std::collections::HashSet::new();
     let uniq: Vec<MentionSpec> = mentions
         .into_iter()
-        .filter(|m| seen.insert(m.id().to_string()))
+        .filter(|m| seen.insert(m.dedupe_key()))
         .collect();
 
     // Fan out body fetches in parallel. Each spawn_blocking is one
     // task on tokio's blocking pool; the join_all waits for all of
     // them. Branches have no body so they short-circuit without
     // spawning.
-    // Structured links for everything with a path (P2.1). Built before the
-    // bodies fan out, so the ordering matches what the user typed.
+    // Structured links for everything with a path (P2.1) or an organisation
+    // id (#122). Built before the bodies fan out, so the ordering matches
+    // what the user typed.
     let links: Vec<ResourceLinkSpec> = uniq
         .iter()
         .filter_map(|m| {
-            mention_path(m).map(|p| ResourceLinkSpec {
-                uri: file_uri(p),
+            mention_uri(m).map(|uri| ResourceLinkSpec {
+                uri,
                 name: m.short_form(),
             })
         })
@@ -427,6 +518,11 @@ fn render_block(m: &MentionSpec) -> Option<String> {
             ))
         }
         MentionSpec::Branch { .. } => None,
+        // Organisation mentions carry ids only: the link is the whole
+        // payload, and the org tools read what it names on demand.
+        MentionSpec::Member { .. }
+        | MentionSpec::Conversation { .. }
+        | MentionSpec::RecordedSession { .. } => None,
     }
 }
 
@@ -615,5 +711,128 @@ mod resource_link_tests {
         ] {
             assert_eq!(file_uri(path), format!("file://{path}"), "{path}");
         }
+    }
+}
+
+#[cfg(test)]
+mod org_mention_tests {
+    use super::*;
+
+    fn spec(value: serde_json::Value) -> MentionSpec {
+        serde_json::from_value(value).expect("the frontend's mention shape")
+    }
+
+    fn member() -> serde_json::Value {
+        serde_json::json!({ "kind": "member", "id": "u-grace", "displayName": "Grace Hopper", "email": "grace@acme.dev" })
+    }
+
+    fn conversation() -> serde_json::Value {
+        serde_json::json!({ "kind": "conversation", "id": "c-general", "displayName": "general", "conversationKind": "channel" })
+    }
+
+    fn recorded() -> serde_json::Value {
+        serde_json::json!({
+            "kind": "recorded_session",
+            "id": "rs-1",
+            "displayName": "Fix the theme importer",
+            "sessionId": "rs-1",
+            "workspaceId": "ws-atlas",
+        })
+    }
+
+    fn links(composed: &ComposedPrompt) -> Vec<(String, String)> {
+        composed.resource_links.iter().map(|l| (l.uri.clone(), l.name.clone())).collect()
+    }
+
+    #[tokio::test]
+    async fn organisation_mentions_ride_as_links_carrying_their_ids_with_a_short_label() {
+        let composed = compose_prompt(
+            "send it to them".into(),
+            vec![spec(member()), spec(conversation()), spec(recorded())],
+        )
+        .await
+        .unwrap();
+        assert_eq!(
+            links(&composed),
+            [
+                ("atlas-org://member/u-grace".to_string(), "@member:\"Grace Hopper\"".to_string()),
+                ("atlas-org://conversation/c-general".to_string(), "@conversation:general".to_string()),
+                (
+                    "atlas-org://recorded-session/ws-atlas/rs-1".to_string(),
+                    "@recorded-session:\"Fix the theme importer\"".to_string(),
+                ),
+            ],
+        );
+        assert_eq!(composed.prose, "send it to them", "ids only: nothing is inlined");
+    }
+
+    /// The links compose_prompt writes are the links the org tools read.
+    #[tokio::test]
+    async fn every_link_it_writes_parses_back_to_the_id_it_carries() {
+        let composed = compose_prompt(String::new(), vec![spec(member()), spec(conversation()), spec(recorded())])
+            .await
+            .unwrap();
+        let parsed: Vec<Option<OrgLink>> = composed.resource_links.iter().map(|l| OrgLink::parse(&l.uri)).collect();
+        assert_eq!(
+            parsed,
+            [
+                Some(OrgLink::Member { user_id: "u-grace".into() }),
+                Some(OrgLink::Conversation { id: "c-general".into() }),
+                Some(OrgLink::RecordedSession { workspace_id: "ws-atlas".into(), session_id: "rs-1".into() }),
+            ],
+        );
+    }
+
+    /// A recorded session and a local past session are different things, even
+    /// with the same id: the past session is inlined as a transcript and gets
+    /// no link; the recorded session is a link and inlines nothing.
+    #[tokio::test]
+    async fn a_recorded_session_and_a_past_session_are_never_conflated() {
+        let past = spec(serde_json::json!({
+            "kind": "past_session",
+            "id": "rs-1",
+            "displayName": "Fix the theme importer",
+            "sessionTitle": "Fix the theme importer",
+            "inlineBody": "### User\nfix it",
+        }));
+        let composed = compose_prompt("compare".into(), vec![spec(recorded()), past]).await.unwrap();
+        assert_eq!(
+            links(&composed),
+            [(
+                "atlas-org://recorded-session/ws-atlas/rs-1".to_string(),
+                "@recorded-session:\"Fix the theme importer\"".to_string(),
+            )],
+            "only the recorded session is a link",
+        );
+        assert!(composed.prose.contains("## @session:\"Fix the theme importer\""), "{}", composed.prose);
+        assert!(composed.prose.contains("fix it"), "the past session's transcript is still inlined");
+        assert!(!composed.prose.contains("@recorded-session"), "the recorded session inlines nothing");
+    }
+
+    #[tokio::test]
+    async fn the_same_member_twice_is_one_link() {
+        let composed = compose_prompt(String::new(), vec![spec(member()), spec(member())]).await.unwrap();
+        assert_eq!(composed.resource_links.len(), 1);
+    }
+}
+
+#[cfg(test)]
+mod short_form_tests {
+    use super::short_form_value;
+
+    /// A bare value ends at the first space, so a name with one must be quoted
+    /// or `@file:My Shot.png` reads back as a mention of `My`.
+    #[test]
+    fn a_value_with_whitespace_is_quoted() {
+        assert_eq!(
+            short_form_value("CleanShot 2026-09-15 at 10.04.08 PM@2x.png"),
+            "\"CleanShot 2026-09-15 at 10.04.08 PM@2x.png\""
+        );
+    }
+
+    #[test]
+    fn a_bare_value_is_left_alone() {
+        assert_eq!(short_form_value("src/main.rs"), "src/main.rs");
+        assert_eq!(short_form_value("Shot@2x.png"), "Shot@2x.png");
     }
 }

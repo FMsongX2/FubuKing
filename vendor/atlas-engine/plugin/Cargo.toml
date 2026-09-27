@@ -1,0 +1,25 @@
+# Modified by Atlas from upstream OpenAI Codex (Apache-2.0). See CONTEXT.md.
+[package]
+edition.workspace = true
+license.workspace = true
+name = "atlas-engine-plugin"
+version.workspace = true
+
+[lib]
+doctest = false
+name = "atlas_engine_plugin"
+path = "src/lib.rs"
+
+[lints]
+workspace = true
+
+[dependencies]
+atlas-engine-config = { workspace = true }
+atlas-engine-protocol = { workspace = true }
+atlas-engine-utils-absolute-path = { workspace = true }
+atlas-engine-utils-path-uri = { workspace = true }
+atlas-engine-utils-plugins = { workspace = true }
+thiserror = { workspace = true }
+
+[dev-dependencies]
+pretty_assertions = { workspace = true }

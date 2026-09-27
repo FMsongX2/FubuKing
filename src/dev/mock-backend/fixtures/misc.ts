@@ -56,7 +56,7 @@ const THREADS: ThreadRow[] = [
   {
     threadId: "th-01",
     sessionId: "sess-01",
-    agentId: "cersei",
+    agentId: "atlas-agent",
     title: "Move the user reads onto /v2 and keep the retry helper",
     updatedAt: ago(5 * 60_000),
     createdAt: ago(3 * 3_600_000),
@@ -68,7 +68,7 @@ const THREADS: ThreadRow[] = [
     threadId: "th-02",
     // No session yet: the composer is open but nothing has been sent.
     sessionId: null,
-    agentId: "cersei",
+    agentId: "atlas-agent",
     title: "New conversation",
     updatedAt: ago(40 * 60_000),
     createdAt: ago(40 * 60_000),
@@ -102,7 +102,7 @@ const THREADS: ThreadRow[] = [
   {
     threadId: "th-05",
     sessionId: "sess-05",
-    agentId: "cersei",
+    agentId: "atlas-agent",
     title: "Spike: swap HashMap for BTreeMap in the cache",
     updatedAt: ago(9 * 86_400_000),
     createdAt: ago(9 * 86_400_000),
@@ -261,7 +261,7 @@ export const miscHandlers: MockHandlers = {
       key: { agent_id: thread.agentId, session_id: thread.sessionId ?? thread.threadId },
       // The agent could only continue, not replay — the state the UI has to
       // tell the user about, and the one nothing else here exercises.
-      resumedWithoutHistory: thread.agentId !== "cersei",
+      resumedWithoutHistory: thread.agentId !== "atlas-agent",
     };
   },
   threads_delete: ({ threadId }): null => {
@@ -376,10 +376,10 @@ export const miscHandlers: MockHandlers = {
   native_agent_entitlement: (): Entitlement => ({ state: "localOrg" }),
   native_agent_refresh_models: (): NativeModelsRefresh => ({
     models: [
-      { id: "gpt-5-codex", name: "GPT-5 Codex", description: "The default for new sessions." },
-      { id: "gpt-5", name: "GPT-5", description: null },
+      { id: "gpt-5", name: "GPT-5", description: "The default for new sessions." },
+      { id: "gpt-5-mini", name: "GPT-5 mini", description: null },
     ],
-    defaultModel: "gpt-5-codex",
+    defaultModel: "gpt-5",
     changed: false,
     reconnected: false,
   }),
@@ -400,6 +400,7 @@ export const miscHandlers: MockHandlers = {
   agents_set_mode: nothing,
   agents_set_model: nothing,
   agents_respond_elicitation: nothing,
+  ui_action_respond: nothing,
   // agents_respond_permission lives in `fake-agent.ts` (`agentHandlers`) —
   // it needs to update the transcript, not just resolve.
   agents_logout: nothing,

@@ -1,0 +1,31 @@
+# Modified by Atlas from upstream OpenAI Codex (Apache-2.0). See CONTEXT.md.
+[package]
+name = "atlas-engine-uds"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[lib]
+name = "atlas_engine_uds"
+path = "src/lib.rs"
+doctest = false
+
+[lints]
+workspace = true
+
+[dependencies]
+tokio = { workspace = true, features = ["fs", "net", "rt"] }
+
+[target.'cfg(windows)'.dependencies]
+async-io = { workspace = true }
+tokio-util = { workspace = true, features = ["compat"] }
+uds_windows = { workspace = true }
+
+[dev-dependencies]
+pretty_assertions = { workspace = true }
+tempfile = { workspace = true }
+tokio = { workspace = true, features = [
+    "io-util",
+    "macros",
+    "rt-multi-thread",
+] }

@@ -1,0 +1,28 @@
+# Modified by Atlas from upstream OpenAI Codex (Apache-2.0). See CONTEXT.md.
+[package]
+name = "atlas-engine-utils-image"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+base64 = { workspace = true }
+image = { workspace = true, features = ["jpeg", "png", "gif", "webp"] }
+atlas-engine-utils-cache = { workspace = true }
+mime_guess = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true, features = ["fs", "rt", "rt-multi-thread", "macros"] }
+
+[dev-dependencies]
+divan = { workspace = true }
+image = { workspace = true, features = ["jpeg", "png", "gif", "webp"] }
+
+[lib]
+doctest = false
+
+[[bench]]
+name = "prompt_images"
+harness = false

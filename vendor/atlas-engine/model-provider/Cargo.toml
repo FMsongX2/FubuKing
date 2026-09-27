@@ -1,0 +1,44 @@
+# Modified by Atlas from upstream OpenAI Codex (Apache-2.0). See CONTEXT.md.
+[package]
+edition.workspace = true
+license.workspace = true
+name = "atlas-engine-model-provider"
+version.workspace = true
+
+[lib]
+doctest = false
+name = "atlas_engine_model_provider"
+path = "src/lib.rs"
+
+[lints]
+workspace = true
+
+[dependencies]
+atlas-engine-api = { workspace = true }
+atlas-engine-agent-identity = { workspace = true }
+atlas-engine-aws-auth = { workspace = true, optional = true }
+atlas-engine-http-client = { workspace = true }
+atlas-engine-feedback = { workspace = true }
+atlas-engine-login = { workspace = true }
+atlas-engine-model-provider-info = { workspace = true }
+atlas-engine-models-manager = { workspace = true }
+atlas-engine-otel = { workspace = true }
+atlas-engine-protocol = { workspace = true }
+atlas-engine-response-debug-context = { workspace = true }
+http = { workspace = true }
+tokio = { workspace = true, features = ["sync", "time"] }
+tracing = { workspace = true, features = ["log"] }
+
+# Atlas fork: Amazon Bedrock is behind a feature. Upstream links the AWS SDK
+# unconditionally (aws-config + four service SDKs + sigv4 + a dozen smithy
+# crates, ~25 crates); Atlas never exposes Bedrock as a provider, so the
+# default build leaves it out. `--features aws` restores upstream behaviour.
+[features]
+default = []
+aws = ["dep:atlas-engine-aws-auth"]
+
+[dev-dependencies]
+pretty_assertions = { workspace = true }
+serde_json = { workspace = true }
+tokio = { workspace = true, features = ["macros", "rt"] }
+wiremock = { workspace = true }

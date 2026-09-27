@@ -23,7 +23,7 @@
 //! LOCKED (research §D12-3, 2026-08-21). An external agent exists **iff** the
 //! user's installed map has an entry for it. Empty map ⇒ empty
 //! [`AgentServerStore::external_agents`] ⇒ a fresh install offers exactly the
-//! native agent (Cersei) and the marketplace.
+//! native agent and the marketplace.
 //!
 //! What that rules out, permanently:
 //!
@@ -154,7 +154,10 @@ pub use registry::{
     AgentRegistryStore, RegistryAgent, RegistryAgentMetadata, RegistryBinaryAgent,
     RegistryNpxAgent, RegistryTargetConfig, REGISTRY_URL,
 };
-pub use servers::{npx_install_dir, InheritedProjectEnvironment, ProjectEnvironment};
+pub use servers::{
+    forget_npx_install_decision, installed_npx_version, npx_install_dir,
+    InheritedProjectEnvironment, ProjectEnvironment,
+};
 pub use settings::{AgentServerSettings, AllAgentServersSettings};
 pub use store::{AgentServerStore, ExternalAgentEntry, ExternalAgentSource};
 

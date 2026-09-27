@@ -32,7 +32,7 @@ export function AgentGlyph({
   if (agentType === "cursor") return <AgentIcons.Cursor className={cls} />;
   if (agentType === "kilo") return <AgentIcons.Kilo className={cls} />;
   // Atlas's native agent — its own brand mark.
-  if (agentType === "cersei") return <AtlasIcon size={size === "lg" ? 18 : 14} />;
+  if (agentType === "atlas-agent") return <AtlasIcon size={size === "lg" ? 18 : 14} />;
   const meta = agentMeta(agentType);
   const px = size === "lg" ? 18 : 14;
   // Only recurse when the lookup resolved to a DIFFERENT id: `agentMeta("claude-code")`

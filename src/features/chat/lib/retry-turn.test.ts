@@ -62,7 +62,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   subscriber = undefined;
   session = {
-    agentType: "cersei",
+    agentType: "atlas-agent",
     status: "idle",
     acpAgentId: "agent",
     acpSessionId: "sess",

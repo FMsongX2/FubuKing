@@ -24,6 +24,11 @@ pub enum Error {
     SchemaTooNew { found: i64, supported: i64 },
     /// A blob could not be written or read back.
     Blob(String),
+    /// The ingest service refused or could not be reached — a registry call
+    /// (register, connect, list) that never touched the local store. Kept apart
+    /// from `Storage` so a `422` from the server is not reported as a disk that
+    /// cannot be written; the detail is already self-describing.
+    Remote(String),
 }
 
 impl fmt::Display for Error {
@@ -42,6 +47,7 @@ impl fmt::Display for Error {
                 "session store was written by a newer Atlas (schema {found}, this build supports {supported})"
             ),
             Self::Blob(detail) => write!(f, "spilled payload unavailable: {detail}"),
+            Self::Remote(detail) => write!(f, "{detail}"),
         }
     }
 }

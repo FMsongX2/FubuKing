@@ -1,17 +1,17 @@
 //! atlas-memory — Atlas's on-device RAG/memory engine.
 //!
 //! Per-project engine that owns a persistent **usearch HNSW** index fed by an
-//! on-device MiniLM [`provider::MiniLmProvider`] (Cersei's `EmbeddingProvider`
+//! on-device MiniLM [`provider::MiniLmProvider`] (the old SDK's `EmbeddingProvider`
 //! trait). Retrieval returns [`RetrievedDoc`]s, blending in promoted global
 //! memory when local memory is sparse; the Tauri layer maps those onto
-//! `atlas_cersei::MemDoc` so the frozen `MemorySearchFn` seam — and all three
+//! the old wrapper's `MemDoc` so the frozen `MemorySearchFn` seam — and all three
 //! agents — are unchanged. The shared-memory record store (`record`) and the
 //! global promotion over it (`global`) live here too.
 //!
 //! This is a LOW crate: it has **no Tauri dependency** and never depends on
-//! `atlas-cersei` (the dependency only ever points the other way, app-side).
+//! the agent seam (the dependency only ever points the other way, app-side).
 //!
-//! Build order (see `plans/atlas-cersei-rag-replan.md`): the modules below are
+//! Build order (see `plans/atlas-atlas-agent-rag-replan.md`): the modules below are
 //! stubs filled in step by step.
 
 use std::path::PathBuf;
@@ -43,9 +43,9 @@ pub mod global;
 // database per repository scope, with the one-time legacy migration.
 pub mod record;
 
-// ─── Ported-from-Cersei modules ───────────────────────────────────────────────
+// ─── Ported-from-the-old-SDK modules ───────────────────────────────────────────────
 //
-// These were `cersei-embeddings` / `cersei-memory` until 2026-08-22; they are
+// These were the old SDK's embeddings and memory crates until 2026-08-22; they are
 // now Atlas's own. `tests/behaviour.rs` pins their observable behaviour (it
 // was written against the SDK versions and passed unchanged after the port).
 pub mod embedding;
@@ -67,7 +67,7 @@ mod parity_bench;
 use embedding::EmbeddingProvider;
 
 /// One corpus document handed to [`MemoryEngine::index_corpus`]. The Tauri layer
-/// builds these by flattening `agent_memory::collect_corpus` (Claude/Codex/Cersei
+/// builds these by flattening `agent_memory::collect_corpus` (Claude/Codex/native
 /// memory + codebase index + shared memory) into this neutral shape.
 ///
 /// `content_hash` is the caller's stable hash of the embeddable `text` — the
@@ -95,8 +95,8 @@ pub struct IndexStats {
     pub unchanged: usize,
 }
 
-/// One retrieved memory snippet. Neutral shape (NOT `atlas_cersei::MemDoc` —
-/// this crate must not depend on `atlas-cersei`); the Tauri layer maps it onto
+/// One retrieved memory snippet. Neutral shape (NOT the old wrapper's `MemDoc` —
+/// this crate must not depend on the agent seam); the Tauri layer maps it onto
 /// `MemDoc` at the `MemorySearchFn` boundary.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct RetrievedDoc {

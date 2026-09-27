@@ -127,8 +127,13 @@ export function prettyModel(model: string | null): string | null {
   const raw = model.replace(/\[.*?\]/g, "").trim();
   const m = raw.toLowerCase();
   const versioned = (family: string) => {
-    const version = raw.match(/(\d+(?:\.\d+)?)/)?.[1];
-    return version ? `${family} ${version}` : family;
+    // Ids spell the minor version with a hyphen as often as a dot —
+    // `claude-sonnet-4-6` is Sonnet 4.6, not Sonnet 4. The minor part is one
+    // or two digits so a date suffix (`claude-opus-4-20250514`) is never read
+    // as one.
+    const match = raw.match(/(\d+)(?:[.-](\d{1,2}))?(?!\d)/);
+    if (!match) return family;
+    return `${family} ${match[2] ? `${match[1]}.${match[2]}` : match[1]}`;
   };
   if (m.includes("fable")) return versioned("Fable");
   if (m.includes("opus")) return versioned("Opus");
@@ -163,7 +168,7 @@ export function agentLabel(agent: string): string {
   if (agent.includes("opencode")) return "OpenCode";
   if (agent.includes("cursor")) return "Cursor";
   if (agent.includes("kilo")) return "Kilo";
-  if (agent.includes("cersei")) return "Atlas";
+  if (agent.includes("atlas-agent")) return "Atlas";
   // Registry-installed external agent: resolve its marketplace name (falls
   // back to a prettified id for purged metadata).
   return agentMeta(agent).label;

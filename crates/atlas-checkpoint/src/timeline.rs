@@ -48,7 +48,7 @@ pub struct SessionSummary {
     pub title: Option<String>,
     pub agent: Option<String>,
     pub model: Option<String>,
-    /// `acp`, `cersei` or `external_jsonl` — where the record came from.
+    /// `acp`, `native` or `external_jsonl` — where the record came from.
     pub source: String,
     pub started_at: String,
     pub updated_at: String,
@@ -343,16 +343,15 @@ fn summarize(
     tool_call_count: i64,
     active_seconds: i64,
 ) -> SessionSummary {
-    // Starting branch first, then the Checkpoint branches — so a row that shows
-    // one branch shows the one the work began on rather than whichever sorted
-    // first.
+    // Starting branch first, then the Checkpoint branches in the order they
+    // were first committed to — so a row that shows one branch shows the one
+    // the work began on. `checkpoints` arrive oldest first; sorting them
+    // alphabetically instead put `feature/dark-mode` ahead of `master` for a
+    // Session that began before `git init` and so has no starting branch.
     let mut branches: Vec<String> = session.branch.iter().cloned().collect();
-    let mut landed: Vec<String> = checkpoints.iter().filter_map(|c| c.branch.clone()).collect();
-    landed.sort();
-    landed.dedup();
-    for branch in landed {
-        if !branches.contains(&branch) {
-            branches.push(branch);
+    for branch in checkpoints.iter().filter_map(|c| c.branch.as_ref()) {
+        if !branches.contains(branch) {
+            branches.push(branch.clone());
         }
     }
 
@@ -484,18 +483,27 @@ pub fn detail(
         entries.push(tool_call_entry(store, &call, &touches)?);
     }
 
-    // A Checkpoint carries no turn of its own. Attributing it to the last turn
-    // that touched one of its files is what puts a commit *after* the work that
-    // produced it rather than at the bottom of the Session.
+    // A Checkpoint carries no turn of its own. Attributing it to the turn whose
+    // work it holds is what puts a commit *after* that work rather than at the
+    // bottom of the Session. The touches the commit consumed name that turn
+    // exactly; any touch of the same path would not — a later turn editing the
+    // file again would drag every earlier commit of it down to that turn.
+    let consuming = store.consuming_turns(session_id)?;
     let checkpoints = store.checkpoints_for_session(session_id)?;
     for checkpoint in &checkpoints {
         counts.checkpoints += 1;
-        let turn = touches
-            .iter()
-            .filter(|t| checkpoint.files_touched.contains(&t.path))
-            .map(|t| t.turn_seq)
-            .max()
-            .unwrap_or(-1);
+        let turn = consuming.get(&checkpoint.commit_sha).copied().unwrap_or_else(|| {
+            // Nothing consumed (a permissive link, or rows from before
+            // consumption was tracked): the last turn that touched one of its
+            // files before the commit was seen.
+            touches
+                .iter()
+                .filter(|t| t.created_at <= checkpoint.created_at)
+                .filter(|t| checkpoint.files_touched.contains(&t.path))
+                .map(|t| t.turn_seq)
+                .max()
+                .unwrap_or(-1)
+        });
         entries.push(checkpoint_entry(checkpoint, turn, &subject_for));
     }
 
@@ -549,17 +557,92 @@ fn rank(kind: EntryKind) -> u8 {
     }
 }
 
-/// A message as a timeline entry, or `None` for one that has no place in it.
-fn message_entry(store: &Store, message: &Message) -> Result<Option<TimelineEntry>> {
-    let kind = match (message.role, message.mode) {
+/// What kind of entry a message is, or `None` for one that has no place in
+/// the timeline. The one rule for both the timeline and the comment anchors.
+pub(crate) fn entry_kind_for(role: Role, mode: Mode) -> Option<EntryKind> {
+    match (role, mode) {
         // A tool-mode message duplicates the tool_call row it was derived from.
-        (_, Mode::Tool) => return Ok(None),
-        (_, Mode::Thinking) => EntryKind::Thinking,
-        (Role::User, _) => EntryKind::Prompt,
-        (Role::Assistant, _) => EntryKind::Response,
+        (_, Mode::Tool) => None,
+        (_, Mode::Thinking) => Some(EntryKind::Thinking),
+        (Role::User, _) => Some(EntryKind::Prompt),
+        (Role::Assistant, _) => Some(EntryKind::Response),
         // System messages are plumbing the developer did not write and the agent
         // did not say.
-        (Role::System, _) => return Ok(None),
+        (Role::System, _) => None,
+    }
+}
+
+/// One commentable row of a Session, with the id the agent knew it by.
+///
+/// The live chat holds the agent's ids (a message id from the wire, a tool
+/// call id) while a comment is anchored on the captured row id. This is the
+/// join: cheap enough to re-read after every turn, and carrying nothing a
+/// viewer would render.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AnchorEntry {
+    pub row_id: String,
+    pub kind: EntryKind,
+    pub turn_seq: i64,
+    /// The agent's own id — `native_message_id` or `native_call_id`. A prompt
+    /// carries a synthesised one (`prompt-{turn}-{hash}`) that no live message
+    /// has, so a prompt is matched by its turn instead.
+    pub native_id: Option<String>,
+    /// Tool calls only.
+    pub tool_name: Option<String>,
+}
+
+/// Every commentable row of a Session in **write order** — `(turn_seq, seq)`,
+/// not the timeline's rank order. The chat orders its own rows; what it needs
+/// from here is which captured rows exist in which turn.
+///
+/// Rows of a **rewound** turn are left out: a retry took the turn back, so
+/// the live chat has no message for it, and counting it would shift every
+/// earlier exchange onto the wrong turn when the chat pairs by position.
+pub fn anchors(store: &Store, session_id: &str) -> Result<Vec<AnchorEntry>> {
+    let rewound = store.rewound_turns(session_id)?;
+    let mut out: Vec<(i64, i64, AnchorEntry)> = Vec::new();
+    for m in store.message_anchor_rows(session_id)? {
+        if rewound.contains(&m.turn_seq) {
+            continue;
+        }
+        let Some(kind) = entry_kind_for(m.role, m.mode) else { continue };
+        out.push((
+            m.turn_seq,
+            m.seq,
+            AnchorEntry {
+                row_id: m.id,
+                kind,
+                turn_seq: m.turn_seq,
+                native_id: m.native_message_id,
+                tool_name: None,
+            },
+        ));
+    }
+    for c in store.tool_call_anchor_rows(session_id)? {
+        if rewound.contains(&c.turn_seq) {
+            continue;
+        }
+        out.push((
+            c.turn_seq,
+            c.seq,
+            AnchorEntry {
+                row_id: c.id,
+                kind: EntryKind::ToolCall,
+                turn_seq: c.turn_seq,
+                native_id: c.native_call_id,
+                tool_name: Some(c.tool_name.as_str().to_string()),
+            },
+        ));
+    }
+    out.sort_by_key(|(turn_seq, seq, _)| (*turn_seq, *seq));
+    Ok(out.into_iter().map(|(_, _, e)| e).collect())
+}
+
+/// A message as a timeline entry, or `None` for one that has no place in it.
+fn message_entry(store: &Store, message: &Message) -> Result<Option<TimelineEntry>> {
+    let Some(kind) = entry_kind_for(message.role, message.mode) else {
+        return Ok(None);
     };
 
     let inline = message.body_bytes <= INLINE_LIMIT_BYTES;
@@ -640,6 +723,113 @@ fn checkpoint_entry(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn anchors_expose_native_ids_and_skip_tool_and_system_messages() {
+        use crate::capture::{Capture, SessionKey, ToolCallContent, TurnContent};
+        use crate::model::{ProjectMode, Source, ToolStatus};
+        use crate::tools::ToolName;
+
+        let dir = tempfile::tempdir().unwrap();
+        let mut store = Store::open(dir.path().join(".atlas")).unwrap();
+        let mut capture = Capture::new(&mut store, ProjectMode::Local);
+        let key = SessionKey {
+            workspace_id: "ws".into(),
+            source: Source::Acp,
+            native_session_id: "native-1".into(),
+        };
+        let session_id = capture.ensure_session(&key, None, None, None, None).unwrap();
+        capture.record_prompt(&key, "index the project", 1, None, None, None).unwrap();
+        let turn = |native: &str, role: Role, mode: Mode, body: &str| TurnContent {
+            turn_seq: 1,
+            native_message_id: Some(native.into()),
+            role,
+            mode,
+            body: body.into(),
+            created_at: None,
+        };
+        capture.record_turn(&session_id, turn("th-1", Role::Assistant, Mode::Thinking, "hmm")).unwrap();
+        capture.record_turn(&session_id, turn("tool-1", Role::Assistant, Mode::Tool, "ran")).unwrap();
+        capture.record_turn(&session_id, turn("sys-1", Role::System, Mode::Text, "plumbing")).unwrap();
+        capture.record_turn(&session_id, turn("m-1", Role::Assistant, Mode::Text, "done")).unwrap();
+        let locations = serde_json::Value::Null;
+        capture
+            .record_tool_call(
+                &session_id,
+                ToolCallContent {
+                    turn_seq: 1,
+                    native_call_id: Some("call-1"),
+                    tool_name: ToolName::Read,
+                    title: None,
+                    kind: None,
+                    status: ToolStatus::Completed,
+                    locations: &locations,
+                    arguments: None,
+                    result: None,
+                },
+            )
+            .unwrap();
+
+        let got = anchors(&store, &session_id).unwrap();
+        let kinds: Vec<EntryKind> = got.iter().map(|e| e.kind).collect();
+        assert_eq!(
+            kinds,
+            vec![EntryKind::Prompt, EntryKind::Thinking, EntryKind::Response, EntryKind::ToolCall],
+            "{got:?}"
+        );
+        assert!(got[0].native_id.as_deref().unwrap().starts_with("prompt-1-"));
+        assert_eq!(got[1].native_id.as_deref(), Some("th-1"));
+        assert_eq!(got[2].native_id.as_deref(), Some("m-1"));
+        assert_eq!(got[3].native_id.as_deref(), Some("call-1"));
+        assert_eq!(got[3].tool_name.as_deref(), Some("Read"));
+        assert!(got.iter().all(|e| e.turn_seq == 1));
+        assert!(got.iter().all(|e| !e.row_id.is_empty()));
+    }
+
+    /// A retry rewinds the last turn and re-sends its prompt as a new one. The
+    /// rewound turn's rows stay in the store (and the Timeline), but the live
+    /// chat no longer shows that exchange, so the anchors the chat pairs with
+    /// must leave it out — or every earlier exchange shifts onto it (C1).
+    #[test]
+    fn a_rewound_turn_is_not_among_the_anchors_and_is_marked_once() {
+        use crate::capture::{Capture, SessionKey, TurnContent};
+        use crate::model::{ProjectMode, Source, TurnState};
+
+        let dir = tempfile::tempdir().unwrap();
+        let mut store = Store::open(dir.path().join(".atlas")).unwrap();
+        let mut capture = Capture::new(&mut store, ProjectMode::Local);
+        let key = SessionKey { workspace_id: "ws".into(), source: Source::Native, native_session_id: "native-1".into() };
+        let session_id = capture.ensure_session(&key, None, None, None, None).unwrap();
+        let reply = |turn: i64, native: &str, body: &str| TurnContent {
+            turn_seq: turn,
+            native_message_id: Some(native.into()),
+            role: Role::Assistant,
+            mode: Mode::Text,
+            body: body.into(),
+            created_at: None,
+        };
+        for (turn, prompt, native, body) in [(1, "one", "a1", "first"), (2, "two", "a2old", "tried")] {
+            capture.record_prompt(&key, prompt, turn, None, None, None).unwrap();
+            capture.record_turn(&session_id, reply(turn, native, body)).unwrap();
+            capture.finish_turn(&session_id, turn).unwrap();
+        }
+        // The retry: turn 2 is taken back, and its prompt re-sent as turn 3.
+        capture.rewind_turns(&session_id, 1).unwrap();
+        capture.record_prompt(&key, "two", 3, None, None, None).unwrap();
+        capture.record_turn(&session_id, reply(3, "a2", "retried")).unwrap();
+        capture.finish_turn(&session_id, 3).unwrap();
+
+        let turns: Vec<i64> = anchors(&store, &session_id).unwrap().iter().map(|e| e.turn_seq).collect();
+        assert_eq!(turns, [1, 1, 3, 3], "turn 2's prompt and reply are gone from the anchors");
+        assert_eq!(store.rewound_turns(&session_id).unwrap(), [2].into_iter().collect());
+        assert_eq!(store.turn_state(&session_id, 2).unwrap(), Some(TurnState::Rewound));
+        assert!(!store.messages_for_session(&session_id).unwrap().is_empty(), "the rows are kept");
+
+        // A second rewind takes the latest live turn, never turn 2 again.
+        assert_eq!(store.mark_turns_rewound(&session_id, 1).unwrap(), 1);
+        assert_eq!(store.rewound_turns(&session_id).unwrap(), [2, 3].into_iter().collect());
+        assert_eq!(store.mark_turns_rewound(&session_id, 0).unwrap(), 0);
+    }
 
     fn entry(kind: EntryKind, turn: i64, at: &str, id: &str) -> TimelineEntry {
         TimelineEntry::blank(id.into(), kind, at.into(), turn)

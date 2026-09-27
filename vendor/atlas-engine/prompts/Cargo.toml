@@ -1,0 +1,26 @@
+# Modified by Atlas from upstream OpenAI Codex (Apache-2.0). See CONTEXT.md.
+[package]
+edition.workspace = true
+license.workspace = true
+name = "atlas-engine-prompts"
+version.workspace = true
+
+[lib]
+doctest = false
+name = "atlas_engine_prompts"
+path = "src/lib.rs"
+
+[lints]
+workspace = true
+
+[dependencies]
+anyhow = { workspace = true }
+atlas-engine-context-fragments = { workspace = true }
+atlas-engine-git-utils = { workspace = true }
+atlas-engine-execpolicy = { workspace = true }
+atlas-engine-protocol = { workspace = true }
+atlas-engine-utils-absolute-path = { workspace = true }
+atlas-engine-utils-template = { workspace = true }
+
+[dev-dependencies]
+pretty_assertions = { workspace = true }

@@ -1,0 +1,71 @@
+# Modified by Atlas from upstream OpenAI Codex (Apache-2.0). See CONTEXT.md.
+[package]
+edition.workspace = true
+license.workspace = true
+name = "atlas-engine-core-plugins"
+version.workspace = true
+
+[lib]
+doctest = false
+name = "atlas_engine_core_plugins"
+path = "src/lib.rs"
+
+[lints]
+workspace = true
+
+[dependencies]
+anyhow = { workspace = true }
+atlas-engine-analytics = { workspace = true }
+atlas-engine-app-server-protocol = { workspace = true }
+atlas-engine-config = { workspace = true }
+atlas-engine-connectors = { workspace = true }
+atlas-engine-exec-server = { workspace = true }
+atlas-engine-git-utils = { workspace = true }
+atlas-engine-hooks = { workspace = true }
+atlas-engine-http-client = { workspace = true }
+atlas-engine-login = { workspace = true }
+atlas-engine-mcp = { workspace = true }
+atlas-engine-model-provider = { workspace = true }
+atlas-engine-otel = { workspace = true }
+atlas-engine-plugin = { workspace = true }
+atlas-engine-protocol = { workspace = true }
+atlas-engine-skills = { workspace = true }
+atlas-engine-shell-command = { workspace = true }
+atlas-engine-tools = { workspace = true }
+atlas-engine-utils-absolute-path = { workspace = true }
+atlas-engine-utils-path = { workspace = true }
+atlas-engine-utils-path-uri = { workspace = true }
+atlas-engine-utils-plugins = { workspace = true }
+chrono = { workspace = true }
+dirs = { workspace = true }
+flate2 = { workspace = true }
+futures = { workspace = true }
+http = { workspace = true }
+regex = { workspace = true }
+semver = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+serde_with = { workspace = true }
+serde_yaml = { workspace = true }
+sha2 = { workspace = true }
+tar = { workspace = true }
+tempfile = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true, features = ["fs", "macros", "rt", "time"] }
+toml = { workspace = true }
+tracing = { workspace = true }
+url = { workspace = true }
+uuid = { workspace = true, features = ["v4"] }
+zip = { workspace = true }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+which = { workspace = true }
+
+[dev-dependencies]
+atlas-engine-exec-server-test-support = { workspace = true }
+libc = { workspace = true }
+pretty_assertions = { workspace = true }
+tempfile = { workspace = true }
+tracing-subscriber = { workspace = true }
+tracing-test = { workspace = true, features = ["no-env-filter"] }
+wiremock = { workspace = true }

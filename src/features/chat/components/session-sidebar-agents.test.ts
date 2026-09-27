@@ -9,7 +9,7 @@ import { describe, expect, it, vi } from "vitest";
 vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
 vi.mock("@tauri-apps/api/event", () => ({ listen: vi.fn() }));
 
-const { sidebarAgentOf, AGENT_TYPE_BY_SIDEBAR } = await import("./session-sidebar");
+const { sidebarAgentOf, AGENT_TYPE_BY_SIDEBAR } = await import("../lib/sidebar-agents");
 
 describe("sidebarAgentOf (agent id → transcript-store band)", () => {
   it("folds canonical registry ids into the store band their transcripts land in", () => {
@@ -27,7 +27,7 @@ describe("sidebarAgentOf (agent id → transcript-store band)", () => {
   });
 
   it("keeps the bands whose registry id already names the store", () => {
-    for (const id of ["opencode", "cursor", "kilo", "cersei"]) {
+    for (const id of ["opencode", "cursor", "kilo", "atlas-agent"]) {
       expect(sidebarAgentOf(id)).toBe(id);
     }
   });
@@ -45,7 +45,7 @@ describe("AGENT_TYPE_BY_SIDEBAR (band → spawnable registry id)", () => {
     expect(AGENT_TYPE_BY_SIDEBAR.codex).toBe("codex-acp");
     expect(AGENT_TYPE_BY_SIDEBAR.opencode).toBe("opencode");
     expect(AGENT_TYPE_BY_SIDEBAR.kilo).toBe("kilo");
-    expect(AGENT_TYPE_BY_SIDEBAR.cersei).toBe("cersei");
+    expect(AGENT_TYPE_BY_SIDEBAR["atlas-agent"]).toBe("atlas-agent");
   });
 
   it("round-trips: a resumed session's band maps back to itself", () => {

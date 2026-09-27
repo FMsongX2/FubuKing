@@ -35,7 +35,7 @@ fn a_new_chat_appears_in_history_as_a_draft_and_gains_its_session_id_on_the_firs
 
     // The tab mounts: the agent hands back a session, the thread connects.
     // Nothing has been typed, so no thread event has fired yet.
-    recorder.record_connected(&"cersei".into(), &session, snapshot(true, None, &["/tmp/atlas"]));
+    recorder.record_connected(&"atlas-agent".into(), &session, snapshot(true, None, &["/tmp/atlas"]));
     store.flush().unwrap();
 
     let rows = store.threads();
@@ -45,7 +45,7 @@ fn a_new_chat_appears_in_history_as_a_draft_and_gains_its_session_id_on_the_firs
     // First send: the thread has an entry, so the session id is worth keeping.
     let thread_id = rows[0].thread_id;
     recorder.record(
-        &"cersei".into(),
+        &"atlas-agent".into(),
         &session,
         &AcpThreadEvent::NewEntry,
         snapshot(false, None, &["/tmp/atlas"]),
@@ -73,7 +73,7 @@ fn a_streaming_turn_does_not_touch_history_on_every_chunk() {
         AcpThreadEvent::ModeUpdated(acp::SessionModeId::new("code")),
     ] {
         recorder.record(
-            &"cersei".into(),
+            &"atlas-agent".into(),
             &session,
             &event,
             snapshot(false, Some("Streaming"), &["/tmp/atlas"]),
@@ -162,7 +162,7 @@ fn opening_an_archived_thread_and_working_in_it_leaves_it_archived_until_someone
     let session = acp::SessionId::new("ses-1");
 
     recorder.record(
-        &"cersei".into(),
+        &"atlas-agent".into(),
         &session,
         &AcpThreadEvent::NewEntry,
         snapshot(false, None, &["/tmp/atlas"]),
@@ -172,7 +172,7 @@ fn opening_an_archived_thread_and_working_in_it_leaves_it_archived_until_someone
     store.archive(thread_id);
 
     recorder.record(
-        &"cersei".into(),
+        &"atlas-agent".into(),
         &session,
         &AcpThreadEvent::NewEntry,
         snapshot(false, Some("More work"), &["/tmp/atlas"]),
@@ -196,7 +196,7 @@ fn a_send_records_when_the_user_last_interacted() {
     let recorder = ThreadRecorder::new(store.clone());
     let session = acp::SessionId::new("ses-1");
     recorder.record(
-        &"cersei".into(),
+        &"atlas-agent".into(),
         &session,
         &AcpThreadEvent::NewEntry,
         snapshot(false, None, &["/tmp/atlas"]),
@@ -216,7 +216,7 @@ fn a_chat_opened_with_no_project_is_kept_in_history_rather_than_lost() {
     let recorder = ThreadRecorder::new(store.clone());
 
     recorder.record(
-        &"cersei".into(),
+        &"atlas-agent".into(),
         &acp::SessionId::new("ses-1"),
         &AcpThreadEvent::NewEntry,
         snapshot(false, None, &[]),
@@ -233,7 +233,7 @@ fn every_agent_is_recorded_the_same_way() {
     let store = store(&dir);
     let recorder = ThreadRecorder::new(store.clone());
 
-    for (n, agent) in ["cersei", "claude-code", "codex", "kilo", "some-new-agent"]
+    for (n, agent) in ["atlas-agent", "claude-code", "codex", "kilo", "some-new-agent"]
         .into_iter()
         .enumerate()
     {
@@ -255,7 +255,7 @@ fn a_chat_nobody_typed_into_leaves_nothing_behind() {
     let store = store(&dir);
     let recorder = ThreadRecorder::new(store.clone());
     let session = acp::SessionId::new("ses-1");
-    recorder.record_connected(&"cersei".into(), &session, snapshot(true, None, &["/tmp/atlas"]));
+    recorder.record_connected(&"atlas-agent".into(), &session, snapshot(true, None, &["/tmp/atlas"]));
     store.flush().unwrap();
     assert_eq!(store.threads().len(), 1, "it is visible while it is open");
 
@@ -272,9 +272,9 @@ fn a_chat_that_was_used_survives_its_tab_closing() {
     let store = store(&dir);
     let recorder = ThreadRecorder::new(store.clone());
     let session = acp::SessionId::new("ses-1");
-    recorder.record_connected(&"cersei".into(), &session, snapshot(true, None, &["/tmp/atlas"]));
+    recorder.record_connected(&"atlas-agent".into(), &session, snapshot(true, None, &["/tmp/atlas"]));
     recorder.record(
-        &"cersei".into(),
+        &"atlas-agent".into(),
         &session,
         &AcpThreadEvent::NewEntry,
         snapshot(false, Some("Real work"), &["/tmp/atlas"]),
@@ -294,12 +294,12 @@ fn a_draft_left_behind_by_a_crash_is_gone_at_the_next_launch() {
         let store = store(&dir);
         let recorder = ThreadRecorder::new(store.clone());
         recorder.record_connected(
-            &"cersei".into(),
+            &"atlas-agent".into(),
             &acp::SessionId::new("ses-draft"),
             snapshot(true, None, &["/tmp/atlas"]),
         );
         recorder.record(
-            &"cersei".into(),
+            &"atlas-agent".into(),
             &acp::SessionId::new("ses-real"),
             &AcpThreadEvent::NewEntry,
             snapshot(false, Some("Real work"), &["/tmp/atlas"]),
@@ -335,7 +335,7 @@ fn everything_that_can_change_a_row_writes_one() {
         let store = store(&dir);
         let recorder = ThreadRecorder::new(store.clone());
         recorder.record(
-            &"cersei".into(),
+            &"atlas-agent".into(),
             &acp::SessionId::new("ses-1"),
             &event,
             snapshot(false, None, &["/tmp/atlas"]),

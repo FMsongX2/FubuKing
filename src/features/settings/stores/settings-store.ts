@@ -251,11 +251,19 @@ export const useSettingsStore = createSelectors(
 // `atlas-self-configure` skill wrote to it directly. Both land here as a hot
 // reload; `applySettingsSideEffects` re-applies exactly the side effects that
 // actually changed, same as a UI-driven update.
-void onConfigChanged(({ settings, generation }) => {
-  const previous = useSettingsStore.getState().settings;
-  useSettingsStore.setState({ settings, configGeneration: generation, configError: null });
-  applySettingsSideEffects(settings, previous);
-});
+//
+// Behind the same `window` guard as the listener below: this module is pulled
+// in transitively by code that unit-tests under vitest's `node` environment
+// (`author-directory.test.ts` via the org directory), where Tauri's `listen`
+// throws on the missing `window` — and `void` turned that into an unhandled
+// rejection that failed the whole run.
+if (typeof window !== "undefined") {
+  void onConfigChanged(({ settings, generation }) => {
+    const previous = useSettingsStore.getState().settings;
+    useSettingsStore.setState({ settings, configGeneration: generation, configError: null });
+    applySettingsSideEffects(settings, previous);
+  });
+}
 
 // Every theme apply — a settings change, the OS flipping appearance under
 // `system`, a hot-reloaded theme file — can change the appearance the icons
@@ -269,6 +277,8 @@ if (typeof window !== "undefined") {
 
 // A malformed external edit (or a write Rust rejected) — `settings` is
 // unchanged, this is purely "tell the user".
-void onConfigError((error) => {
-  useSettingsStore.setState({ configError: error });
-});
+if (typeof window !== "undefined") {
+  void onConfigError((error) => {
+    useSettingsStore.setState({ configError: error });
+  });
+}

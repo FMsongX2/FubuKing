@@ -26,8 +26,8 @@
 
 use agent_client_protocol::schema::v1 as acp;
 use atlas_acp_thread::{PermissionOptions, RequestPermissionOutcome};
-use codex_app_server_protocol::CommandExecutionApprovalDecision;
-use codex_app_server_protocol::FileChangeApprovalDecision;
+use atlas_engine_app_server_protocol::CommandExecutionApprovalDecision;
+use atlas_engine_app_server_protocol::FileChangeApprovalDecision;
 
 /// What the user answered, before it is shaped for a particular request kind.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

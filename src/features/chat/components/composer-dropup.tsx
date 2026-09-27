@@ -35,6 +35,24 @@ export function composerPillClass(open: boolean, opts: { disabled?: boolean } = 
   );
 }
 
+/**
+ * A footer pill's text label. As the composer narrows, labels give way to
+ * their icons instead of wrapping onto a second line or pushing the right-hand
+ * pills out past the edge. The composer shell is the `@container`; each pill's
+ * `title` still names it when only the icon shows.
+ *  - `"early"`: the icon carries the meaning on its own (usage ring, options
+ *    sliders, memory index), so these go first.
+ *  - `"late"`: agent and mode, which only an icon cannot fully identify.
+ *  - omitted: always shown (the model, which truncates instead).
+ */
+export function composerPillLabelClass(collapse?: "early" | "late"): string {
+  return cn(
+    "ml-1.5 whitespace-nowrap",
+    collapse === "early" && "hidden @[640px]:inline",
+    collapse === "late" && "hidden @[460px]:inline",
+  );
+}
+
 export interface ComposerDropupState {
   open: boolean;
   toggle: () => void;

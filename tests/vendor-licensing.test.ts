@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it } from "vitest";
 import { readFileSync, readdirSync, existsSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import path from "node:path";
@@ -31,7 +31,16 @@ import { fileURLToPath } from "node:url";
  */
 
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const VENDOR = path.join(REPO_ROOT, "vendor", "codex");
+/** Where the engine lives now (ADR-0011) … */
+const VENDOR = path.join(REPO_ROOT, "vendor", "atlas-engine");
+/** … and the path it was vendored under, which is where its git history is. */
+const VENDORED_AT = "vendor/codex";
+/**
+ * The commit that vendored the engine (#42). Also computed below from the
+ * history of `VENDORED_AT`; the two must agree, so a rewritten history is
+ * noticed rather than silently moving the fork point.
+ */
+const VENDORING_COMMIT = "67fb707d3d5fd35f57726fcb17ed3177bcc34c58";
 const TAURI_DIR = path.join(REPO_ROOT, "src-tauri");
 const BUNDLED_CODEX_LICENSE = "licenses/OpenAI-Codex-LICENSE.txt";
 const BUNDLED_CODEX_NOTICE = "licenses/OpenAI-Codex-NOTICE.txt";
@@ -78,8 +87,10 @@ function git(...args: string[]): string {
 function vendoringCommit(): string {
   // `--full-history` disables TREESAME simplification: with merges in the
   // history, plain `git log -- <path>` follows a single parent and can miss
-  // the commits that actually touched it.
-  const log = git("log", "--full-history", "--format=%H", "--", "vendor/codex").trim();
+  // the commits that actually touched it. The pathspec is the ORIGINAL
+  // location: the tree moved to `vendor/atlas-engine` in ADR-0011, and the
+  // oldest commit touching the old path is still the one that created it.
+  const log = git("log", "--full-history", "--format=%H", "--", VENDORED_AT).trim();
   // Empty means no commit in this checkout touched `vendor/codex` at all —
   // only possible on a shallow clone, since the vendoring commit is always in
   // full history. Returning "" here would make every later `git diff` compare
@@ -98,23 +109,95 @@ const SHALLOW = "<shallow-clone>";
 /**
  * Vendored files Atlas has changed since vendoring, working tree included.
  *
- * Deliberately `git diff <commit>` rather than `<commit>..HEAD`: the working
- * tree counts, so a file edited but not yet committed is held to the rule in
- * the same session that edits it, not one commit later.
+ * Compared by blob hash against the fork commit's tree at the same relative
+ * path, rather than by `git diff`: the tree was moved (ADR-0011), so a path
+ * diff would call every file new, and the working tree must count so a file
+ * edited but not yet committed is held to the rule in the same session that
+ * edits it. A file with no counterpart in the fork tree was renamed, and a
+ * rename changed its contents too, so it is modified.
  */
+/** Hashing the ~4k vendored files is the slow part; two tests need the
+ *  answer and the tree cannot change mid-run, so it is computed once, in the
+ *  describe's `beforeAll` with a budget of its own (a concurrent build pushed
+ *  a per-test 5s past its limit on a pre-commit run). */
+let modifiedCache: string[] | null = null;
 function modifiedVendoredFiles(): string[] {
-  return git(
-    "diff",
-    "--name-only",
-    "--diff-filter=d", // a deleted file needs no notice
-    vendoringCommit(),
-    "--",
-    "vendor/codex",
-  )
-    .trim()
-    .split("\n")
-    .filter(Boolean);
+  modifiedCache ??= computeModifiedVendoredFiles();
+  return modifiedCache;
 }
+
+function computeModifiedVendoredFiles(): string[] {
+  const forkBlobs = new Map<string, string>();
+  for (const line of git("ls-tree", "-r", `${vendoringCommit()}:${VENDORED_AT}`).split("\n")) {
+    if (!line) continue;
+    const [meta, rel] = line.split("\t");
+    forkBlobs.set(rel, meta.split(" ")[2]);
+  }
+  const files = walk(VENDOR);
+  // Repo-relative with `/`: git matches `.gitattributes` against the path it
+  // is given, and a Windows absolute path (`C:\...`) matches no pattern — so
+  // the CRLF fixtures' nested `-text` rule was skipped, their bytes were
+  // normalised to LF before hashing, and they read as "modified".
+  const relative = files.map((abs) => path.relative(REPO_ROOT, abs).split(path.sep).join("/"));
+  const hashes = execFileSync("git", ["hash-object", "--stdin-paths"], {
+    cwd: REPO_ROOT,
+    encoding: "utf8",
+    input: relative.join("\n") + "\n",
+    maxBuffer: 64 * 1024 * 1024,
+  })
+    .trim()
+    .split("\n");
+  return files
+    .filter(
+      (rel, i) => forkBlobs.get(path.relative(VENDOR, rel).split(path.sep).join("/")) !== hashes[i],
+    )
+    .map((abs) => path.relative(REPO_ROOT, abs).split(path.sep).join("/"));
+}
+
+/** Every file under `dir`, `target/` excluded, as repo-relative paths. */
+function walk(dir: string): string[] {
+  const out: string[] = [];
+  for (const e of readdirSync(dir, { withFileTypes: true })) {
+    const p = path.join(dir, e.name);
+    if (e.isDirectory()) {
+      if (e.name !== "target") out.push(...walk(p));
+    } else out.push(p);
+  }
+  return out.sort();
+}
+
+/**
+ * Extensions whose files can carry a comment, and therefore must carry the
+ * notice. Anything else that is modified must be listed in
+ * `vendor/atlas-engine/ATLAS-CHANGES.md` instead — the tree-level notice for
+ * files that have no comment syntax (insta snapshots, compressed schema blobs,
+ * images, fixtures read verbatim).
+ */
+const COMMENTABLE = new Set([
+  ".rs",
+  ".ts",
+  ".tsx",
+  ".js",
+  ".mjs",
+  ".cjs",
+  ".proto",
+  ".lark",
+  ".md",
+  ".html",
+  ".svg",
+  ".xml",
+  ".manifest",
+  ".toml",
+  ".py",
+  ".sh",
+  ".yaml",
+  ".yml",
+  ".ps1",
+  ".rules",
+  ".sbpl",
+  ".sql",
+  ".json",
+]);
 
 describe("§4(a) and §4(d) — the licence and NOTICE reach recipients", () => {
   it("keeps both files in the vendored tree", () => {
@@ -178,8 +261,12 @@ describe("§4(a) and §4(d) — the licence and NOTICE reach recipients", () => 
 });
 
 describe("§4(b) — modified files say they were modified", () => {
+  beforeAll(() => {
+    modifiedVendoredFiles();
+  }, 120_000);
+
   it("has the history it needs — a shallow clone cannot run this suite", () => {
-    // On a depth-1 clone the oldest commit touching vendor/codex IS HEAD, so
+    // On a depth-1 clone the oldest commit touching the vendored path IS HEAD, so
     // the diff against it is empty and the rule below holds vacuously. Name
     // the cause here so the next person reads it instead of the symptom (#58).
     const resolved = vendoringCommit();
@@ -188,10 +275,11 @@ describe("§4(b) — modified files say they were modified", () => {
       "Check out with fetch-depth: 0 so the vendoring fork point is reachable.";
     // Two shapes of the same problem: no vendor history at all, or a history
     // so short that the fork point collapses onto HEAD.
-    expect(resolved, `no commit here touches vendor/codex — ${shallowHelp}`).not.toBe(SHALLOW);
+    expect(resolved, `no commit here touches ${VENDORED_AT} — ${shallowHelp}`).not.toBe(SHALLOW);
     expect(resolved, `vendoringCommit() resolved to HEAD — ${shallowHelp}`).not.toBe(
       git("rev-parse", "HEAD").trim(),
     );
+    expect(resolved, "the fork point moved — was history rewritten?").toBe(VENDORING_COMMIT);
   });
 
   it("finds the modification set (parser health)", () => {
@@ -200,14 +288,40 @@ describe("§4(b) — modified files say they were modified", () => {
   });
 
   it("puts a change notice in every modified vendored file", () => {
-    const missing = modifiedVendoredFiles().filter(
-      (rel) => !read(path.join(REPO_ROOT, rel)).includes(CHANGE_NOTICE),
+    const modified = modifiedVendoredFiles().filter(
+      (rel) => rel !== "vendor/atlas-engine/LICENSE" && rel !== "vendor/atlas-engine/NOTICE",
+    );
+    // Generated fixtures (the schema exports a test regenerates and compares
+    // byte-for-byte) cannot carry a header either: the generator would drop
+    // it, or the comparison would fail. They are listed in ATLAS-CHANGES.md
+    // under their directory, which is the tree-level notice for them.
+    const changes = read(path.join(VENDOR, "ATLAS-CHANGES.md"));
+    const listed = (rel: string) => {
+      const inside = rel.slice("vendor/atlas-engine/".length);
+      const dirs = changes
+        .split("\n")
+        .map((l) => l.trim().replace(/^[-*]\s*`?|`$/g, ""))
+        .filter((l) => l.endsWith("/"));
+      return changes.includes(inside) || dirs.some((d) => inside.startsWith(d));
+    };
+    const missing = modified.filter(
+      (rel) =>
+        COMMENTABLE.has(path.extname(rel)) &&
+        !listed(rel) &&
+        !read(path.join(REPO_ROOT, rel)).includes(CHANGE_NOTICE),
     );
     expect(
       missing,
       `these vendored files were changed without an Apache-2.0 §4(b) notice. ` +
         `Add the one-line "${CHANGE_NOTICE}" header — see CONTEXT.md, ` +
-        `"Vendored engine licensing".`,
+        `"Vendored engine licensing":\n${missing.slice(0, 80).join("\n")}`,
+    ).toEqual([]);
+
+    // Files with no comment syntax carry their notice at tree level instead.
+    const unlisted = modified.filter((rel) => !COMMENTABLE.has(path.extname(rel)) && !listed(rel));
+    expect(
+      unlisted,
+      `modified files that cannot carry a comment must be listed in ATLAS-CHANGES.md:\n${unlisted.join("\n")}`,
     ).toEqual([]);
   });
 });

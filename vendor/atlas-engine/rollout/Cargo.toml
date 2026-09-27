@@ -1,0 +1,53 @@
+# Modified by Atlas from upstream OpenAI Codex (Apache-2.0). See CONTEXT.md.
+[package]
+edition.workspace = true
+license.workspace = true
+name = "atlas-engine-rollout"
+version.workspace = true
+
+[lib]
+doctest = false
+name = "atlas_engine_rollout"
+path = "src/lib.rs"
+
+[lints]
+workspace = true
+
+[dependencies]
+anyhow = { workspace = true }
+chrono = { workspace = true, features = ["serde"] }
+atlas-engine-extension-items = { workspace = true }
+atlas-engine-file-search = { workspace = true }
+atlas-engine-git-utils = { workspace = true }
+atlas-engine-history = { workspace = true }
+atlas-engine-otel = { workspace = true }
+atlas-engine-protocol = { workspace = true }
+atlas-engine-state = { workspace = true }
+atlas-engine-utils-absolute-path = { workspace = true }
+atlas-engine-utils-path = { workspace = true }
+regex = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+tempfile = { workspace = true }
+time = { workspace = true, features = [
+    "formatting",
+    "local-offset",
+    "macros",
+    "parsing",
+] }
+tokio = { workspace = true, features = [
+    "fs",
+    "io-util",
+    "macros",
+    "process",
+    "rt",
+    "sync",
+    "time",
+] }
+tracing = { workspace = true }
+uuid = { workspace = true }
+zstd = { workspace = true }
+
+[dev-dependencies]
+atlas-engine-utils-absolute-path = { workspace = true }
+pretty_assertions = { workspace = true }

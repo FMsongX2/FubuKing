@@ -654,7 +654,7 @@ pub const USER_SOURCE: &str = "user";
 /// belongs to, or the session the extractor distilled.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Writer {
-    /// The durable agent id (`cersei` for the native agent) — the entry's source.
+    /// The durable agent id (`atlas-agent` for the native agent) — the entry's source.
     pub agent: String,
     pub session_id: String,
 }

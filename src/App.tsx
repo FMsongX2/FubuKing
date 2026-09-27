@@ -1,4 +1,4 @@
-import { startTransition, useState, useEffect, useRef } from "react";
+import { startTransition, useState, useEffect, useMemo, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { AppLayout } from "@/features/layout/components/app-layout";
 import { AppContextMenu } from "@/components/app-context-menu";
@@ -20,7 +20,6 @@ import {
   type AppStateWire,
 } from "@/features/app/stores/app-store";
 import { useChatStore } from "@/features/chat/stores/chat-store";
-import { listenMemoryUnconsulted } from "@/features/chat/lib/agents-api";
 import {
   listenAgents,
   pluginIdForAgentId,
@@ -61,11 +60,14 @@ import type { CliStatus } from "@/features/settings/components/settings-panel";
 import { basename } from "@/lib/paths";
 import {
   hydrateAgentRegistry,
+  setAgentUpdatePhase,
   startCatalogListener,
 } from "@/features/agents/stores/agent-registry-store";
 import { AgentOAuthModalHost } from "@/features/agents/components/agent-oauth-modal";
 import { watchRemovedAgents } from "@/features/chat/lib/removed-agents";
 import { AgentElicitationHost } from "@/features/chat/components/agent-elicitation-host";
+import { UiActionBridge } from "@/features/ui-actions/components/ui-action-bridge";
+import { OrgActionLogBridge } from "@/features/org-actions/components/org-action-log-bridge";
 import { initWindowFocusTracking, isWindowFocused } from "@/lib/window-focus";
 import { primeNativeNotificationPermission, sendNativeNotification } from "@/lib/native-notify";
 import { logEvent } from "@/features/log/lib/log";
@@ -79,6 +81,7 @@ import { LoadingOrganisationOverlay } from "@/features/organisations/components/
 import { StopAgentsDialog } from "@/features/projects/components/stop-agents-dialog";
 import { RemoveAgentDialog } from "@/features/agents/components/remove-agent-dialog";
 import { useOrgStore } from "@/features/organisations/stores/org-store";
+import { useActiveOrgProjects } from "@/features/projects/lib/org-scope";
 import {
   isOrgReconciled,
   markOrgReconciled,
@@ -96,6 +99,7 @@ import {
   listenUpdateChecking,
 } from "@/features/updater/lib/updater-api";
 import { Toaster, toast } from "sonner";
+import { agentMeta } from "@/features/agents/lib/agent-meta";
 import { IconThemeFonts } from "@/features/icon-theme/components/file-icon";
 import {
   auth,
@@ -313,6 +317,37 @@ export function App() {
       console.warn("boot org reconciliation failed:", e);
     });
   }, [bootAuthStatus, bootLocalActiveOrg, bootOrganisations]);
+
+  // The Timeline's cloud half, pointed at the Organisation on screen.
+  //
+  // App scope rather than the Timeline panel, for the same reason the chat
+  // socket is: the sockets are how a teammate's Session and a new comment
+  // arrive, and a panel-scoped target would mean "Timeline closed, nothing
+  // arrives". Rust reads each project's binding to decide which of them are
+  // actually bound to Cloud — passing paths keeps that judgement in one place.
+  const cloudProjects = useActiveOrgProjects();
+  const cloudProjectsKey = useMemo(
+    () =>
+      cloudProjects
+        .map((p) => p.path)
+        .sort()
+        .join("\n"),
+    [cloudProjects],
+  );
+  useEffect(() => {
+    const active = bootOrganisations.find((o) => o.id === bootLocalActiveOrg);
+    // A local-only Organisation has no `remoteId` and nothing to point at;
+    // `null` is what tears the previous tenant's sockets down.
+    const orgId = bootAuthStatus === "signed-in" ? (active?.remoteId ?? null) : null;
+    void invoke("artifacts_cloud_retarget", {
+      orgId,
+      projectPaths: cloudProjectsKey ? cloudProjectsKey.split("\n") : [],
+    }).catch((e) => {
+      // The Timeline still renders every local Session without this; a toast
+      // for a background target would be noise.
+      console.warn("timeline cloud retarget failed:", e);
+    });
+  }, [bootAuthStatus, bootLocalActiveOrg, bootOrganisations, cloudProjectsKey]);
 
   // Team chat: the renderer is a projection of Rust's chat state. The socket
   // lives in Rust for the app's lifetime (it is also the notification
@@ -634,7 +669,7 @@ export function App() {
     // runs breaks the run so ordering is preserved. (Previously text was
     // bucketed separately and applied BEFORE other deltas, which reordered the
     // anchoring `message_appended` after its text — invisible for ACP agents
-    // whose IPC latency spread deltas across frames, but the in-process Cersei
+    // whose IPC latency spread deltas across frames, but the in-process native
     // agent emits a whole turn in one frame and the text shattered into
     // mis-ordered fragments.)
     const pendingDeltas: AgentDelta[] = [];
@@ -933,7 +968,7 @@ export function App() {
     const autoIndexAfterTurn = (acpSessionId: string) => {
       const sessions = useChatStore.getState().sessions;
       const sess = Object.values(sessions).find((s) => s.acpSessionId === acpSessionId);
-      if (sess?.agentType !== "cersei") return;
+      if (sess?.agentType !== "atlas-agent") return;
       const path = sess.workingDirectory;
       if (!path) return;
       const existing = indexTimers.get(path);
@@ -946,7 +981,7 @@ export function App() {
           // "Indexing…" then refresh its status.
           const emit = (active: boolean) =>
             window.dispatchEvent(
-              new CustomEvent("atlas:cersei-index", {
+              new CustomEvent("atlas:agent-index", {
                 detail: { path, active },
               }),
             );
@@ -994,6 +1029,32 @@ export function App() {
       // single store write per change, and every tab on that agent reads it.
       if (env.kind === "loading_status") {
         actions.setAgentStartingStatus(env.plugin_id, env.status);
+        return;
+      }
+      // Session-less too: an installed agent was updated on a registry bump.
+      // Rust waited for it to go idle before restarting it, so nothing was
+      // cut off; open chats already got `agent_disconnected` and reconnect on
+      // their next send. The toast is the only place an update is announced.
+      if (env.kind === "agent_update") {
+        const name = agentMeta(env.plugin_id).label;
+        if (env.phase === "waiting" || env.phase === "restarting" || env.phase === "installing") {
+          setAgentUpdatePhase(env.plugin_id, { phase: env.phase, version: env.version });
+          if (env.phase === "restarting") actions.noteAgentUpdated(env.plugin_id, env.version);
+          return;
+        }
+        setAgentUpdatePhase(env.plugin_id, null);
+        if (env.phase === "ready") {
+          // Same id as the marketplace's own Update toast: a manual update can
+          // also be installed by the background pass, and that is one update.
+          toast.success(`${name} updated to v${env.version}`, {
+            id: `agent-update:${env.plugin_id}:${env.version}`,
+          });
+        } else {
+          toast.warning(
+            `${name} v${env.version} couldn't install in the background. It will retry the next time you use it.`,
+            { description: env.error ?? undefined },
+          );
+        }
         return;
       }
       if (
@@ -1338,18 +1399,6 @@ export function App() {
     ensureRecentFilesListener();
   }, []);
 
-  // A session that answered without ever reading shared memory says so, once.
-  // Host-observed rather than agent-reported, so it rides its own event rather
-  // than the frozen delta wire.
-  useEffect(() => {
-    const unlisten = listenMemoryUnconsulted(({ sessionId }) => {
-      useChatStore.getState().actions.noteMemoryUnconsulted(sessionId);
-    });
-    return () => {
-      void unlisten.then((f) => f());
-    };
-  }, []);
-
   // Quit durability: per-switch flushes are fire-and-forget, so on window
   // close flush the ACTIVE project's pending writes (background projects
   // were already flushed when we left them). beforeunload can't await, but it
@@ -1522,6 +1571,8 @@ export function App() {
       {/* Sign-in asks questions of its own (device codes, login URLs), and they
           arrive before the agent has any session to route them by. */}
       <AgentElicitationHost />
+      <UiActionBridge />
+      <OrgActionLogBridge />
       <NotificationPanel />
       <FeedbackPanel />
       <UpdateAvailableModal />

@@ -58,8 +58,8 @@ function setCatalog(entries: Entry[]) {
 
 /** The native agent, which every install has and no install can remove. */
 const NATIVE: Entry = {
-  id: "cersei",
-  agentType: "cersei",
+  id: "atlas-agent",
+  agentType: "atlas-agent",
   name: "Atlas Agent",
   kind: "native",
   source: "in-process",
@@ -85,7 +85,7 @@ describe("switchableAgentIds", () => {
     // ADR-0002. Atlas ships no ACP agents, so a fresh install has
     // exactly one thing to switch to — anything else would be a default agent.
     setCatalog([NATIVE]);
-    expect(switchableAgentIds()).toEqual(["cersei"]);
+    expect(switchableAgentIds()).toEqual(["atlas-agent"]);
   });
 
   it("adds an agent once the user installs it, and drops it on uninstall", () => {
@@ -97,7 +97,7 @@ describe("switchableAgentIds", () => {
 
   it("keeps the native agent first, then installs A–Z by label", () => {
     setCatalog(AFTER_INSTALLS);
-    expect(switchableAgentIds()).toEqual(["cersei", "claude-acp", "codex-acp"]);
+    expect(switchableAgentIds()).toEqual(["atlas-agent", "claude-acp", "codex-acp"]);
   });
 
   it("leaves a merely-detected agent out — it is an offer, not a spawn", () => {
@@ -109,13 +109,13 @@ describe("switchableAgentIds", () => {
 
   it("excludes an installed agent with nothing runnable behind it", () => {
     setCatalog([NATIVE, { id: "broken-acp", name: "Broken", source: "unavailable" }]);
-    expect(switchableAgentIds()).toEqual(["cersei"]);
+    expect(switchableAgentIds()).toEqual(["atlas-agent"]);
   });
 
   it("names the native agent alone before the catalog hydrates", () => {
     // Boot paths call this before any catalog exists; it must not go empty,
     // and it must not guess at an ACP agent the user may not have.
-    expect(switchableAgentIds()).toEqual(["cersei"]);
+    expect(switchableAgentIds()).toEqual(["atlas-agent"]);
   });
 });
 
@@ -134,7 +134,7 @@ describe("agentMeta", () => {
     // is always there.
     setCatalog(AFTER_INSTALLS);
     for (const missing of [null, undefined, ""]) {
-      expect(agentMeta(missing).agentType).toBe("cersei");
+      expect(agentMeta(missing).agentType).toBe("atlas-agent");
       expect(agentMeta(missing).label).toBe("Atlas Agent");
     }
   });
@@ -177,7 +177,7 @@ describe("switchableAgentOf", () => {
   });
 
   it("keeps every first-party agent as itself", () => {
-    for (const id of ["codex", "opencode", "cursor", "kilo", "cersei"]) {
+    for (const id of ["codex", "opencode", "cursor", "kilo", "atlas-agent"]) {
       expect(switchableAgentOf(id)).toBe(id);
     }
   });
@@ -205,8 +205,8 @@ describe("switchableAgentOf", () => {
     // Was Claude Code, which since the port would highlight an ACP agent the
     // user may never have installed (ADR-0002). "custom" is the retired legacy
     // value and means the same thing: nothing was recorded.
-    expect(switchableAgentOf(undefined)).toBe("cersei");
-    expect(switchableAgentOf("")).toBe("cersei");
-    expect(switchableAgentOf("custom")).toBe("cersei");
+    expect(switchableAgentOf(undefined)).toBe("atlas-agent");
+    expect(switchableAgentOf("")).toBe("atlas-agent");
+    expect(switchableAgentOf("custom")).toBe("atlas-agent");
   });
 });

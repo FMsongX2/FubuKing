@@ -2,6 +2,11 @@ import { useEffect, useRef } from "react";
 import { type Combo, matchesCombo, parseCombo } from "@/features/keybindings/lib/combo";
 import type { ActionId } from "@/features/keybindings/lib/actions";
 import { useKeybindingsStore } from "@/features/keybindings/stores/keybindings-store";
+import {
+  hasActionHandler,
+  registerActionHandlers,
+  runAction,
+} from "@/features/keybindings/lib/action-registry";
 
 /**
  * Global (window, bubble-phase) hotkey dispatcher. First match wins and the
@@ -38,10 +43,15 @@ export function useHotkeys(bindings: Array<{ combo: Combo | string; action: () =
  * The app-level dispatcher: handlers keyed by action id; the chords come from
  * the active keybinding profile (registry defaults ⊕ user overrides) and
  * follow it live. Dispatch order is registry order.
+ *
+ * The handlers are also registered with the action registry, so anything
+ * else can run a global command by id through the very same closure.
  */
 export function useActionHotkeys(handlers: Partial<Record<ActionId, () => void>>) {
   const handlersRef = useRef(handlers);
   handlersRef.current = handlers;
+
+  useEffect(() => registerActionHandlers(() => handlersRef.current), []);
 
   useEffect(() => {
     function handler(e: KeyboardEvent) {
@@ -49,11 +59,10 @@ export function useActionHotkeys(handlers: Partial<Record<ActionId, () => void>>
       if (state.recording) return;
       for (const binding of state.resolved.list) {
         if (binding.when !== "global") continue;
-        const action = handlersRef.current[binding.actionId];
-        if (!action) continue;
+        if (!hasActionHandler(binding.actionId)) continue;
         if (matchesCombo(e, binding.combo)) {
           e.preventDefault();
-          action();
+          runAction(binding.actionId);
           return;
         }
       }

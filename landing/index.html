@@ -3684,9 +3684,9 @@
           <div class="ce-line"><span class="ce-num">3</span><span class="ce-src"><span class="ce-kw">use</span> crate<span class="ce-punct">::</span>config<span class="ce-punct">::</span><span class="ce-type">AppConfig</span><span class="ce-punct">;</span></span></div>
           <div class="ce-line"><span class="ce-num">4</span><span class="ce-src"><span class="ce-kw">use</span> crate<span class="ce-punct">::</span>permissions<span class="ce-punct">::</span><span class="ce-type">CliPermissionPolicy</span><span class="ce-punct">;</span></span></div>
           <div class="ce-line"><span class="ce-num">5</span><span class="ce-src"><span class="ce-kw">use</span> crate<span class="ce-punct">::</span>sessions<span class="ce-punct">;</span></span></div>
-          <div class="ce-line"><span class="ce-num">6</span><span class="ce-src"><span class="ce-kw">use</span> cersei_agent<span class="ce-punct">::</span>effort<span class="ce-punct">::</span><span class="ce-type">EffortLevel</span><span class="ce-punct">;</span></span></div>
-          <div class="ce-line"><span class="ce-num">7</span><span class="ce-src"><span class="ce-kw">use</span> cersei_mcp<span class="ce-punct">::</span><span class="ce-type">McpServerConfig</span><span class="ce-punct">;</span></span></div>
-          <div class="ce-line"><span class="ce-num">8</span><span class="ce-src"><span class="ce-kw">use</span> cersei_memory<span class="ce-punct">::</span>manager<span class="ce-punct">::</span><span class="ce-type">MemoryManager</span><span class="ce-punct">;</span></span></div>
+          <div class="ce-line"><span class="ce-num">6</span><span class="ce-src"><span class="ce-kw">use</span> atlas_native_agent<span class="ce-punct">::</span><span class="ce-type">AgentSessionEffort</span><span class="ce-punct">;</span></span></div>
+          <div class="ce-line"><span class="ce-num">7</span><span class="ce-src"><span class="ce-kw">use</span> atlas_agent_manager<span class="ce-punct">::</span><span class="ce-type">AgentManager</span><span class="ce-punct">;</span></span></div>
+          <div class="ce-line"><span class="ce-num">8</span><span class="ce-src"><span class="ce-kw">use</span> atlas_memory<span class="ce-punct">::</span>retrieve<span class="ce-punct">::</span><span class="ce-type">Retriever</span><span class="ce-punct">;</span></span></div>
           <div class="ce-line"><span class="ce-num">9</span><span class="ce-src"><span class="ce-kw">use</span> tokio_util<span class="ce-punct">::</span>sync<span class="ce-punct">::</span><span class="ce-type">CancellationToken</span><span class="ce-punct">;</span></span></div>
           <div class="ce-line"><span class="ce-num">10</span><span class="ce-src"> </span></div>
           <div class="ce-line"><span class="ce-num">11</span><span class="ce-src"><span class="ce-comment">/// Run the application (REPL or single-shot).</span></span></div>
@@ -3816,7 +3816,7 @@
               <span class="cv-note-meta">12m</span>
             </div>
             <div class="cv-note-body">
-              <p>Cersei's REPL session lifecycle; Claude Code subprocess hand-off.</p>
+              <p>The native agent's session lifecycle; Claude Code subprocess hand-off.</p>
             </div>
           </div>
         </div>
@@ -4154,7 +4154,7 @@
             <div class="mg-node" style="left:26%;top:24%"><span class="mg-dot"></span><span class="mg-label">permission-sync</span></div>
             <div class="mg-node" style="left:74%;top:26%"><span class="mg-dot"></span><span class="mg-label">git-refresh</span></div>
             <div class="mg-node" style="left:24%;top:66%"><span class="mg-dot"></span><span class="mg-label">flex-minh0</span></div>
-            <div class="mg-node" style="left:78%;top:64%"><span class="mg-dot"></span><span class="mg-label">cersei-result</span></div>
+            <div class="mg-node" style="left:78%;top:64%"><span class="mg-dot"></span><span class="mg-label">agent-result</span></div>
             <div class="mg-node is-dim" style="left:50%;top:18%"><span class="mg-dot"></span><span class="mg-label">multi-window</span></div>
             <div class="mg-node is-dim" style="left:50%;top:80%"><span class="mg-dot"></span><span class="mg-label">bash-toolcall</span></div>
           </div>

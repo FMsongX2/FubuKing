@@ -403,8 +403,8 @@ impl AgentManager {
     /// reach it — including [`Self::shutdown`] before it swept the sessions map
     /// too, which is how these outlived the app (ATL-227).
     ///
-    /// Local only: the sessions are not closed on the agent first. A version
-    /// bump and an uninstall both end with that process being dropped, and a
+    /// Local only: the sessions are not closed on the agent first. An update
+    /// and an uninstall both end with that process being dropped, and a
     /// `session/close` RPC to a peer that is about to be killed buys nothing.
     fn forget_sessions_for(&self, key: &Agent) {
         self.lock_sessions().retain(|(agent, _), _| agent != key);
@@ -644,10 +644,16 @@ impl AgentManager {
         });
     }
 
-    /// Ported from the version watcher (`:209-238`).
+    /// Ported from the version watcher (`:209-238`), minus the eviction.
     ///
-    /// One bump is enough: the entry goes, and with it the manager's handle on a
-    /// connection running the old binary. The next request starts the new one.
+    /// Zed drops the entry the moment the version moves. Here that stranded
+    /// every open chat on the agent: the manager forgot their sessions while
+    /// the host and the tab still held them, so the next message failed with
+    /// "unknown session id" and nothing recovered it. So this only announces
+    /// the bump. Whoever owns the sessions decides when the old process goes —
+    /// the host waits for the agent to go idle, tells each open chat, then
+    /// drops the connection (`AgentHost::apply_agent_update`). One bump per
+    /// entry: the restart replaces the entry, and its successor watches anew.
     fn watch_new_version(self: &Arc<Self>, key: Agent, entry: &Entry) {
         let Agent::Custom { id } = &key else {
             // Nothing versions the in-process agent but the app itself.
@@ -673,18 +679,10 @@ impl AgentManager {
                 if !this.is_current(&key, &entry) {
                     return;
                 }
-                let removed = this.lock_entries().remove(&key);
-                if let Some(removed) = removed {
-                    // Including an attempt still in flight: it is resolving the
-                    // command of the binary that just went stale.
-                    cancel_connect(&removed);
-                }
-                this.forget_sessions_for(&key);
                 this.emit(AgentManagerEvent::NewVersionAvailable {
                     agent: key.clone(),
                     version,
                 });
-                this.emit(AgentManagerEvent::ConnectionsChanged);
                 return;
             }
         });

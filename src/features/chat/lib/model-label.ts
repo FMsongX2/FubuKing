@@ -35,7 +35,7 @@ export function resolveModelLabel(
   const list =
     available && available.length > 0
       ? available
-      : (loadCachedAcpModels(agentType ?? "cersei")?.availableModels ?? []);
+      : (loadCachedAcpModels(agentType ?? "atlas-agent")?.availableModels ?? []);
   const hit = list.find((m) => m.id === modelId);
   return hit ? modelLabel(hit) : modelId;
 }

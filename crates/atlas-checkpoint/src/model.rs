@@ -18,7 +18,7 @@ pub enum Source {
     /// An ACP-hosted agent running inside Atlas (Claude Code, Codex).
     Acp,
     /// The native agent.
-    Cersei,
+    Native,
     /// Read back from an agent's own on-disk transcript, live or historical.
     ExternalJsonl,
 }
@@ -27,7 +27,7 @@ impl Source {
     pub fn as_str(self) -> &'static str {
         match self {
             Self::Acp => "acp",
-            Self::Cersei => "cersei",
+            Self::Native => "native",
             Self::ExternalJsonl => "external_jsonl",
         }
     }
@@ -35,7 +35,7 @@ impl Source {
     pub fn parse(raw: &str) -> Option<Self> {
         match raw {
             "acp" => Some(Self::Acp),
-            "cersei" => Some(Self::Cersei),
+            "native" => Some(Self::Native),
             "external_jsonl" => Some(Self::ExternalJsonl),
             _ => None,
         }
@@ -47,7 +47,7 @@ impl Source {
     /// imported transcript cannot supply — so this is what decides whether a
     /// Session is eligible for Checkpoints at all.
     pub fn is_live(self) -> bool {
-        matches!(self, Self::Acp | Self::Cersei)
+        matches!(self, Self::Acp | Self::Native)
     }
 }
 
@@ -197,6 +197,11 @@ pub enum TurnState {
     Completed,
     /// Was open when the store was last closed. Reconciled on next open.
     Aborted,
+    /// Taken back by the agent (a retry rewinds the last turn, then re-sends
+    /// its prompt as a new one). The rows stay — it happened, and the
+    /// Timeline keeps it — but the live chat no longer shows it, so nothing
+    /// that pairs chat messages with recorded turns may count it.
+    Rewound,
 }
 
 impl TurnState {
@@ -205,6 +210,7 @@ impl TurnState {
             Self::Open => "open",
             Self::Completed => "completed",
             Self::Aborted => "aborted",
+            Self::Rewound => "rewound",
         }
     }
 
@@ -213,6 +219,7 @@ impl TurnState {
             "open" => Some(Self::Open),
             "completed" => Some(Self::Completed),
             "aborted" => Some(Self::Aborted),
+            "rewound" => Some(Self::Rewound),
             _ => None,
         }
     }

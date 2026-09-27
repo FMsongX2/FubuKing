@@ -1,0 +1,24 @@
+# Modified by Atlas from upstream OpenAI Codex (Apache-2.0). See CONTEXT.md.
+[package]
+edition.workspace = true
+license.workspace = true
+name = "atlas-engine-connectors-extension"
+version.workspace = true
+
+[lib]
+name = "atlas_engine_connectors_extension"
+path = "src/lib.rs"
+doctest = false
+test = false
+
+[lints]
+workspace = true
+
+[dependencies]
+atlas-engine-connectors = { workspace = true }
+atlas-engine-core-plugins = { workspace = true }
+atlas-engine-plugin = { workspace = true }
+atlas-engine-utils-path-uri = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }

@@ -28,6 +28,7 @@ import {
   TerminalSquare,
   ClipboardList,
   ListFilter,
+  MessageSquare,
   User,
   Sparkles,
   Check,
@@ -86,6 +87,11 @@ interface ChatHeaderProps {
   onToggleBash: () => void;
   plansPanelOpen: boolean;
   onTogglePlans: () => void;
+  /** Comments on this session in the shared Timeline, or `null` when the
+   *  session is not in the cloud — then there is no button at all. */
+  commentCount: number | null;
+  commentsPanelOpen: boolean;
+  onToggleComments: () => void;
   /** P3.4: only rendered when the agent advertised `sessionCapabilities.fork`.
    *  Absent for every agent that did not, so the menu never offers a branch
    *  that would fail on the wire. */
@@ -110,6 +116,9 @@ function ChatHeaderImpl({
   onToggleBash,
   plansPanelOpen,
   onTogglePlans,
+  commentCount,
+  commentsPanelOpen,
+  onToggleComments,
   onForkSession,
   onNewSession,
 }: ChatHeaderProps) {
@@ -196,6 +205,27 @@ function ChatHeaderImpl({
               "cursor-pointer outline-none",
             )}
           />
+
+          {/* Only on a session the Organisation can see. The badge counts
+              comments, capped where the circle runs out of room. */}
+          {commentCount !== null && (
+            <HeaderCircleButton
+              title={commentsPanelOpen ? "Close comments" : "Comments"}
+              onClick={onToggleComments}
+              aria-pressed={commentsPanelOpen}
+              className={cn(
+                "relative",
+                commentsPanelOpen && "bg-[var(--atlas-element-active)] text-[var(--foreground)]",
+              )}
+            >
+              <MessageSquare size={13} />
+              {commentCount > 0 && (
+                <span className="absolute -right-1 -top-1 flex h-[14px] min-w-[14px] items-center justify-center rounded-full bg-[var(--primary)] px-1 font-mono text-3xs leading-none text-[var(--primary-foreground)] tabular-nums">
+                  {commentCount > 9 ? "9+" : commentCount}
+                </span>
+              )}
+            </HeaderCircleButton>
+          )}
 
           <HeaderCircleButton
             title={findHint ? `Find in chat (${findHint})` : "Find in chat"}

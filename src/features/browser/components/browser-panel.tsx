@@ -422,6 +422,21 @@ export function BrowserPanel({ tabId, initialUrl, groupId }: BrowserPanelProps) 
     [mode, ensureLive, fetchPage],
   );
 
+  // An agent's UI action pointing this (already mounted) tab at a new URL —
+  // `initialUrl` is only read on mount.
+  useEffect(() => {
+    if (!tabId) return;
+    const onNavigate = (e: Event) => {
+      const detail = (e as CustomEvent<{ tabId?: string; url?: string }>).detail;
+      if (detail?.tabId === tabId && detail.url) {
+        setInputUrl(detail.url);
+        navigate(detail.url);
+      }
+    };
+    window.addEventListener("atlas:browser-navigate", onNavigate);
+    return () => window.removeEventListener("atlas:browser-navigate", onNavigate);
+  }, [tabId, navigate]);
+
   const goBack = () => {
     if (mode === "live") {
       invoke("browser_embed_back", { id: embedId }).catch(() => {});

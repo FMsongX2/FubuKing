@@ -1,0 +1,220 @@
+// Modified by Atlas from upstream OpenAI Codex (Apache-2.0). See CONTEXT.md.
+use crate::error_code::internal_error;
+use crate::error_code::invalid_request;
+use crate::fs_watch::FsWatchManager;
+use crate::outgoing_message::ConnectionId;
+use base64::Engine;
+use base64::engine::general_purpose::STANDARD;
+use atlas_engine_app_server_protocol::FsCopyParams;
+use atlas_engine_app_server_protocol::FsCopyResponse;
+use atlas_engine_app_server_protocol::FsCreateDirectoryParams;
+use atlas_engine_app_server_protocol::FsCreateDirectoryResponse;
+use atlas_engine_app_server_protocol::FsGetMetadataParams;
+use atlas_engine_app_server_protocol::FsGetMetadataResponse;
+use atlas_engine_app_server_protocol::FsReadDirectoryEntry;
+use atlas_engine_app_server_protocol::FsReadDirectoryParams;
+use atlas_engine_app_server_protocol::FsReadDirectoryResponse;
+use atlas_engine_app_server_protocol::FsReadFileParams;
+use atlas_engine_app_server_protocol::FsReadFileResponse;
+use atlas_engine_app_server_protocol::FsRemoveParams;
+use atlas_engine_app_server_protocol::FsRemoveResponse;
+use atlas_engine_app_server_protocol::FsUnwatchParams;
+use atlas_engine_app_server_protocol::FsUnwatchResponse;
+use atlas_engine_app_server_protocol::FsWatchParams;
+use atlas_engine_app_server_protocol::FsWatchResponse;
+use atlas_engine_app_server_protocol::FsWriteFileParams;
+use atlas_engine_app_server_protocol::FsWriteFileResponse;
+use atlas_engine_app_server_protocol::JSONRPCErrorError;
+use atlas_engine_exec_server::CopyOptions;
+use atlas_engine_exec_server::CreateDirectoryOptions;
+use atlas_engine_exec_server::EnvironmentManager;
+use atlas_engine_exec_server::ExecutorFileSystem;
+use atlas_engine_exec_server::RemoveOptions;
+use atlas_engine_utils_path_uri::PathUri;
+use std::io;
+use std::sync::Arc;
+
+#[derive(Clone)]
+pub(crate) struct FsRequestProcessor {
+    environment_manager: Arc<EnvironmentManager>,
+    fs_watch_manager: FsWatchManager,
+}
+
+impl FsRequestProcessor {
+    pub(crate) fn new(
+        environment_manager: Arc<EnvironmentManager>,
+        fs_watch_manager: FsWatchManager,
+    ) -> Self {
+        Self {
+            environment_manager,
+            fs_watch_manager,
+        }
+    }
+
+    fn file_system(&self) -> Result<Arc<dyn ExecutorFileSystem>, JSONRPCErrorError> {
+        self.environment_manager
+            .try_local_environment()
+            .map(|environment| environment.get_filesystem())
+            .ok_or_else(|| internal_error("local filesystem is not configured"))
+    }
+
+    pub(crate) async fn connection_closed(&self, connection_id: ConnectionId) {
+        self.fs_watch_manager.connection_closed(connection_id).await;
+    }
+
+    pub(crate) async fn read_file(
+        &self,
+        params: FsReadFileParams,
+    ) -> Result<FsReadFileResponse, JSONRPCErrorError> {
+        let path = PathUri::from_abs_path(&params.path);
+        let bytes = self
+            .file_system()?
+            .read_file(&path, /*sandbox*/ None)
+            .await
+            .map_err(map_fs_error)?;
+        Ok(FsReadFileResponse {
+            data_base64: STANDARD.encode(bytes),
+        })
+    }
+
+    pub(crate) async fn write_file(
+        &self,
+        params: FsWriteFileParams,
+    ) -> Result<FsWriteFileResponse, JSONRPCErrorError> {
+        let bytes = STANDARD.decode(params.data_base64).map_err(|err| {
+            invalid_request(format!(
+                "fs/writeFile requires valid base64 dataBase64: {err}"
+            ))
+        })?;
+        let path = PathUri::from_abs_path(&params.path);
+        self.file_system()?
+            .write_file(&path, bytes, /*sandbox*/ None)
+            .await
+            .map_err(map_fs_error)?;
+        Ok(FsWriteFileResponse {})
+    }
+
+    pub(crate) async fn create_directory(
+        &self,
+        params: FsCreateDirectoryParams,
+    ) -> Result<FsCreateDirectoryResponse, JSONRPCErrorError> {
+        let path = PathUri::from_abs_path(&params.path);
+        self.file_system()?
+            .create_directory(
+                &path,
+                CreateDirectoryOptions {
+                    recursive: params.recursive.unwrap_or(true),
+                },
+                /*sandbox*/ None,
+            )
+            .await
+            .map_err(map_fs_error)?;
+        Ok(FsCreateDirectoryResponse {})
+    }
+
+    pub(crate) async fn get_metadata(
+        &self,
+        params: FsGetMetadataParams,
+    ) -> Result<FsGetMetadataResponse, JSONRPCErrorError> {
+        let path = PathUri::from_abs_path(&params.path);
+        let metadata = self
+            .file_system()?
+            .get_metadata(&path, /*sandbox*/ None)
+            .await
+            .map_err(map_fs_error)?;
+        Ok(FsGetMetadataResponse {
+            is_directory: metadata.is_directory,
+            is_file: metadata.is_file,
+            is_symlink: metadata.is_symlink,
+            created_at_ms: metadata.created_at_ms,
+            modified_at_ms: metadata.modified_at_ms,
+        })
+    }
+
+    pub(crate) async fn read_directory(
+        &self,
+        params: FsReadDirectoryParams,
+    ) -> Result<FsReadDirectoryResponse, JSONRPCErrorError> {
+        let path = PathUri::from_abs_path(&params.path);
+        let entries = self
+            .file_system()?
+            .read_directory(&path, /*sandbox*/ None)
+            .await
+            .map_err(map_fs_error)?;
+        Ok(FsReadDirectoryResponse {
+            entries: entries
+                .into_iter()
+                .map(|entry| FsReadDirectoryEntry {
+                    file_name: entry.file_name,
+                    is_directory: entry.is_directory,
+                    is_file: entry.is_file,
+                })
+                .collect(),
+        })
+    }
+
+    pub(crate) async fn remove(
+        &self,
+        params: FsRemoveParams,
+    ) -> Result<FsRemoveResponse, JSONRPCErrorError> {
+        let path = PathUri::from_abs_path(&params.path);
+        self.file_system()?
+            .remove(
+                &path,
+                RemoveOptions {
+                    recursive: params.recursive.unwrap_or(true),
+                    force: params.force.unwrap_or(true),
+                },
+                /*sandbox*/ None,
+            )
+            .await
+            .map_err(map_fs_error)?;
+        Ok(FsRemoveResponse {})
+    }
+
+    pub(crate) async fn copy(
+        &self,
+        params: FsCopyParams,
+    ) -> Result<FsCopyResponse, JSONRPCErrorError> {
+        let source_path = PathUri::from_abs_path(&params.source_path);
+        let destination_path = PathUri::from_abs_path(&params.destination_path);
+        self.file_system()?
+            .copy(
+                &source_path,
+                &destination_path,
+                CopyOptions {
+                    recursive: params.recursive,
+                },
+                /*sandbox*/ None,
+            )
+            .await
+            .map_err(map_fs_error)?;
+        Ok(FsCopyResponse {})
+    }
+
+    pub(crate) async fn watch(
+        &self,
+        connection_id: ConnectionId,
+        params: FsWatchParams,
+    ) -> Result<FsWatchResponse, JSONRPCErrorError> {
+        self.file_system()?;
+        self.fs_watch_manager.watch(connection_id, params).await
+    }
+
+    pub(crate) async fn unwatch(
+        &self,
+        connection_id: ConnectionId,
+        params: FsUnwatchParams,
+    ) -> Result<FsUnwatchResponse, JSONRPCErrorError> {
+        self.file_system()?;
+        self.fs_watch_manager.unwatch(connection_id, params).await
+    }
+}
+
+fn map_fs_error(err: io::Error) -> JSONRPCErrorError {
+    if err.kind() == io::ErrorKind::InvalidInput {
+        invalid_request(err.to_string())
+    } else {
+        internal_error(err.to_string())
+    }
+}

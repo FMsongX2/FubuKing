@@ -1,0 +1,26 @@
+# Modified by Atlas from upstream OpenAI Codex (Apache-2.0). See CONTEXT.md.
+[package]
+edition.workspace = true
+license.workspace = true
+name = "atlas-engine-git-attribution"
+version.workspace = true
+
+[lib]
+name = "atlas_engine_git_attribution"
+path = "src/lib.rs"
+doctest = false
+
+[lints]
+workspace = true
+
+[dependencies]
+atlas-engine-backend-client = { workspace = true }
+atlas-engine-extension-api = { workspace = true }
+atlas-engine-http-client = { workspace = true }
+atlas-engine-login = { workspace = true }
+serde_json = { workspace = true }
+tokio = { workspace = true, features = ["time"] }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["macros", "rt"] }
+wiremock = { workspace = true }

@@ -815,8 +815,13 @@ pub struct RetryStatus {
 /// Why a connection stopped serving a thread.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum LoadError {
-    Unsupported { message: Arc<str> },
-    Exited { status: Option<i32>, stderr: Arc<str> },
+    Unsupported {
+        message: Arc<str>,
+    },
+    Exited {
+        status: Option<i32>,
+        stderr: Arc<str>,
+    },
     /// A hop on the connect/bind path ran past its deadline while the agent
     /// process was still alive. Distinct from `Exited`: the process did not
     /// die, it went silent — and from `Other`, so a caller can tell "the
@@ -907,6 +912,67 @@ struct RunningTurn {
     id: u32,
 }
 
+/// The marker line opening the next-steps directive Atlas appends to every wire
+/// prompt.
+///
+/// Mirrors `NEXT_STEPS_MARKER` in `src/features/chat/lib/next-steps.ts` and in
+/// `crates/atlas-checkpoint/src/capture.rs`; all three must change together, and
+/// `tests/next-steps-marker-parity.test.ts` is what says so out loud.
+const NEXT_STEPS_MARKER: &str = "═══ Atlas next-steps ═══";
+
+/// Whether a title is the agent having named the session after Atlas's own
+/// prompt machinery rather than after the conversation.
+///
+/// Atlas appends a hidden next-steps directive to the wire prompt, so a short
+/// user message ("here you go") reaches the agent outweighed several times over
+/// by Atlas's own words. An agent that titles sessions by summarising the first
+/// prompt — Claude Code does — then answers with `Atlas next-steps`, and every
+/// surface that renders a thread name repeats it back as if the user had said
+/// it. The directive is stripped from the transcript (`capture.rs`) and from
+/// display (`next-steps.ts`); the title is the one string that travels back
+/// *from* the agent already contaminated, so it is the one that has to be
+/// caught on the way in.
+///
+/// Deliberately narrow. The title must both mention next steps *and* consist of
+/// nothing but the marker's own words, so a thread about a release's next steps
+/// ("Next steps for 0.3.4") keeps its name. When it does fire the cost is small:
+/// the thread falls back to [`AcpThread::fallback_title`], which is the first
+/// line the user actually typed.
+///
+/// Named here, beside the only field it guards, rather than taking a host-
+/// supplied predicate the way [`AcpThread::fallback_title`] takes its cleaner.
+/// That cleaner parses a block format the host owns; this is one constant, and
+/// the readers of [`AcpThread::title`] are spread across three crates — a
+/// predicate each of them had to remember to apply is a predicate one of them
+/// will forget.
+pub fn is_host_machinery_title(title: &str) -> bool {
+    /// Lowercase, with every run of non-alphanumerics collapsed to one space,
+    /// so `Atlas next-steps`, `atlas next steps` and `═══ Atlas next-steps ═══`
+    /// all compare equal.
+    fn normalize(text: &str) -> String {
+        let mut out = String::with_capacity(text.len());
+        for ch in text.chars() {
+            if ch.is_alphanumeric() {
+                out.extend(ch.to_lowercase());
+            } else if !out.ends_with(' ') {
+                out.push(' ');
+            }
+        }
+        out.trim().to_string()
+    }
+
+    // The tag Atlas asks for in the reply. An agent that echoes it into a title
+    // is quoting machinery whatever else the title says.
+    if title.contains("<next_steps>") {
+        return true;
+    }
+    let title = normalize(title);
+    if title.is_empty() {
+        return false;
+    }
+    title.contains("next step") && normalize(NEXT_STEPS_MARKER).contains(&title)
+}
+
 pub struct AcpThread {
     session_id: acp::SessionId,
     work_dirs: Vec<PathBuf>,
@@ -959,7 +1025,11 @@ impl AcpThread {
             session_id,
             work_dirs,
             parent_session_id: None,
-            title,
+            // Filtered on the way in as well as on update: a resume seeds this
+            // from the stored row (`agent_host.rs`, the `Some(session_id)`
+            // arm), and a row stored before the filter existed carries the bad
+            // title forward into a thread that would then re-record it.
+            title: title.filter(|title| !is_host_machinery_title(title)),
             entries: Vec::new(),
             entry_created_at: Vec::new(),
             elicitations: ElicitationStore::default(),
@@ -1026,7 +1096,9 @@ impl AcpThread {
         if line.is_empty() {
             return None;
         }
-        Some(Arc::from(line.chars().take(80).collect::<String>().as_str()))
+        Some(Arc::from(
+            line.chars().take(80).collect::<String>().as_str(),
+        ))
     }
 
     /// A thread is a draft until its first message is sent.
@@ -1194,6 +1266,13 @@ impl AcpThread {
                 // here.
                 if let MaybeUndefined::Value(title) = info_update.title {
                     let title: Arc<str> = title.into();
+                    // Dropped, not stored-then-hidden: every consumer of
+                    // `title()` is in another crate, and the one that keeps a
+                    // title the user never sees is the one that shows it.
+                    if is_host_machinery_title(&title) {
+                        tracing::debug!(%title, "ignoring agent title naming Atlas's own prompt machinery");
+                        return Ok(());
+                    }
                     if self.title.as_ref() != Some(&title) {
                         self.title = Some(title);
                         self.emit(AcpThreadEvent::TitleUpdated);
@@ -1473,9 +1552,9 @@ impl AcpThread {
 
             self.emit(AcpThreadEvent::EntryUpdated(ix));
         } else {
-            let tool_call: acp::ToolCall = update
-                .try_into()
-                .map_err(|_| acp::Error::invalid_params().data("tool call update is not a full tool call"))?;
+            let tool_call: acp::ToolCall = update.try_into().map_err(|_| {
+                acp::Error::invalid_params().data("tool call update is not a full tool call")
+            })?;
             let call = ToolCall::from_acp(tool_call, status)
                 .map_err(|e| acp::Error::internal_error().data(e.to_string()))?;
             self.push_entry(AgentThreadEntry::ToolCall(call));
@@ -1528,7 +1607,8 @@ impl AcpThread {
                 }
                 ToolCallUpdate::UpdateTerminal(update) => {
                     call.content.clear();
-                    call.content.push(ToolCallContent::Terminal(update.terminal));
+                    call.content
+                        .push(ToolCallContent::Terminal(update.terminal));
                     Ok(())
                 }
             }
@@ -1595,6 +1675,42 @@ impl AcpThread {
         })
     }
 
+    /// Asks again about a call already waiting for confirmation, with a new
+    /// card: `tool_call` and `options` replace the ones showing. The card
+    /// showing is resolved on the wire and the new one announced, in that
+    /// order and under the one borrow, so nothing can be raised between them;
+    /// the row keeps the status it had before it was first asked about.
+    ///
+    /// For a card that has to be up before everything it will say is known —
+    /// an outward action's approval, shown as "preparing" while the host
+    /// describes whom the call reaches (ADR-0014). The first card's waiter
+    /// must be dropped, not awaited: it would resolve `Cancelled` and announce
+    /// a second resolution for this call.
+    pub fn reraise_tool_call_authorization(
+        &mut self,
+        tool_call: acp::ToolCallUpdate,
+        options: PermissionOptions,
+        kind: AuthorizationKind,
+    ) -> Result<impl std::future::Future<Output = RequestPermissionOutcome> + Send, acp::Error>
+    {
+        let id = tool_call.tool_call_id.clone();
+        let was_waiting = match self.tool_call_mut(&id) {
+            Some((_, call)) => match &call.status {
+                ToolCallStatus::WaitingForConfirmation { current_status, .. } => {
+                    // Dropping the old responder here is what retires it.
+                    call.status = (*current_status).into();
+                    true
+                }
+                _ => false,
+            },
+            None => false,
+        };
+        if was_waiting {
+            self.emit(AcpThreadEvent::ToolAuthorizationReceived(id));
+        }
+        self.request_tool_call_authorization(tool_call, options, kind)
+    }
+
     pub fn cancel_tool_call_authorization(&mut self, id: &acp::ToolCallId) {
         let Some((ix, call)) = self.tool_call_mut(id) else {
             return;
@@ -1617,11 +1733,7 @@ impl AcpThread {
     }
 
     /// Ported from `authorize_tool_call` (`acp_thread.rs:3433-3489`).
-    pub fn authorize_tool_call(
-        &mut self,
-        id: acp::ToolCallId,
-        outcome: SelectedPermissionOutcome,
-    ) {
+    pub fn authorize_tool_call(&mut self, id: acp::ToolCallId, outcome: SelectedPermissionOutcome) {
         let Some((ix, call)) = self.tool_call_mut(&id) else {
             return;
         };
@@ -1641,8 +1753,9 @@ impl AcpThread {
                 }
             }
             _ => match outcome.option_kind {
-                acp::PermissionOptionKind::RejectOnce
-                | acp::PermissionOptionKind::RejectAlways => ToolCallStatus::Rejected,
+                acp::PermissionOptionKind::RejectOnce | acp::PermissionOptionKind::RejectAlways => {
+                    ToolCallStatus::Rejected
+                }
                 _ => ToolCallStatus::InProgress,
             },
         };
@@ -1760,7 +1873,11 @@ impl AcpThread {
 
     pub fn update_plan(&mut self, request: acp::Plan) {
         self.plan = Plan {
-            entries: request.entries.into_iter().map(PlanEntry::from_acp).collect(),
+            entries: request
+                .entries
+                .into_iter()
+                .map(PlanEntry::from_acp)
+                .collect(),
         };
         self.emit(AcpThreadEvent::PromptUpdated);
     }
@@ -1820,9 +1937,9 @@ impl AcpThread {
         id: ContextCompactionId,
         status: ContextCompactionStatus,
     ) {
-        let existing = self.entries.iter().position(|entry| {
-            matches!(entry, AgentThreadEntry::ContextCompaction(c) if c.id == id)
-        });
+        let existing = self.entries.iter().position(
+            |entry| matches!(entry, AgentThreadEntry::ContextCompaction(c) if c.id == id),
+        );
         match existing {
             Some(ix) => {
                 if let AgentThreadEntry::ContextCompaction(compaction) = &mut self.entries[ix] {
@@ -2050,19 +2167,18 @@ impl AcpThread {
     /// Silent when nothing references the terminal — the agent is allowed to
     /// create one and never mention it in a tool call.
     pub fn note_terminal_output(&mut self, id: &acp::TerminalId) {
-        let updated: Vec<usize> = self
-            .entries
-            .iter()
-            .enumerate()
-            .filter(|(_, entry)| match entry {
-                AgentThreadEntry::ToolCall(call) => call
-                    .content
-                    .iter()
-                    .any(|block| matches!(block, ToolCallContent::Terminal(other) if other == id)),
-                _ => false,
-            })
-            .map(|(ix, _)| ix)
-            .collect();
+        let updated: Vec<usize> =
+            self.entries
+                .iter()
+                .enumerate()
+                .filter(|(_, entry)| match entry {
+                    AgentThreadEntry::ToolCall(call) => call.content.iter().any(
+                        |block| matches!(block, ToolCallContent::Terminal(other) if other == id),
+                    ),
+                    _ => false,
+                })
+                .map(|(ix, _)| ix)
+                .collect();
         for ix in updated {
             self.emit(AcpThreadEvent::EntryUpdated(ix));
         }

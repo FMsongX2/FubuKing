@@ -1,6 +1,6 @@
 //! The embedding-provider seam.
 //!
-//! Ported into Atlas from `cersei-embeddings`. Only the trait and its error type
+//! Ported into Atlas from the old SDK's embeddings crate. Only the trait and its error type
 //! were carried over — the SDK's hosted OpenAI/Gemini providers and its
 //! in-memory `EmbeddingStore`/`VectorIndex` are not used here (they have no
 //! save/load/remove; `crate::store` drives `usearch` directly).
@@ -14,7 +14,7 @@ use thiserror::Error;
 
 /// Why an embedding call failed.
 ///
-/// `Http` is deliberately absent (the Cersei original carried a
+/// `Http` is deliberately absent (the original carried a
 /// `#[from] reqwest::Error`): the on-device provider makes no network calls, and
 /// a remote implementor can map its transport errors onto [`Api`](Self::Api).
 #[derive(Debug, Error)]

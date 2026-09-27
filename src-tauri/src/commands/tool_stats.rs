@@ -20,7 +20,7 @@ use std::hash::{Hash, Hasher};
 use serde_json::Value;
 
 /// The canonical ACP tool kinds (`src/types/acp.ts`). A superset of what the
-/// native classifier emits (`atlas_cersei::tool_kind` → read/edit/execute/
+/// native classifier emits (the native `tool_kind` classifier → read/edit/execute/
 /// fetch/other), so ACP agents that use the full set are reported faithfully.
 const KINDS: [&str; 10] = [
     "read",

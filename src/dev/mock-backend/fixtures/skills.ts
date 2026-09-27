@@ -838,6 +838,8 @@ let registry: AcpRegistryEntry[] = [
     distributionKind: "binary",
     unverified: false,
     unsupportedReason: null,
+    installedVersion: null,
+    updateAvailable: false,
   },
   {
     // Detected, never installed: the catalog entry below carries
@@ -854,6 +856,8 @@ let registry: AcpRegistryEntry[] = [
     distributionKind: "binary",
     unverified: false,
     unsupportedReason: null,
+    installedVersion: null,
+    updateAvailable: false,
   },
   {
     id: "opencode",
@@ -868,6 +872,8 @@ let registry: AcpRegistryEntry[] = [
     distributionKind: "npx",
     unverified: false,
     unsupportedReason: null,
+    installedVersion: null,
+    updateAvailable: false,
   },
   {
     // No build for this machine: the card stays visible and disabled rather
@@ -884,6 +890,8 @@ let registry: AcpRegistryEntry[] = [
     distributionKind: "binary",
     unverified: false,
     unsupportedReason: "no darwin-aarch64 target published",
+    installedVersion: null,
+    updateAvailable: false,
   },
   {
     // Binary distribution with no published sha256 — the "unverified" chip.
@@ -899,6 +907,8 @@ let registry: AcpRegistryEntry[] = [
     distributionKind: "binary",
     unverified: true,
     unsupportedReason: null,
+    installedVersion: null,
+    updateAvailable: false,
   },
   {
     id: "gemini-cli-acp",
@@ -913,6 +923,8 @@ let registry: AcpRegistryEntry[] = [
     distributionKind: "npx",
     unverified: false,
     unsupportedReason: null,
+    installedVersion: null,
+    updateAvailable: false,
   },
   {
     id: "kilo-code",
@@ -927,6 +939,9 @@ let registry: AcpRegistryEntry[] = [
     distributionKind: "npx",
     unverified: false,
     unsupportedReason: null,
+    // Installed npx copy older than the registry's — the Update button.
+    installedVersion: "4.1.0",
+    updateAvailable: true,
   },
   {
     id: "goose",
@@ -941,6 +956,8 @@ let registry: AcpRegistryEntry[] = [
     distributionKind: "binary",
     unverified: false,
     unsupportedReason: null,
+    installedVersion: null,
+    updateAvailable: false,
   },
   {
     // No description published: the card has to survive a null there.
@@ -956,6 +973,8 @@ let registry: AcpRegistryEntry[] = [
     distributionKind: "binary",
     unverified: false,
     unsupportedReason: null,
+    installedVersion: null,
+    updateAvailable: false,
   },
   {
     id: "aider-acp",
@@ -970,6 +989,8 @@ let registry: AcpRegistryEntry[] = [
     distributionKind: "npx",
     unverified: false,
     unsupportedReason: null,
+    installedVersion: null,
+    updateAvailable: false,
   },
   {
     id: "continue-acp",
@@ -984,6 +1005,8 @@ let registry: AcpRegistryEntry[] = [
     distributionKind: "npx",
     unverified: false,
     unsupportedReason: null,
+    installedVersion: null,
+    updateAvailable: false,
   },
 ];
 
@@ -994,8 +1017,8 @@ let registry: AcpRegistryEntry[] = [
 
 let catalog: AgentCatalogEntry[] = [
   {
-    id: "cersei",
-    agentType: "cersei",
+    id: "atlas-agent",
+    agentType: "atlas-agent",
     name: "Atlas Agent",
     description: "Atlas's own agent, running in-process — no subprocess, no install.",
     version: "0.0.0-mock",
@@ -1005,7 +1028,7 @@ let catalog: AgentCatalogEntry[] = [
     installed: false,
     supportsModes: true,
     supportsModels: true,
-    transcript: "cersei_json",
+    transcript: "native",
     login: null,
     authKinds: ["env_var"],
     supportsLogout: false,
@@ -1259,6 +1282,7 @@ export interface SkillsResponses {
   acp_registry_install: Unit;
   acp_registry_install_detected: Unit;
   acp_registry_uninstall: Unit;
+  acp_registry_update: Unit;
   agents_catalog: AgentCatalog;
   agents_catalog_refresh: AgentCatalog;
 }
@@ -1571,6 +1595,15 @@ export const skillsHandlers: TypedHandlers<SkillsResponses> = {
         ),
       ];
     }
+    return null;
+  },
+  acp_registry_update: async ({ agentId }): Promise<null> => {
+    const entry = registry.find((candidate) => candidate.id === String(agentId));
+    if (!entry?.installed) throw new Error(`'${String(agentId)}' is not installed`);
+    // Long enough to see "Updating…" on the card.
+    await new Promise((resolve) => setTimeout(resolve, 1200));
+    entry.installedVersion = entry.distributionKind === "npx" ? entry.version : null;
+    entry.updateAvailable = false;
     return null;
   },
   /** Accepting a detection: Atlas runs the copy the user already has, so the

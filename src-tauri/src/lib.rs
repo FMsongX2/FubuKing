@@ -22,7 +22,7 @@ use parking_lot::Mutex;
 use state::{AppState, AppStateHandle};
 use tauri::Manager;
 
-// The `cersei-provider` UTF-8 patch guard is gone with the SDK it guarded
+// The old SDK UTF-8 patch guard is gone with the SDK it guarded
 // (#54). What it protected against — a decoder that corrupts multi-byte
 // characters split across HTTP chunk boundaries — is now covered inside the
 // engine's own dialect, by a fixture that splits a frame at every byte position
@@ -36,7 +36,7 @@ pub fn run() {
     // connection.
     //
     // rustls 0.23 refuses to guess when more than one provider is compiled in,
-    // and this graph has two: `ring` (via sqlx, through the vendored Codex
+    // and this graph has two: `ring` (via sqlx, through the vendored engine
     // state store) and `aws-lc-rs` (via rama-tls / aws-smithy, through the
     // vendored network proxy). Neither is removable, and cargo's feature
     // unification turns "two dependencies each chose one" into "rustls sees
@@ -278,6 +278,7 @@ pub fn run() {
                 // that broadcast is what points it at an Organisation, and a
                 // manager that is not yet managed would miss the first one.
                 commands::comms::install(app.handle());
+                commands::artifacts_cloud::install(app.handle());
                 commands::auth::restore_on_launch(app.handle());
 
                 // Seed the Organisation every event is attributed to, from the
@@ -542,6 +543,19 @@ pub fn run() {
             commands::capture::capture_enable,
             commands::capture::capture_disable,
             commands::capture::capture_git_init,
+            commands::capture::capture_git_available,
+            commands::artifacts_cloud::artifacts_cloud_retarget,
+            commands::artifacts_cloud::artifacts_cloud_follow,
+            commands::artifacts_cloud::artifacts_cloud_unfollow,
+            commands::artifacts_cloud::chat_comment_target,
+            commands::artifacts_cloud::artifacts_cloud_session,
+            commands::artifacts_cloud::artifacts_cloud_payload,
+            commands::artifacts_cloud::artifacts_cloud_session_url,
+            commands::artifacts_cloud::artifacts_cloud_refresh,
+            commands::artifacts_cloud::artifacts_cloud_comments,
+            commands::artifacts_cloud::artifacts_cloud_comment_create,
+            commands::artifacts_cloud::artifacts_cloud_comment_update,
+            commands::artifacts_cloud::artifacts_cloud_comment_delete,
             commands::capture::capture_health,
             commands::capture::capture_import_preview,
             commands::capture::capture_import_confirm,
@@ -655,6 +669,7 @@ pub fn run() {
             commands::registry::acp_registry_install,
             commands::registry::acp_registry_install_detected,
             commands::registry::acp_registry_uninstall,
+            commands::registry::acp_registry_update,
             commands::registry::acp_registry_metadata,
             // The unified read surface. `agents_list_plugins` /
             // `acp_registry_list` stay registered and delegating for one
@@ -693,6 +708,7 @@ pub fn run() {
             commands::agents::agents_logout,
             commands::agents::agents_set_config_option,
             commands::agents::agents_respond_elicitation,
+            commands::ui_server::ui_action_respond,
             commands::agents::agents_fork_session,
             commands::agents::agents_rewind_last_turn,
             commands::agents::agents_run_auth_method,

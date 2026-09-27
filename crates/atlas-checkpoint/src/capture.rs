@@ -260,6 +260,12 @@ impl<'a> Capture<'a> {
         self.store.complete_turn(session_id, turn_seq)
     }
 
+    /// The agent took back this Session's last `turns` turns (a retry rewinds
+    /// the last turn before re-sending its prompt). Marked, never deleted.
+    pub fn rewind_turns(&mut self, session_id: &str, turns: i64) -> Result<()> {
+        self.store.mark_turns_rewound(session_id, turns).map(|_| ())
+    }
+
     /// Record a tool invocation, or update the one already recorded.
     ///
     /// `arguments` and `result` are scrubbed here on the same on-write basis as

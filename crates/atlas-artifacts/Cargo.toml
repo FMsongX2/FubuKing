@@ -1,0 +1,30 @@
+[package]
+name = "atlas-artifacts"
+version = "0.1.0"
+edition = "2021"
+description = "The read half of the Atlas artifacts API: remote Sessions, comments, and one WebSocket per connected cloud Project. Push stays in atlas-checkpoint; this crate never writes a Session."
+
+[lib]
+name = "atlas_artifacts"
+
+[dependencies]
+tokio = { version = "1", features = ["sync", "time", "rt", "macros"] }
+# The workspace pin, for the same reason `atlas-comms` gives: it resolves to the
+# openai-oss-forks 0.28 fork already in the graph via the vendored engine.
+# Declaring a version inline would unify with axum's 0.29 instead.
+tokio-tungstenite = { workspace = true }
+futures-util = "0.3"
+reqwest = { version = "0.12", default-features = false, features = [
+  "json",
+  "rustls-tls",
+] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2"
+tracing = "0.1"
+
+[dev-dependencies]
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "test-util", "net", "io-util"] }
+
+[lints]
+workspace = true

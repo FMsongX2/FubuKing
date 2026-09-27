@@ -392,7 +392,7 @@ async fn restarting_a_connected_agent_reconnects_it() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn a_new_version_drops_the_connection_and_announces_itself() {
+async fn a_new_version_is_announced_and_the_connection_kept() {
     let catalog = FakeCatalog::new(&["claude-code"]);
     let (server, attempts) = FakeServer::new("claude-code", vec![]);
     let manager = manager(catalog.clone(), server.clone());
@@ -421,14 +421,12 @@ async fn a_new_version_drops_the_connection_and_announces_itself() {
     .expect("the new version is announced");
     assert_eq!(announced, (key.clone(), "2.0.0".to_string()));
 
-    // The running process is on the old binary, so the connection goes with it.
-    wait_for(|| {
-        (manager.connection_status(&key) == AgentConnectionStatus::Disconnected).then_some(())
-    })
-    .await
-    .expect("the connection is dropped on a version bump");
+    // Announced, not acted on: the host owns the sessions on this connection
+    // and restarts it once the agent is idle. Dropping it here stranded them.
+    assert_eq!(manager.connection_status(&key), AgentConnectionStatus::Connected);
 
-    // And the next request starts the new binary.
+    // The restart the host performs starts the new binary.
+    manager.drop_connection(&key);
     settle(manager
         .request_connection(key, server.clone())).await
         .expect("reconnected on the new version");
@@ -483,7 +481,7 @@ async fn an_agent_nobody_installed_cannot_be_connected_to() {
     // ladder to fall back to, so an agent that is not in the installed map does
     // not exist.
     let catalog = FakeCatalog::new(&[]);
-    let (server, attempts) = FakeServer::new("cersei", vec![]);
+    let (server, attempts) = FakeServer::new("atlas-agent", vec![]);
     let manager = manager(catalog, server.clone());
 
     let error = settle(manager
@@ -498,19 +496,19 @@ async fn the_native_agent_is_always_connectable() {
     // No installed map, no registry: the native agent is still there. This is
     // the fresh-install shape.
     let catalog = FakeCatalog::new(&[]);
-    let (server, _) = FakeServer::new("cersei", vec![]);
+    let (server, _) = FakeServer::new("atlas-agent", vec![]);
     let manager = manager(catalog, server.clone());
 
     let state = settle(manager
         .request_connection(Agent::Native, server.clone())).await
         .expect("the native agent connects");
-    assert_eq!(state.connection.agent_id().as_str(), "cersei");
+    assert_eq!(state.connection.agent_id().as_str(), "atlas-agent");
 }
 
 #[tokio::test(flavor = "multi_thread")]
 async fn a_turn_opens_and_closes_around_the_prompt() {
     let catalog = FakeCatalog::new(&[]);
-    let (server, _) = FakeServer::new("cersei", vec![]);
+    let (server, _) = FakeServer::new("atlas-agent", vec![]);
     let manager = manager(catalog, server.clone());
 
     let thread = manager
@@ -542,7 +540,7 @@ async fn a_turn_opens_and_closes_around_the_prompt() {
 #[tokio::test(flavor = "multi_thread")]
 async fn a_failed_turn_marks_the_thread_instead_of_leaving_it_generating() {
     let catalog = FakeCatalog::new(&[]);
-    let server = FakeServer::failing_turns("cersei");
+    let server = FakeServer::failing_turns("atlas-agent");
     let manager = manager(catalog, server.clone());
 
     let thread = manager

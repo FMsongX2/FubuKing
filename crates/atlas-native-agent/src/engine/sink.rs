@@ -24,14 +24,14 @@ use atlas_acp_thread::AcpThreadHandle;
 use atlas_acp_thread::RateLimitWindow;
 use atlas_acp_thread::RateLimits;
 use atlas_acp_thread::RetryStatus;
-use codex_app_server_protocol::ServerNotification;
-use codex_app_server_protocol::ThreadItem;
+use atlas_engine_app_server_protocol::ServerNotification;
+use atlas_engine_app_server_protocol::ThreadItem;
 
 use crate::engine::connection::TurnWaiters;
 
 /// The threads this connection is serving, keyed by session id.
 ///
-/// Weak, for the reason the Cersei-path sink gives: a thread the host dropped
+/// Weak, for the reason the old native-path sink gives: a thread the host dropped
 /// must not be kept alive by a session table still listing it.
 pub struct EngineSession {
     thread: Weak<Mutex<AcpThread>>,
@@ -67,6 +67,52 @@ pub struct EngineSession {
     /// engine-side thread setting the selection had written: the picker
     /// changed nothing about the next turn. The turn path reads this instead.
     selected_model: Option<String>,
+    /// The last card to join this session's line, as the signal it sends when
+    /// it is answered. See [`PromptPlace`].
+    prompt_tail: Option<tokio::sync::oneshot::Receiver<()>>,
+    /// The host tools the user allowed for the rest of this session, as
+    /// `(server, tool)` (`engine::tool_approvals`). The engine keeps no session
+    /// approval for a tool that always asks, so the seam does.
+    allowed_for_session: std::collections::HashSet<(String, String)>,
+}
+
+/// A card's place in its session's line: one card at a time (ADR-0013).
+///
+/// A tool permission and a clarifying question both pin a card above the
+/// composer, and both block the turn on the user. The engine can ask for two
+/// at once — parallel tool calls can each want approval while the model's own
+/// question is open — and the chat would stack them, the second covering the
+/// first. So the engine's requests queue per session in the order they reached
+/// the pump, and each card is raised only once the one ahead of it is
+/// answered.
+///
+/// A chain rather than a lock, deliberately: a place is taken *synchronously*,
+/// on the pump, which is what fixes the order to arrival order. Awaiting a
+/// fair lock from a spawned task would order the cards by whichever task the
+/// runtime happened to poll first.
+///
+/// Dropping the place is what lets the next card up, so an answer, a failure
+/// to raise and a panic all release the line alike.
+pub struct PromptPlace {
+    /// The signal from the card ahead; `None` when nothing is waiting ahead.
+    ahead: Option<tokio::sync::oneshot::Receiver<()>>,
+    /// Held until this card is answered; dropped, it releases the next one.
+    _answered: tokio::sync::oneshot::Sender<()>,
+}
+
+impl PromptPlace {
+    /// Whether another card was still open when this one joined the line.
+    pub fn is_queued(&self) -> bool {
+        self.ahead.is_some()
+    }
+
+    /// Waits until every card ahead has been answered.
+    pub async fn wait(&mut self) {
+        if let Some(ahead) = self.ahead.take() {
+            // `Err` is the normal release: the place ahead was dropped.
+            let _ = ahead.await;
+        }
+    }
 }
 
 #[derive(Default)]
@@ -78,6 +124,15 @@ pub struct EngineSessions {
     /// `thread/start` has answered and the session exists.
     mcp_startup: Mutex<HashMap<String, HashMap<String, bool>>>,
     mcp_settled: tokio::sync::Notify,
+    /// The MCP servers the HOST offered each engine thread — Atlas's own,
+    /// which never elicit — as opposed to every server the engine reports.
+    /// What tells the engine's own approval for a call to one of them from a
+    /// tool server's elicitation (`engine::tool_approvals`).
+    host_servers: Mutex<HashMap<String, std::collections::HashSet<String>>>,
+    /// Per engine thread, the host's `(server, tool)`s that ask on every call
+    /// ([`atlas_agent_servers::AskFirst::every_time`]): their card offers no
+    /// "Allow for this session", and no allowance is ever kept for them.
+    every_time: Mutex<HashMap<String, std::collections::HashSet<(String, String)>>>,
 }
 
 /// How long a turn waits for its thread's host MCP servers to finish starting.
@@ -110,8 +165,29 @@ impl EngineSessions {
                 skills: Vec::new(),
                 command_output: HashMap::new(),
                 selected_model: None,
+                prompt_tail: None,
+                allowed_for_session: std::collections::HashSet::new(),
             },
         );
+    }
+
+    /// Takes the next place in `session_id`'s line of cards. Called on the
+    /// pump, in arrival order — see [`PromptPlace`].
+    pub fn join_prompt_line(&self, session_id: &acp::SessionId) -> PromptPlace {
+        let (answered, signal) = tokio::sync::oneshot::channel();
+        let ahead = self
+            .lock()
+            .get_mut(session_id)
+            .and_then(|session| session.prompt_tail.replace(signal))
+            // A card ahead that has already been answered is not in the way.
+            .and_then(|mut ahead| match ahead.try_recv() {
+                Err(tokio::sync::oneshot::error::TryRecvError::Empty) => Some(ahead),
+                _ => None,
+            });
+        PromptPlace {
+            ahead,
+            _answered: answered,
+        }
     }
 
     pub fn thread(&self, session_id: &acp::SessionId) -> Option<AcpThreadHandle> {
@@ -129,11 +205,61 @@ impl EngineSessions {
     /// Records that `thread_id` was configured with these host MCP servers.
     /// A server the engine already reported keeps its settled state.
     pub fn expect_mcp_servers(&self, thread_id: &str, servers: impl IntoIterator<Item = String>) {
+        let servers: Vec<String> = servers.into_iter().collect();
+        self.host_servers
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .entry(thread_id.to_string())
+            .or_default()
+            .extend(servers.iter().cloned());
         let mut startup = self.mcp_startup_lock();
         let entry = startup.entry(thread_id.to_string()).or_default();
         for server in servers {
             entry.entry(server).or_insert(false);
         }
+    }
+
+    /// Records the host's tools that ask `thread_id` on every call.
+    pub fn expect_every_time<'a>(&self, thread_id: &str, tools: impl IntoIterator<Item = (&'a str, &'a str)>) {
+        self.every_time
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .entry(thread_id.to_string())
+            .or_default()
+            .extend(tools.into_iter().map(|(s, t)| (s.to_string(), t.to_string())));
+    }
+
+    /// Whether `server`'s `tool` asks `thread_id` on every call.
+    pub fn asks_every_time(&self, thread_id: &str, server: &str, tool: &str) -> bool {
+        self.every_time
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .get(thread_id)
+            .is_some_and(|tools| tools.contains(&(server.to_string(), tool.to_string())))
+    }
+
+    /// Whether `server` is one the host offered `thread_id`.
+    pub fn is_host_server(&self, thread_id: &str, server: &str) -> bool {
+        self.host_servers
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .get(thread_id)
+            .is_some_and(|servers| servers.contains(server))
+    }
+
+    /// Remembers that the user allowed `server`'s `tool` for the rest of this
+    /// session.
+    pub fn allow_for_session(&self, session_id: &acp::SessionId, server: &str, tool: &str) {
+        if let Some(session) = self.lock().get_mut(session_id) {
+            session.allowed_for_session.insert((server.to_string(), tool.to_string()));
+        }
+    }
+
+    /// Whether the user allowed `server`'s `tool` for the rest of this session.
+    pub fn allowed_for_session(&self, session_id: &acp::SessionId, server: &str, tool: &str) -> bool {
+        self.lock()
+            .get(session_id)
+            .is_some_and(|s| s.allowed_for_session.contains(&(server.to_string(), tool.to_string())))
     }
 
     /// The engine's report on one MCP server's startup for one thread.
@@ -288,7 +414,7 @@ pub(crate) fn tool_call_of(item: &ThreadItem) -> Option<acp::ToolCall> {
             exit_code,
             ..
         } => {
-            use codex_app_server_protocol::CommandExecutionStatus as S;
+            use atlas_engine_app_server_protocol::CommandExecutionStatus as S;
             let status = match status {
                 S::InProgress => acp::ToolCallStatus::InProgress,
                 // "Completed" is the ENGINE's word for "the process ran";
@@ -316,7 +442,7 @@ pub(crate) fn tool_call_of(item: &ThreadItem) -> Option<acp::ToolCall> {
             Some(call)
         }
         ThreadItem::FileChange { id, changes, status } => {
-            use codex_app_server_protocol::PatchApplyStatus as S;
+            use atlas_engine_app_server_protocol::PatchApplyStatus as S;
             let status = match status {
                 S::InProgress => acp::ToolCallStatus::InProgress,
                 S::Completed => acp::ToolCallStatus::Completed,
@@ -370,14 +496,17 @@ pub(crate) fn tool_call_of(item: &ThreadItem) -> Option<acp::ToolCall> {
             error,
             ..
         } => {
-            use codex_app_server_protocol::McpToolCallStatus as S;
+            use atlas_engine_app_server_protocol::McpToolCallStatus as S;
             let status = match status {
                 S::InProgress => acp::ToolCallStatus::InProgress,
                 S::Completed => acp::ToolCallStatus::Completed,
                 S::Failed => acp::ToolCallStatus::Failed,
             };
+            // `Other`: an MCP tool is whatever its server says it is, and
+            // Atlas's own (memory, UI actions) are not fetches. The row's icon
+            // then comes from the tool's name.
             let mut call = acp::ToolCall::new(id.clone(), format!("{server}.{tool}"))
-                .kind(acp::ToolKind::Fetch)
+                .kind(acp::ToolKind::Other)
                 .status(status)
                 .raw_input(arguments.clone());
             let body = error
@@ -403,7 +532,7 @@ pub(crate) fn tool_call_of(item: &ThreadItem) -> Option<acp::ToolCall> {
 
 /// Flattens a prompt into the single string the engine's text input takes.
 ///
-/// Same rules as the Cersei path so a prompt reads identically on both sides of
+/// Same rules as the previous native path so a prompt reads identically on both sides of
 /// the switch: text passes through, a resource link contributes its URI, an
 /// embedded text resource contributes its text, and anything else is skipped
 /// rather than stringified into noise.
@@ -447,7 +576,7 @@ fn lock(thread: &AcpThreadHandle) -> std::sync::MutexGuard<'_, AcpThread> {
 /// seven ordinary turns, and the 999% reports are the same arithmetic on a
 /// longer thread.
 fn token_usage_of(
-    u: &codex_app_server_protocol::ThreadTokenUsage,
+    u: &atlas_engine_app_server_protocol::ThreadTokenUsage,
 ) -> atlas_acp_thread::TokenUsage {
     let clamp = |n: i64| n.max(0) as u64;
     let total = &u.total;
@@ -483,7 +612,7 @@ pub fn apply_notification(
         ServerNotification::McpServerStatusUpdated(params) => {
             let settled = !matches!(
                 params.status,
-                codex_app_server_protocol::McpServerStartupState::Starting
+                atlas_engine_app_server_protocol::McpServerStartupState::Starting
             );
             if let Some(thread_id) = params.thread_id.as_deref() {
                 sessions.record_mcp_status(thread_id, &params.name, settled);
@@ -608,7 +737,7 @@ pub fn apply_notification(
         ServerNotification::TurnPlanUpdated(params) => {
             let session = session_id(&params.thread_id);
             if let Some(thread) = sessions.thread(&session) {
-                use codex_app_server_protocol::TurnPlanStepStatus as S;
+                use atlas_engine_app_server_protocol::TurnPlanStepStatus as S;
                 let entries = params
                     .plan
                     .iter()
@@ -635,14 +764,10 @@ pub fn apply_notification(
             turns.complete(&params.thread_id, params.turn);
         }
 
-        // The thread's cumulative token usage. Everything downstream was
-        // already built and waiting — `update_token_usage` fires the
-        // TokenUsageUpdated event, the projector turns it into the
-        // UsageUpdated (real input/output split) and ContextUsage (gauge)
-        // deltas, and capture's `record_usage` OVERWRITES totals, which is
-        // exactly right for a cumulative figure. Ignoring this notification
-        // is why the native agent — the one agent that reports a real split —
-        // showed no token consumption on the Timeline at all (#74).
+        // One notification carries two meters. `total` is cumulative lifetime
+        // usage and feeds the input/output split; `last` is the latest active
+        // context snapshot and feeds the context gauge. Using
+        // `total.total_tokens` for both lets the gauge climb past 100%.
         ServerNotification::ThreadTokenUsageUpdated(params) => {
             let Some(thread) = sessions.thread(&session_id(&params.thread_id)) else {
                 return;
@@ -699,7 +824,7 @@ pub fn apply_notification(
         // the snapshot every turn). The projector dedupes.
         ServerNotification::AccountRateLimitsUpdated(params) => {
             let snapshot = &params.rate_limits;
-            let window = |w: &codex_app_server_protocol::RateLimitWindow| RateLimitWindow {
+            let window = |w: &atlas_engine_app_server_protocol::RateLimitWindow| RateLimitWindow {
                 used_percent: w.used_percent.clamp(0, 100) as u8,
                 window_minutes: w.window_duration_mins,
                 resets_at: w.resets_at,
@@ -752,7 +877,7 @@ mod tests {
     /// Mixing them is what made the percentage climb past 100% and keep going.
     mod token_usage {
         use super::super::token_usage_of;
-        use codex_app_server_protocol::{ThreadTokenUsage, TokenUsageBreakdown};
+        use atlas_engine_app_server_protocol::{ThreadTokenUsage, TokenUsageBreakdown};
 
         fn breakdown(input: i64, output: i64) -> TokenUsageBreakdown {
             TokenUsageBreakdown {
@@ -950,15 +1075,15 @@ mod tests {
             &sessions,
             &turns,
             3,
-            ServerNotification::ItemCompleted(codex_app_server_protocol::ItemCompletedNotification {
+            ServerNotification::ItemCompleted(atlas_engine_app_server_protocol::ItemCompletedNotification {
                 thread_id: "t-patch".to_string(),
                 turn_id: "turn-1".to_string(),
                 item: ThreadItem::FileChange {
                     id: "item-1".to_string(),
-                    status: codex_app_server_protocol::PatchApplyStatus::Completed,
-                    changes: vec![codex_app_server_protocol::FileUpdateChange {
+                    status: atlas_engine_app_server_protocol::PatchApplyStatus::Completed,
+                    changes: vec![atlas_engine_app_server_protocol::FileUpdateChange {
                         path: "src/foo.rs".to_string(),
-                        kind: codex_app_server_protocol::PatchChangeKind::Update { move_path: None },
+                        kind: atlas_engine_app_server_protocol::PatchChangeKind::Update { move_path: None },
                         diff: "@@ -1 +1 @@\n-old\n+new\n".to_string(),
                     }],
                 },

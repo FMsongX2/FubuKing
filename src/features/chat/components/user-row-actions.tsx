@@ -74,8 +74,18 @@ import { copyText } from "@/lib/clipboard";
 import { HintGroup, HintItem } from "@/ui/hint-group";
 import { retryLastTurn } from "../lib/retry-turn";
 import { useChatPinsStore } from "../stores/chat-pins-store";
+import { ActionCluster } from "@/features/artifacts/components/action-cluster";
+import { CommentButton } from "@/features/artifacts/components/comment-thread";
+import { visibleCount } from "@/features/artifacts/lib/comments-api";
+import {
+  useAnchorHit,
+  useCommentActions,
+  useCommentBucket,
+  useCommentDirectory,
+} from "../stores/chat-comments-store";
+import { useRowHasComments } from "./chat-comment-pills";
 
-function ActionButton({
+export function ActionButton({
   label,
   onClick,
   active,
@@ -103,6 +113,84 @@ function ActionButton({
         {children}
       </button>
     </HintItem>
+  );
+}
+
+/** The copy action with its 1.2 s tick, shared by both bars. */
+export function useCopy(text: string): { copied: boolean; onCopy: () => void } {
+  const [copied, setCopied] = useState(false);
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // A row can unmount while the "copied" tick is still pending — a history
+  // load replaces the projection wholesale, and closing the tab takes the
+  // transcript with it. (Window growth does not: `key={row.id}` keeps existing
+  // instances alive when rows are prepended.)
+  useEffect(() => () => void (timer.current && clearTimeout(timer.current)), []);
+  const onCopy = useCallback(() => {
+    void copyText(text).then((ok) => {
+      // `copyText` returns false rather than throwing when both the native and
+      // the web path fail. Swallowing that is indistinguishable from success —
+      // the tick simply never appears and the user pastes stale clipboard
+      // contents somewhere else before noticing.
+      if (!ok) {
+        toast.error("Could not copy to the clipboard");
+        return;
+      }
+      setCopied(true);
+      if (timer.current) clearTimeout(timer.current);
+      timer.current = setTimeout(() => setCopied(false), 1_200);
+    });
+  }, [text]);
+  return { copied, onCopy };
+}
+
+/**
+ * Copy, with the comment pill beside it when the message is in the cloud.
+ *
+ * The two share one surround, as on the Timeline: the pill is how a
+ * discussion announces itself, and a lone pill with a gap beside it reads as
+ * something missing. Without a cloud anchor this is the plain copy button —
+ * no surround around a single control.
+ */
+export function CommentAndCopy({
+  tabId,
+  messageId,
+  text,
+  label,
+}: {
+  tabId: string;
+  messageId: string;
+  text: string;
+  label: string;
+}) {
+  const { copied, onCopy } = useCopy(text);
+  const anchor = useAnchorHit(tabId, messageId);
+  const comments = useCommentBucket(tabId, messageId);
+  const commentActions = useCommentActions(tabId);
+  const directory = useCommentDirectory(tabId);
+  const copy = (
+    <ActionButton label={label} onClick={onCopy}>
+      <CopyGlyph copied={copied} size="sm" />
+    </ActionButton>
+  );
+  if (!anchor || !commentActions || !directory) return copy;
+  return (
+    // The surround's OUTER edge is what the eye lines up with the bubble, so
+    // the cluster sits flush with the bar's end and the icons inset inside
+    // it. Pulling it out to keep the copy icon where it stands alone was
+    // tried and read as the pill overhanging the bubble (measured headless:
+    // the pill's border landed 4px past the bubble's edge).
+    <ActionCluster reveal="snap" pinned={visibleCount(comments) > 0}>
+      <CommentButton
+        bare
+        className="transition-none"
+        anchorKind={anchor.anchorKind}
+        anchorId={anchor.rowId}
+        comments={comments}
+        actions={commentActions}
+        directory={directory}
+      />
+      {copy}
+    </ActionCluster>
   );
 }
 
@@ -140,36 +228,16 @@ export function UserRowActions({
    *  this answer can never disagree. */
   toggleAbove: boolean;
 }) {
-  const [copied, setCopied] = useState(false);
   // The one subscription a row is allowed. It is not the chat store: the pins
   // store is written only when someone clicks a pin, so this never fires on a
   // streaming frame, and the selector returns a boolean.
   const pinned = useChatPinsStore((s) =>
     (s.pins[pinScopeKey] ?? []).some((p) => p.messageId === messageId),
   );
-  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  // A row can unmount while the "copied" tick is still pending — a history
-  // load replaces the projection wholesale, and closing the tab takes the
-  // transcript with it. (Window growth does not: `key={row.id}` keeps existing
-  // instances alive when rows are prepended.)
-  useEffect(() => () => void (timer.current && clearTimeout(timer.current)), []);
-
-  const onCopy = useCallback(() => {
-    void copyText(text).then((ok) => {
-      // `copyText` returns false rather than throwing when both the native and
-      // the web path fail. Swallowing that is indistinguishable from success —
-      // the tick simply never appears and the user pastes stale clipboard
-      // contents somewhere else before noticing.
-      if (!ok) {
-        toast.error("Could not copy to the clipboard");
-        return;
-      }
-      setCopied(true);
-      if (timer.current) clearTimeout(timer.current);
-      timer.current = setTimeout(() => setCopied(false), 1_200);
-    });
-  }, [text]);
+  // The other permitted subscription: the comments store, written only when a
+  // comment arrives or the session's cloud identity resolves — never on a
+  // streaming frame. A boolean, so the bar re-renders only when it flips.
+  const discussed = useRowHasComments(tabId, messageId);
 
   const onRetry = useCallback(() => void retryLastTurn(tabId), [tabId]);
 
@@ -201,7 +269,14 @@ export function UserRowActions({
           // `top-full`, not "under the bubble": the attachment chip sits below
           // the bubble too, and anchoring to the bubble would drop the bar on
           // top of it.
-          "absolute right-0 top-full z-popover flex items-center gap-0.5",
+          // `w-max`: the bar is wider than a short bubble, and an absolutely
+          // positioned box with `right: 0` and no width is shrink-to-fit
+          // against its containing block — WebKit clamped it to the bubble's
+          // 95px and let the 109px of controls overflow to the right (measured
+          // in the running app: pill 14px past the bubble). Max-content sizes
+          // the box to its controls, so `right-0` puts the last one on the
+          // bubble's edge and the rest extend left.
+          "absolute right-0 top-full z-popover flex w-max items-center gap-0.5",
           // The gap above the icons, as padding rather than a margin so the
           // bar's box still starts exactly at `top-full`. Only the top half
           // draws anything; the bottom 8px is empty and free to overhang the
@@ -220,7 +295,9 @@ export function UserRowActions({
           // because an `opacity-0` bar is still hit-testable: it could be
           // clicked while invisible. `focus-within` is not decoration either —
           // without it, keyboard users would tab into controls they cannot see.
-          "invisible group-hover:visible focus-within:visible",
+          // A discussed prompt keeps its bar: the pill is how the discussion
+          // announces itself, and it must not vanish with the pointer.
+          discussed ? "visible" : "invisible group-hover:visible focus-within:visible",
         )}
       >
         {canRetry && (
@@ -237,9 +314,7 @@ export function UserRowActions({
         <ActionButton label="Edit and send as new message" onClick={onEdit}>
           <CornerUpRight size={12} />
         </ActionButton>
-        <ActionButton label="Copy message" onClick={onCopy}>
-          <CopyGlyph copied={copied} size="sm" />
-        </ActionButton>
+        <CommentAndCopy tabId={tabId} messageId={messageId} text={text} label="Copy message" />
       </div>
     </HintGroup>
   );

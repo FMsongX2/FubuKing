@@ -97,6 +97,7 @@ const signInAttempted = new Set<string>();
 import { composePrompt, type MentionData } from "../lib/mentions";
 import { usePaneFind } from "../lib/use-pane-find";
 import { MessageInput } from "./message-input";
+import { AgentUpdateBar } from "./agent-update-bar";
 import { SessionSidebar } from "./session-sidebar";
 import { ChatHeader } from "./chat-header";
 import { openNewAgentChat } from "../lib/open-agent-session";
@@ -111,6 +112,8 @@ import { collectTurnEdits } from "../lib/turn-edits";
  *  this much so the first row clears the bar. Must match `ChatHeader`'s bar. */
 const HEADER_INSET = 46;
 import { PermissionModal } from "./permission-modal";
+import { ChatCommentsController } from "./chat-comments-controller";
+import { useCommentCount } from "../stores/chat-comments-store";
 import { SessionElicitation } from "./session-elicitation";
 
 // Both panels are modal-style and never visible on first paint. Lazy so
@@ -119,6 +122,9 @@ const BashHistoryPanel = lazy(() =>
   import("./bash-history-panel").then((m) => ({ default: m.BashHistoryPanel })),
 );
 const PlansPanel = lazy(() => import("./plans-panel").then((m) => ({ default: m.PlansPanel })));
+const ChatCommentsPanel = lazy(() =>
+  import("./chat-comments-panel").then((m) => ({ default: m.ChatCommentsPanel })),
+);
 const ChatSearchPalette = lazy(() =>
   import("./chat-search-palette").then((m) => ({
     default: m.ChatSearchPalette,
@@ -160,7 +166,7 @@ let acpPrewarmStarted = false;
 
 /** Rebind a session whose agent process died: respawn the plugin (its spawn
  *  cache was reset on disconnect) and RESUME the same session id where the
- *  transcript kind supports it (Claude JSONL, Codex engine-side) — falling
+ *  transcript kind supports it (Claude JSONL, the native engine's own) — falling
  *  back to a fresh session if the resume fails. Never runs unprompted: only
  *  the next Send or the explicit Restart affordance calls this (no silent
  *  auto-restart loops). */
@@ -233,6 +239,10 @@ export const ChatPanel = memo(function ChatPanel({ tabId }: ChatPanelProps) {
   const [roleFilter, setRoleFilter] = useState<"all" | "user" | "assistant">("all");
   const [bashPanelOpen, setBashPanelOpen] = useState(false);
   const [plansPanelOpen, setPlansPanelOpen] = useState(false);
+  const [commentsPanelOpen, setCommentsPanelOpen] = useState(false);
+  // A number or null; changes only when a comment lands or the session's
+  // cloud identity resolves.
+  const commentCount = useCommentCount(tabId);
   // Narrow boolean — changes only when the detail panel opens or closes.
   const detailOpen = useDetailPanelStore((s) => !!s.targets[tabId]);
 
@@ -665,6 +675,10 @@ export const ChatPanel = memo(function ChatPanel({ tabId }: ChatPanelProps) {
                 // every subsequent bind failure for this tab+agent.
                 onDismissed: () => reportedBindFailures.delete(key),
               });
+            } else if (action === "silent") {
+              // The composer is already showing why (`AiGrantBar`, and "No
+              // models" in the picker). A toast would be a third copy of a
+              // setup problem, re-raised on every rebind.
             } else if (action === "signed-in-but-refused" && at) {
               // Signed in already and STILL refused. Say so, and surface the
               // agent's own words — it is the only thing that can explain what
@@ -954,11 +968,19 @@ export const ChatPanel = memo(function ChatPanel({ tabId }: ChatPanelProps) {
   const onToggleBashStable = useCallback(() => {
     setBashPanelOpen((v) => !v);
     setPlansPanelOpen(false);
+    setCommentsPanelOpen(false);
   }, []);
   const onTogglePlansStable = useCallback(() => {
     setPlansPanelOpen((v) => !v);
     setBashPanelOpen(false);
+    setCommentsPanelOpen(false);
   }, []);
+  const onToggleCommentsStable = useCallback(() => {
+    setCommentsPanelOpen((v) => !v);
+    setBashPanelOpen(false);
+    setPlansPanelOpen(false);
+  }, []);
+  const onCloseCommentsStable = useCallback(() => setCommentsPanelOpen(false), []);
   const onNewSessionStable = useCallback(() => openNewAgentChat(), []);
   useEffect(() => {
     const cur = session?.status ?? "idle";
@@ -1314,7 +1336,9 @@ export const ChatPanel = memo(function ChatPanel({ tabId }: ChatPanelProps) {
     <div ref={rootRef} className="h-full flex relative">
       <SessionSidebar tabId={tabId} />
 
-      <div className="flex-1 flex flex-col min-w-0">
+      {/* `data-chat-drop-zone`: Finder drops land anywhere on the conversation
+          column, not just the composer (see `attachPaths` in message-input). */}
+      <div data-chat-drop-zone className="relative flex-1 flex flex-col min-w-0">
         {/* The header FLOATS over the transcript rather than sitting above it in
             the column. That is what lets the thread scroll underneath and be
             progressively blurred by the band the transcript draws at its top
@@ -1363,6 +1387,9 @@ export const ChatPanel = memo(function ChatPanel({ tabId }: ChatPanelProps) {
                 onToggleBash={onToggleBashStable}
                 plansPanelOpen={plansPanelOpen}
                 onTogglePlans={onTogglePlansStable}
+                commentCount={commentCount}
+                commentsPanelOpen={commentsPanelOpen}
+                onToggleComments={onToggleCommentsStable}
                 // Zero-arg wrapper, NOT a bare reference: React would call
                 // openNewAgentChat(SyntheticMouseEvent) and the event object
                 // sailed through `agent?` into the store as agentType —
@@ -1424,6 +1451,15 @@ export const ChatPanel = memo(function ChatPanel({ tabId }: ChatPanelProps) {
         </Suspense>
       )}
 
+      {/* Cloud comments: the resolver runs for the pane's lifetime (it is what
+          decides whether the header button exists); the panel only on demand. */}
+      <ChatCommentsController tabId={tabId} />
+      {commentsPanelOpen && (
+        <Suspense fallback={null}>
+          <ChatCommentsPanel tabId={tabId} onClose={onCloseCommentsStable} />
+        </Suspense>
+      )}
+
       {/* Diff / tool-output detail. Gated on a narrow boolean selector so the
           chunk isn't fetched until the reader first opens it, and so this
           subscription only fires on open/close — never on a streaming chunk.
@@ -1478,6 +1514,7 @@ export const ChatPanel = memo(function ChatPanel({ tabId }: ChatPanelProps) {
 function DisconnectedBanner({ tabId }: { tabId: string }) {
   const disconnected = useChatStore((s) => !!s.sessions[tabId]?.disconnected);
   const bindError = useChatStore((s) => s.sessions[tabId]?.bindError);
+  const updatedTo = useChatStore((s) => s.sessions[tabId]?.updatedTo);
   const agentType = useChatStore((s) => s.sessions[tabId]?.agentType);
   // Re-render on install/uninstall: reinstalling the agent turns this back
   // into an ordinary restart.
@@ -1497,7 +1534,9 @@ function DisconnectedBanner({ tabId }: { tabId: string }) {
       <span className="select-text text-[var(--secondary-foreground)]">
         {bindError
           ? `The agent exited while starting (${bindError.slice(0, 160)}). Your message is back in the queue — restart to try again.`
-          : "The agent process exited. Your conversation is safe — restart to continue where you left off."}
+          : updatedTo
+            ? `${agentMeta(agentType).label} was updated to v${updatedTo}. Your conversation is safe — your next message continues it on the new version.`
+            : "The agent process exited. Your conversation is safe — restart to continue where you left off."}
       </span>
       <button
         disabled={restarting}
@@ -1569,6 +1608,7 @@ const ChatComposer = memo(function ChatComposer({
   return (
     <>
       <div className="relative">
+        <AgentUpdateBar tabId={tabId} />
         <DisconnectedBanner tabId={tabId} />
         <MessageInput
           tabId={tabId}

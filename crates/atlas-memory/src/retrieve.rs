@@ -1,5 +1,5 @@
 //! Fused retrieval (Step 6) — the single recall path behind the frozen
-//! `MemorySearchFn` seam. Both the Cersei `search_memory` pull tool and the
+//! `MemorySearchFn` seam. Both the native `search_memory` pull tool and the
 //! Claude/Codex push (Tauri site C) reach this through
 //! `memory_retrieve::retrieve`.
 //!

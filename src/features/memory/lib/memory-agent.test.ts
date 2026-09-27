@@ -49,12 +49,12 @@ describe("pluginIdForSource", () => {
 
   it("falls back to the native agent for a missing source", () => {
     for (const bad of [null, undefined, ""]) {
-      expect(pluginIdForSource(bad)).toBe("cersei");
+      expect(pluginIdForSource(bad)).toBe("atlas-agent");
     }
   });
 
   it("leaves the native agent alone", () => {
-    expect(pluginIdForSource("cersei")).toBe("cersei");
+    expect(pluginIdForSource("atlas-agent")).toBe("atlas-agent");
   });
 });
 

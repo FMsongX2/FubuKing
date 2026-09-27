@@ -1,0 +1,20 @@
+// Modified by Atlas from upstream OpenAI Codex (Apache-2.0). See CONTEXT.md.
+use crate::ToolDefinition;
+use crate::parse_tool_input_schema;
+use atlas_engine_protocol::dynamic_tools::DynamicToolFunctionSpec;
+
+pub fn parse_dynamic_tool(
+    tool: &DynamicToolFunctionSpec,
+) -> Result<ToolDefinition, serde_json::Error> {
+    Ok(ToolDefinition {
+        name: tool.name.clone(),
+        description: tool.description.clone(),
+        input_schema: parse_tool_input_schema(&tool.input_schema)?,
+        output_schema: None,
+        defer_loading: tool.defer_loading,
+    })
+}
+
+#[cfg(test)]
+#[path = "dynamic_tool_tests.rs"]
+mod tests;

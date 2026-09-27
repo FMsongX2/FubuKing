@@ -120,6 +120,23 @@ describe("errInfo", () => {
   });
 });
 
+describe("no-models token parity with Rust", () => {
+  it("still matches the sentence the native agent actually produces", () => {
+    // The silencing is a substring match on prose, so it breaks silently the
+    // day someone rewords the Rust. Read the real `Display` and run it through
+    // the real decision — a reworded sentence fails here rather than quietly
+    // restoring the toast this was added to remove.
+    const rust = readFileSync("crates/atlas-native-agent/src/engine/catalog_cache.rs", "utf8");
+    const sentence = rust.match(/"(Atlas Agent has no models to offer[^"]*)"/);
+    expect(sentence, "no-entitled-models sentence not found in catalog_cache.rs").toBeTruthy();
+
+    catalog = { "atlas-agent": { kind: "native", login: null } };
+    expect(
+      bindFailureAction({ agentType: "atlas-agent", err: sentence![1], alreadyAttempted: false }),
+    ).toBe("silent");
+  });
+});
+
 describe("AUTH token parity with Rust", () => {
   it("matches the AUTH bucket of classify_message", () => {
     // The fallback path only works if it recognises what Rust recognises.
@@ -172,8 +189,8 @@ describe("canSignIn", () => {
   });
 
   it("never offers it for the native in-process agent", () => {
-    catalog = { cersei: { kind: "native", login: null } };
-    expect(canSignIn("cersei")).toBe(false);
+    catalog = { "atlas-agent": { kind: "native", login: null } };
+    expect(canSignIn("atlas-agent")).toBe(false);
   });
 });
 
@@ -214,12 +231,71 @@ describe("bindFailureAction", () => {
   });
 
   it("reports plainly for agents Atlas cannot sign in", () => {
-    catalog = { cersei: { kind: "native", login: null } };
-    expect(bindFailureAction({ agentType: "cersei", err: authErr, alreadyAttempted: false })).toBe(
-      "report",
-    );
+    catalog = { "atlas-agent": { kind: "native", login: null } };
+    expect(
+      bindFailureAction({ agentType: "atlas-agent", err: authErr, alreadyAttempted: false }),
+    ).toBe("report");
     expect(bindFailureAction({ agentType: undefined, err: authErr, alreadyAttempted: false })).toBe(
       "report",
     );
+  });
+
+  describe("the native agent with no entitled models", () => {
+    // Verbatim from `CatalogueUnavailable`'s `Display` in
+    // `crates/atlas-native-agent/src/engine/catalog_cache.rs`. If that sentence
+    // is reworded, this fails and the token list beside it needs the same edit
+    // — which is the whole point of pinning it here.
+    const NO_MODELS =
+      "Atlas Agent has no models to offer: the gateway lists none this organisation may use.";
+
+    beforeEach(() => {
+      catalog = { "atlas-agent": { kind: "native", login: null } };
+    });
+
+    it("says nothing — the composer is already explaining it", () => {
+      // `AiGrantBar` sits under the composer and disables it, and the model
+      // picker reads "No models". A toast is a third copy, re-raised on every
+      // rebind: opening a tab, switching organisation, refocusing.
+      for (const attempted of [false, true]) {
+        expect(
+          bindFailureAction({
+            agentType: "atlas-agent",
+            err: NO_MODELS,
+            alreadyAttempted: attempted,
+          }),
+        ).toBe("silent");
+      }
+    });
+
+    it("stays silent when the failure arrives structured rather than as a string", () => {
+      expect(
+        bindFailureAction({
+          agentType: "atlas-agent",
+          err: { message: NO_MODELS, kind: "fatal" },
+          alreadyAttempted: false,
+        }),
+      ).toBe("silent");
+    });
+
+    it("still reports the native agent's OTHER failures", () => {
+      // Narrow on purpose: nothing on screen explains these, so silence would
+      // leave a dead composer with no reason given.
+      expect(
+        bindFailureAction({
+          agentType: "atlas-agent",
+          err: "Atlas Agent can't load its model list (timeout). Check your connection and try again.",
+          alreadyAttempted: false,
+        }),
+      ).toBe("report");
+    });
+
+    it("does not silence the same message from an agent that is not the native one", () => {
+      // The sentence names Atlas Agent, so this should never happen — but the
+      // guard is on the agent, not on the prose, and that is worth pinning.
+      catalog = { autohand: { kind: "external", login: null, installed: true } };
+      expect(
+        bindFailureAction({ agentType: "autohand", err: NO_MODELS, alreadyAttempted: false }),
+      ).toBe("report");
+    });
   });
 });

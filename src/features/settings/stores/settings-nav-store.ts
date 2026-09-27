@@ -9,18 +9,21 @@ import { create } from "zustand";
  * `SECTIONS` table in `settings-panel.tsx` is typed against this, so the two
  * cannot drift apart.
  */
-export type SettingsSection =
-  | "general"
-  | "appearance"
-  | "icons"
-  | "layouts"
-  | "providers"
-  | "skills"
-  | "agents"
-  | "models"
-  | "updates"
-  | "keybindings"
-  | "about";
+export const SETTINGS_SECTIONS = [
+  "general",
+  "appearance",
+  "icons",
+  "layouts",
+  "providers",
+  "skills",
+  "agents",
+  "models",
+  "updates",
+  "keybindings",
+  "about",
+] as const;
+
+export type SettingsSection = (typeof SETTINGS_SECTIONS)[number];
 
 /** Cross-component signal to open the Settings tab on a specific section.
  *  Set `goTo(section)` before/after opening the (singleton, persistent) settings

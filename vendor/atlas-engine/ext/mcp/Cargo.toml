@@ -1,0 +1,39 @@
+# Modified by Atlas from upstream OpenAI Codex (Apache-2.0). See CONTEXT.md.
+[package]
+edition.workspace = true
+license.workspace = true
+name = "atlas-engine-mcp-extension"
+version.workspace = true
+
+[lib]
+name = "atlas_engine_mcp_extension"
+path = "src/lib.rs"
+doctest = false
+
+[lints]
+workspace = true
+
+[dependencies]
+atlas-engine-core = { workspace = true }
+atlas-engine-core-plugins = { workspace = true }
+atlas-engine-config = { workspace = true }
+atlas-engine-connectors = { workspace = true }
+atlas-engine-connectors-extension = { workspace = true }
+atlas-engine-exec-server = { workspace = true }
+atlas-engine-extension-api = { workspace = true }
+atlas-engine-features = { workspace = true }
+atlas-engine-mcp = { workspace = true }
+atlas-engine-plugin = { workspace = true }
+atlas-engine-protocol = { workspace = true }
+atlas-engine-utils-absolute-path = { workspace = true }
+atlas-engine-utils-path-uri = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+tokio = { workspace = true, features = ["sync"] }
+
+[dev-dependencies]
+atlas-engine-login = { workspace = true }
+pretty_assertions = { workspace = true }
+tempfile = { workspace = true }
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }

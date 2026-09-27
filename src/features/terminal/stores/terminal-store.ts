@@ -54,6 +54,10 @@ interface TerminalState {
    *  (HMR, a tab switch that unmounts the panel), which for a login would mean
    *  signing in twice. */
   pendingCommands: Record<string, string>;
+  /** Queued lines to TYPE without pressing Enter — an agent's UI action
+   *  (ADR-0012) puts a command at the prompt and the user runs it. Cleared
+   *  with the command it marks. */
+  pendingTyped: Record<string, true>;
   /** Which project each terminal TAB belongs to.
    *
    *  A notification about a terminal has to be able to find its way back to
@@ -96,8 +100,9 @@ interface TerminalActions {
      *  existing shell may be mid-command, and typing into it would interleave
      *  with whatever the user is doing. */
     addTerminalForCommand: (tabId: string, projectId?: string) => string;
-    /** Queue a command for one terminal. */
-    setPendingCommand: (terminalId: string, command: string) => void;
+    /** Queue a command for one terminal; `execute: false` types it without
+     *  pressing Enter. */
+    setPendingCommand: (terminalId: string, command: string, opts?: { execute?: boolean }) => void;
     /** Take the queued command, if any. Removes it — see `pendingCommands`. */
     takePendingCommand: (terminalId: string) => string | undefined;
     /** Drop several terminal tabs (used when a project is DISCARDED). PTYs
@@ -226,6 +231,7 @@ export const useTerminalStore = createSelectors(
       busy: {},
       pendingFocus: null,
       pendingCommands: {},
+      pendingTyped: {},
       owners: {},
       actions: {
         initTab: (tabId, projectId) => {
@@ -294,6 +300,7 @@ export const useTerminalStore = createSelectors(
             // A queued command outlives nothing: its terminal is gone, and the
             // line can hold an agent's login.
             delete s.pendingCommands[ptyId];
+            delete s.pendingTyped[ptyId];
             const t = s.tabs[tabId];
             if (!t) return;
             const pane = findPane(t.root, paneId);
@@ -333,6 +340,7 @@ export const useTerminalStore = createSelectors(
           // (it can hold an agent's login).
           set((s) => {
             delete s.pendingCommands[ptyId];
+            delete s.pendingTyped[ptyId];
           });
         },
 
@@ -439,9 +447,11 @@ export const useTerminalStore = createSelectors(
           return ptyId;
         },
 
-        setPendingCommand: (terminalId, command) =>
+        setPendingCommand: (terminalId, command, opts) =>
           set((s) => {
             s.pendingCommands[terminalId] = command;
+            if (opts?.execute === false) s.pendingTyped[terminalId] = true;
+            else delete s.pendingTyped[terminalId];
           }),
 
         takePendingCommand: (terminalId) => {
@@ -449,6 +459,7 @@ export const useTerminalStore = createSelectors(
           if (command === undefined) return undefined;
           set((s) => {
             delete s.pendingCommands[terminalId];
+            delete s.pendingTyped[terminalId];
           });
           return command;
         },

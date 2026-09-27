@@ -208,6 +208,8 @@ export class TerminalSession {
   private drainRaf = 0;
   private drainBackstop = 0;
   private queuedCommand: string | null = null;
+  /** False for a line queued to be typed, not run (see `pendingTyped`). */
+  private queuedExecute = true;
   private queuedFloor = 0;
 
   private host: HTMLElement | null = null;
@@ -319,6 +321,8 @@ export class TerminalSession {
     // Written into the shell rather than exec'd, so it runs with a real tty and
     // a login that asks a question can be answered. Taken ONCE per session, so
     // neither a remount nor a project round trip re-runs it.
+    // Read before the take, which clears it.
+    this.queuedExecute = !useTerminalStore.getState().pendingTyped[this.key];
     this.queuedCommand = useTerminalStore.getState().actions.takePendingCommand(this.key) ?? null;
     if (this.queuedCommand !== null) {
       // A shell with no OSC 133 integration never reports a prompt, so the wait
@@ -334,7 +338,8 @@ export class TerminalSession {
     this.queuedCommand = null;
     if (this.queuedFloor) window.clearTimeout(this.queuedFloor);
     this.queuedFloor = 0;
-    void invoke("terminal_write_text", { id: this.ptyId, text: line + ENTER }).catch(() => {});
+    const text = this.queuedExecute ? line + ENTER : line;
+    void invoke("terminal_write_text", { id: this.ptyId, text }).catch(() => {});
   }
 
   async close(): Promise<void> {

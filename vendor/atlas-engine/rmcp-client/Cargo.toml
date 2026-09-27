@@ -1,0 +1,94 @@
+# Modified by Atlas from upstream OpenAI Codex (Apache-2.0). See CONTEXT.md.
+[package]
+name = "atlas-engine-rmcp-client"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+anyhow = "1"
+axum = { workspace = true, default-features = false, features = [
+    "http1",
+    "json",
+    "tokio",
+] }
+base64 = { workspace = true }
+atlas-engine-api = { workspace = true }
+atlas-engine-config = { workspace = true }
+atlas-engine-exec-server = { workspace = true }
+atlas-engine-http-client = { workspace = true }
+atlas-engine-keyring-store = { workspace = true }
+atlas-engine-network-proxy = { workspace = true }
+atlas-engine-protocol = { workspace = true }
+atlas-engine-secrets = { workspace = true }
+atlas-engine-utils-path-uri = { workspace = true }
+atlas-engine-utils-pty = { workspace = true }
+atlas-engine-utils-home-dir = { workspace = true }
+bytes = { workspace = true }
+futures = { workspace = true, default-features = false, features = ["std"] }
+http = { workspace = true }
+keyring = { workspace = true, features = ["crypto-rust"] }
+memchr = { workspace = true }
+oauth2 = "5"
+rmcp = { workspace = true, default-features = false, features = [
+    "auth",
+    "base64",
+    "client",
+    "macros",
+    "schemars",
+    "server",
+    "transport-async-rw",
+    "transport-child-process",
+    "transport-streamable-http-client",
+    "transport-streamable-http-server",
+] }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+sha2 = { workspace = true }
+sse-stream = "0.2.5"
+thiserror = { workspace = true }
+tiny_http = { workspace = true }
+tokio = { workspace = true, features = [
+    "io-util",
+    "macros",
+    "process",
+    "rt-multi-thread",
+    "sync",
+    "io-std",
+    "time",
+] }
+tracing = { workspace = true, features = ["log"] }
+url = { workspace = true }
+urlencoding = { workspace = true }
+webbrowser = { workspace = true }
+which = { workspace = true }
+
+[dev-dependencies]
+atlas-engine-http-client = { workspace = true }
+atlas-engine-utils-cargo-bin = { workspace = true }
+pretty_assertions = { workspace = true }
+serial_test = { workspace = true }
+tempfile = { workspace = true }
+wiremock = { workspace = true }
+[target.'cfg(target_os = "linux")'.dependencies]
+keyring = { workspace = true, features = ["linux-native-async-persistent"] }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+keyring = { workspace = true, features = ["apple-native"] }
+
+[target.'cfg(target_os = "windows")'.dependencies]
+keyring = { workspace = true, features = ["windows-native"] }
+
+[target.'cfg(any(target_os = "freebsd", target_os = "openbsd"))'.dependencies]
+keyring = { workspace = true, features = ["sync-secret-service"] }
+
+# This test is compiled through `#[path]` inside the inline `oauth::tests` module. Cargo-shear
+# cannot resolve that nested module path and otherwise reports the linked file as unlinked.
+[package.metadata.cargo-shear]
+ignored-paths = ["src/oauth/tests/persistor_tests.rs"]
+
+[lib]
+doctest = false

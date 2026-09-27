@@ -5,7 +5,12 @@ import { cn } from "@/lib/utils";
 import { useChatStore } from "../stores/chat-store";
 import { parseConfigOptions } from "../lib/acp-config-options";
 import { loadCachedAcpConfigOptions } from "../lib/acp-config-options-cache";
-import { ComposerDropup, composerPillClass, useComposerDropup } from "./composer-dropup";
+import {
+  ComposerDropup,
+  composerPillClass,
+  composerPillLabelClass,
+  useComposerDropup,
+} from "./composer-dropup";
 
 /**
  * The agent-options pill — the knobs an agent advertises beyond mode and model
@@ -186,7 +191,7 @@ export const ComposerOptionsPill = memo(function ComposerOptionsPill({ tabId }: 
               settled answer, and pairing it with a spinner would state a verdict
               we do not have yet. Thanks to the cache this only happens once per
               agent, ever. */}
-          <span className="ml-1.5 whitespace-nowrap">
+          <span className={composerPillLabelClass("early")}>
             {hasOptions || loading ? "Options" : "Default"}
           </span>
           {/* Kept in the layout while loading, just invisible: letting it pop in

@@ -1,0 +1,146 @@
+// Modified by Atlas from upstream OpenAI Codex (Apache-2.0). See CONTEXT.md.
+use super::*;
+use atlas_engine_config::ConfigLayerStack;
+use atlas_engine_config::ConfigRequirements;
+use atlas_engine_config::ConfigRequirementsToml;
+use atlas_engine_config::FeatureRequirementsToml;
+use atlas_engine_config::RequirementSource;
+use atlas_engine_config::Sourced;
+use atlas_engine_config::config_toml::ConfigToml;
+use atlas_engine_config::config_toml::ForcedChatgptWorkspaceIds;
+use atlas_engine_features::FeaturesToml;
+use atlas_engine_protocol::config_types::ForcedLoginMethod;
+use pretty_assertions::assert_eq;
+use std::collections::BTreeMap;
+
+#[test]
+fn resolve_bootstrap_auth_keyring_backend_kind_uses_secret_auth_storage_feature()
+-> std::io::Result<()> {
+    let config_toml = ConfigToml {
+        features: Some(FeaturesToml::from(BTreeMap::from([(
+            "secret_auth_storage".to_string(),
+            true,
+        )]))),
+        ..Default::default()
+    };
+    assert_eq!(
+        resolve_bootstrap_auth_keyring_backend_kind(&config_toml_load_result(
+            config_toml,
+            /*feature_requirements*/ None,
+        )?)?,
+        AuthKeyringBackendKind::Secrets
+    );
+
+    let config_toml = ConfigToml {
+        features: Some(FeaturesToml::from(BTreeMap::from([(
+            "secret_auth_storage".to_string(),
+            false,
+        )]))),
+        ..Default::default()
+    };
+    assert_eq!(
+        resolve_bootstrap_auth_keyring_backend_kind(&config_toml_load_result(
+            config_toml.clone(),
+            /*feature_requirements*/ None,
+        )?)?,
+        AuthKeyringBackendKind::Direct
+    );
+
+    let requirements = Sourced::new(
+        FeatureRequirementsToml {
+            entries: BTreeMap::from([("secret_auth_storage".to_string(), true)]),
+        },
+        RequirementSource::Unknown,
+    );
+    assert_eq!(
+        resolve_bootstrap_auth_keyring_backend_kind(&config_toml_load_result(
+            config_toml,
+            Some(requirements),
+        )?)?,
+        AuthKeyringBackendKind::Secrets
+    );
+
+    Ok(())
+}
+
+#[test]
+fn managed_auth_restrictions_intersect_workspaces_and_fail_closed() {
+    let config = ConfigToml {
+        forced_login_method: None,
+        forced_chatgpt_workspace_id: Some(ForcedChatgptWorkspaceIds::Multiple(vec![
+            " denied ".to_string(),
+            " allowed ".to_string(),
+        ])),
+        ..Default::default()
+    };
+    let mut requirements = ConfigRequirements {
+        allowed_login_methods: Some(Sourced::new(
+            vec![ForcedLoginMethod::Chatgpt],
+            RequirementSource::Unknown,
+        )),
+        allowed_chatgpt_workspaces: Some(Sourced::new(
+            vec!["allowed".to_string()],
+            RequirementSource::Unknown,
+        )),
+        ..Default::default()
+    };
+
+    let bootstrap_config = ConfigTomlLoadResult {
+        config_toml: config.clone(),
+        config_layer_stack: ConfigLayerStack::new(
+            Vec::new(),
+            requirements.clone(),
+            ConfigRequirementsToml::default(),
+        )
+        .expect("requirements should stack"),
+    };
+    let auth_config = bootstrap_auth_config(Path::new("atlas-engine-home"), &bootstrap_config)
+        .expect("policy should resolve");
+    assert_eq!(auth_config.forced_login_method, None);
+    assert!(auth_config.is_login_method_allowed(ForcedLoginMethod::Chatgpt));
+    assert!(!auth_config.is_login_method_allowed(ForcedLoginMethod::Api));
+    assert_eq!(
+        auth_config.forced_chatgpt_workspace_id,
+        Some(vec!["denied".to_string(), "allowed".to_string()])
+    );
+    assert_eq!(
+        auth_config.effective_chatgpt_workspaces(),
+        Some(vec!["allowed".to_string()])
+    );
+
+    requirements.allowed_chatgpt_workspaces =
+        Some(Sourced::new(Vec::new(), RequirementSource::Unknown));
+    let bootstrap_config = ConfigTomlLoadResult {
+        config_toml: config,
+        config_layer_stack: ConfigLayerStack::new(
+            Vec::new(),
+            requirements,
+            ConfigRequirementsToml::default(),
+        )
+        .expect("requirements should stack"),
+    };
+    assert_eq!(
+        bootstrap_auth_config(Path::new("atlas-engine-home"), &bootstrap_config)
+            .expect_err("ChatGPT-only policy without an allowed workspace must fail")
+            .kind(),
+        std::io::ErrorKind::PermissionDenied
+    );
+}
+
+fn config_toml_load_result(
+    config_toml: ConfigToml,
+    feature_requirements: Option<Sourced<FeatureRequirementsToml>>,
+) -> std::io::Result<ConfigTomlLoadResult> {
+    let requirements = ConfigRequirements {
+        feature_requirements,
+        ..Default::default()
+    };
+    Ok(ConfigTomlLoadResult {
+        config_toml,
+        config_layer_stack: ConfigLayerStack::new(
+            Vec::new(),
+            requirements,
+            ConfigRequirementsToml::default(),
+        )?,
+    })
+}

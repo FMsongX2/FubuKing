@@ -6,7 +6,7 @@ in this crate (the grafeo graph that briefly sat beside it was removed in #89).
 Covers the on-disk layout, the legacy migration, the feature flags, the
 retained rollback fallbacks, and the **manual** 3-agent runtime verification.
 
-Background: the originating plan and seam spec lived under the Cersei SDK path
+Background: the originating plan and seam spec lived under the old native-agent SDK path
 and were deleted with it (#54). The seam as it stands today is below.
 
 > **The seam.** Every agent retrieves through `memory_retrieve::retrieve(app,

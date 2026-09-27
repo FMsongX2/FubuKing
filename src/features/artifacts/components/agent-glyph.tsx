@@ -34,7 +34,7 @@ export function AgentGlyph({
   if (agent.includes("opencode")) return <AgentIcons.OpenCode style={dim} />;
   if (agent.includes("cursor")) return <AgentIcons.Cursor style={dim} />;
   if (agent.includes("kilo")) return <AgentIcons.Kilo style={dim} />;
-  if (agent.includes("cersei")) return <AtlasIcon size={size} className="rounded-sm" />;
+  if (agent.includes("atlas-agent")) return <AtlasIcon size={size} className="rounded-sm" />;
   // Registry-installed external agent: manifest SVG, else a monogram.
   const meta = agentMeta(agent);
   if (meta.iconDataUrl) return <ExternalAgentIcon dataUrl={meta.iconDataUrl} size={size} />;

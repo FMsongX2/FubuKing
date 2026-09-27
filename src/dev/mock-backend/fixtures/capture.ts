@@ -23,10 +23,9 @@
 // failed records into the pending queue, retrying the watcher clears a
 // `stopped` issue and leaves whatever else is wrong on screen.
 //
-// Cloud lands here in full even though the popover's `CLOUD_CAPTURE_ENABLED` is
-// currently `false` — the create, connect and promote flows are unreachable
-// from the UI until the ingest service serves its read endpoints, and a fake
-// that only exists while the flag is off would be gone the day it is flipped.
+// Cloud lands here in full: create, connect and promote are all reachable from
+// the UI now that the ingest service serves its read endpoints, and Connect
+// exercises the server's refusal-to-guess answer as well as the happy path.
 
 import { emit } from "@tauri-apps/api/event";
 import type { SessionSummary } from "@/features/artifacts/types";
@@ -34,6 +33,7 @@ import type {
   Binding,
   CaptureHealth,
   ConnectOptions,
+  ConnectResult,
   Detection,
   HealthIssue,
   HealthState,
@@ -341,12 +341,16 @@ const REMOTE_WORKSPACES: RemoteWorkspace[] = [
     slug: "platform-migration",
     rootCommitSha: "3ad90f7c22b41e8d5a6790cf1b4e2d83a0c95716",
     gitUrl: "https://github.com/acme/platform-migration.git",
+    name: "Platform Migration",
+    visibility: "org",
   },
   {
     id: "rw_1d55e903",
     slug: "acme-app",
     rootCommitSha: "9f2c1ab4d7e6058c3b1f24a97de0c5b8ef31a204",
     gitUrl: "https://github.com/acme/acme-app.git",
+    name: "Acme App",
+    visibility: "org",
   },
   {
     // No remote at all: binds fine, and the row has to render without the
@@ -355,12 +359,17 @@ const REMOTE_WORKSPACES: RemoteWorkspace[] = [
     slug: "internal-scratch",
     rootCommitSha: null,
     gitUrl: null,
+    // Registered before the server carried a display name, and members-only.
+    name: null,
+    visibility: "restricted",
   },
   {
     id: "rw_9ae62f10",
     slug: "acme-design-tokens-and-theme-primitives",
     rootCommitSha: "aa7c30991fe2b48d05c7361a9e84bb2f7d0c5514",
     gitUrl: "https://github.com/acme/design-tokens.git",
+    name: "Design Tokens",
+    visibility: "org",
   },
 ];
 
@@ -423,13 +432,14 @@ export interface CaptureResponses {
   capture_enable: Unread;
   capture_disable: Unread;
   capture_git_init: Unread;
+  capture_git_available: boolean;
   capture_retry_failed: Unread;
   capture_retry_watcher: CaptureHealth;
   capture_import_confirm: Unread;
   capture_slug_available: SlugAvailability;
   capture_connect_options: ConnectOptions;
   capture_register_cloud: Unread;
-  capture_connect: Unread;
+  capture_connect: ConnectResult;
   capture_promotion_preview: PromotionPreview;
   capture_promote: Unread;
 }
@@ -443,6 +453,9 @@ export const captureHandlers: TypedHandlers<CaptureResponses> = {
   // Fire-and-forget on Project activation: the real one opens the store and
   // kicks the import, neither of which has an answer.
   capture_activate: (): null => null,
+  // The harness runs on a machine that has git; the banner is exercised by
+  // flipping this to `false` by hand.
+  capture_git_available: (): boolean => true,
 
   // `None` when capture is off for the project — the popup then has no session
   // section at all, rather than a row of zeroes.
@@ -571,9 +584,19 @@ export const captureHandlers: TypedHandlers<CaptureResponses> = {
     return project.binding;
   },
 
-  capture_connect: ({ projectPath, orgId, slug, workspaceId }): Binding => {
+  // The server, not the client, decides whether a pick binds. `internal-scratch`
+  // stands in for the refusal-to-guess answer so the popover's ambiguous branch
+  // is reachable without two repositories that share a root commit.
+  capture_connect: ({ projectPath, orgId, slug, workspaceId }): ConnectResult => {
     const project = projectFor(projectPath);
     if (!project.binding) throw new Error("enable capture for this Project first");
+    if (String(slug) === "internal-scratch") {
+      return {
+        binding: null,
+        candidates: REMOTE_WORKSPACES.slice(0, 2),
+        matched: false,
+      };
+    }
     project.binding = {
       ...project.binding,
       mode: "cloud",
@@ -584,7 +607,7 @@ export const captureHandlers: TypedHandlers<CaptureResponses> = {
       drainState: "ok",
     };
     captureChanged();
-    return project.binding;
+    return { binding: project.binding, candidates: [], matched: true };
   },
 
   capture_promotion_preview: ({ projectPath }): PromotionPreview => {

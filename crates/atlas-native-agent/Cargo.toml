@@ -44,52 +44,56 @@ tokio = { version = "1", features = ["fs", "macros", "rt", "sync", "time"] }
 tracing = "0.1"
 
 # --- The ported engine (#45, ADR-0004) --------------------------------------
-# No longer optional. These sat behind the `ported-engine` feature so the Cersei
+# No longer optional. These sat behind the `ported-engine` feature so the previous native
 # path could keep shipping while the port was proved; that path is gone (#54),
 # so gating them would gate the whole crate.
 base64 = { version = "0.22" }
 serde = { version = "1", features = ["derive"] }
 toml = { version = "0.9" }
 # For the gateway-dialect surfaces the seam re-exports (the org source).
-codex-api = { path = "../../vendor/codex/codex-api" }
-codex-app-server = { path = "../../vendor/codex/app-server" }
-codex-app-server-client = { path = "../../vendor/codex/app-server-client" }
-codex-app-server-protocol = { path = "../../vendor/codex/app-server-protocol" }
-codex-arg0 = { path = "../../vendor/codex/arg0" }
-codex-config = { path = "../../vendor/codex/config" }
-codex-utils-json-to-toml = { path = "../../vendor/codex/utils/json-to-toml" }
-codex-core = { path = "../../vendor/codex/core" }
-codex-exec-server = { path = "../../vendor/codex/exec-server" }
-codex-feedback = { path = "../../vendor/codex/feedback" }
-codex-login = { path = "../../vendor/codex/login" }
+atlas-engine-api = { path = "../../vendor/atlas-engine/atlas-engine-api" }
+atlas-engine-app-server = { path = "../../vendor/atlas-engine/app-server" }
+atlas-engine-app-server-client = { path = "../../vendor/atlas-engine/app-server-client" }
+atlas-engine-app-server-protocol = { path = "../../vendor/atlas-engine/app-server-protocol" }
+atlas-engine-arg0 = { path = "../../vendor/atlas-engine/arg0" }
+atlas-engine-config = { path = "../../vendor/atlas-engine/config" }
+atlas-engine-utils-json-to-toml = { path = "../../vendor/atlas-engine/utils/json-to-toml" }
+atlas-engine-core = { path = "../../vendor/atlas-engine/core" }
+atlas-engine-exec-server = { path = "../../vendor/atlas-engine/exec-server" }
+atlas-engine-feedback = { path = "../../vendor/atlas-engine/feedback" }
+atlas-engine-login = { path = "../../vendor/atlas-engine/login" }
 # For the engine's bundled base prompt, which the authored catalogue (D3) uses as
 # every row's `instructions_template`.
-codex-models-manager = { path = "../../vendor/codex/models-manager" }
-codex-protocol = { path = "../../vendor/codex/protocol" }
-codex-rollout = { path = "../../vendor/codex/rollout" }
+atlas-engine-models-manager = { path = "../../vendor/atlas-engine/models-manager" }
+atlas-engine-protocol = { path = "../../vendor/atlas-engine/protocol" }
+atlas-engine-rollout = { path = "../../vendor/atlas-engine/rollout" }
 
 [dev-dependencies]
 async-trait = "0.1"
 # The Linux sandbox helper, for tests only.
 #
 # `SandboxType::LinuxSeccomp` re-execs a binary whose arg0 is
-# `codex-linux-sandbox`; with no path for it the engine refuses the sandbox
+# `atlas-engine-linux-sandbox`; with no path for it the engine refuses the sandbox
 # transform and the tool call never spawns, which is why the three
 # sandboxed-command tests in `engine_turn.rs` passed on macOS seatbelt and
 # failed on Linux CI having run nothing. These three crates let the *test
 # binary* be that helper, exactly as upstream's own suites do
-# (`vendor/codex/core/tests/suite/mod.rs`): `ctor` runs
+# (`vendor/atlas-engine/core/tests/suite/mod.rs`): `ctor` runs
 # `configure_test_binary_dispatch` before any test, which installs the arg0
 # aliases and hands back the helper's path.
 #
 # Dev-only on purpose. The shipped app has no arg0 dispatch and ships macOS, so
 # giving it a helper path would be a lie about what the binary does.
-codex-sandboxing = { workspace = true }
-codex-test-binary-support = { workspace = true }
-# Pinned by the workspace to the same version `codex-core`'s tests use, so this
+atlas-engine-sandboxing = { workspace = true }
+atlas-engine-test-binary-support = { workspace = true }
+# Pinned by the workspace to the same version `atlas-engine-core`'s tests use, so this
 # adds no new lockfile entry.
 ctor = { workspace = true }
 tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
+# ADR-0013's config test reads the question-tool feature, and the modes it
+# opens, off the loaded config. Both are already in the graph through core.
+atlas-engine-features = { workspace = true }
+atlas-engine-tools = { workspace = true }
 # The live thread feed's own predicate, so the history test asserts "the
 # recorder will fire" rather than guessing which events matter.
 atlas-thread-metadata = { path = "../atlas-thread-metadata" }

@@ -265,6 +265,18 @@ pub fn is_repository(repo: &Path) -> bool {
     repo.join(".git").exists() && run(repo, &["rev-parse", "--git-dir"]).is_ok()
 }
 
+/// Git's empty tree — the "before" of a repository's first commit.
+pub const EMPTY_TREE: &str = "4b825dc642cb6eb9a060e54bf8d69288fbee4904";
+
+/// Whether HEAD is an unborn branch: a repository whose current branch has no
+/// commit yet. Distinguishes a fresh `git init` from a `head_commit` that
+/// failed for some other reason — only the first says every commit that
+/// appears later is new.
+pub fn is_unborn(repo: &Path) -> bool {
+    run(repo, &["symbolic-ref", "-q", "HEAD"]).is_ok()
+        && run(repo, &["rev-parse", "-q", "--verify", "HEAD"]).is_err()
+}
+
 /// The commit HEAD points at, or `None` for an unborn branch (a fresh `git init`
 /// with nothing committed).
 pub fn head_commit(repo: &Path) -> Option<String> {
@@ -863,6 +875,31 @@ mod tests {
             self.git(&["commit", "-m", message]);
             head_commit(self.path()).expect("a commit")
         }
+    }
+
+    /// A fresh `git init` is unborn until its first commit, and the empty tree
+    /// diffs against that commit as "everything was added".
+    #[test]
+    fn a_fresh_repository_is_unborn_until_its_first_commit() {
+        let repo = TestRepo::new();
+        assert!(is_unborn(repo.path()));
+        assert_eq!(head_commit(repo.path()), None);
+
+        repo.write("index.html", "<h1>Pulse Board</h1>");
+        let root = repo.commit_all("scaffold");
+        assert!(!is_unborn(repo.path()));
+
+        let changed = changed_between(repo.path(), EMPTY_TREE, &root).expect("diff");
+        assert_eq!(changed.len(), 1);
+        assert_eq!(changed[0].path, "index.html");
+        assert!(!changed[0].kind.existed_in_parent());
+        assert_eq!(commits_between(repo.path(), None, &root).unwrap(), vec![root]);
+    }
+
+    #[test]
+    fn a_directory_that_is_not_a_repository_is_not_unborn() {
+        let dir = tempfile::tempdir().unwrap();
+        assert!(!is_unborn(dir.path()));
     }
 
     // ── Shared-memory scope ─────────────────────────────────────────────────

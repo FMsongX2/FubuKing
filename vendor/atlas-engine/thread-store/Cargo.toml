@@ -1,0 +1,44 @@
+# Modified by Atlas from upstream OpenAI Codex (Apache-2.0). See CONTEXT.md.
+[package]
+edition.workspace = true
+license.workspace = true
+name = "atlas-engine-thread-store"
+version.workspace = true
+
+[lib]
+name = "atlas_engine_thread_store"
+path = "src/lib.rs"
+doctest = false
+
+[lints]
+workspace = true
+
+[dependencies]
+chrono = { workspace = true, features = ["serde"] }
+atlas-engine-app-server-protocol = { workspace = true }
+atlas-engine-extension-items = { workspace = true }
+atlas-engine-git-utils = { workspace = true }
+atlas-engine-install-context = { workspace = true }
+atlas-engine-otel = { workspace = true }
+atlas-engine-protocol = { workspace = true }
+atlas-engine-rollout = { workspace = true }
+atlas-engine-state = { workspace = true }
+atlas-engine-utils-absolute-path = { workspace = true }
+atlas-engine-utils-path = { workspace = true }
+atlas-engine-utils-path-uri = { workspace = true }
+futures = { workspace = true }
+pulldown-cmark = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+sqlx = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }
+zstd = { workspace = true }
+
+[dev-dependencies]
+atlas-engine-utils-absolute-path = { workspace = true }
+pretty_assertions = { workspace = true }
+tempfile = { workspace = true }
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
+uuid = { workspace = true }

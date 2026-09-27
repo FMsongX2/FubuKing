@@ -17,7 +17,7 @@
 
   Must be run against a release exe: debug builds are console-subsystem, so
   their children inherit a console and the leak is invisible (see
-  docs/research/windows-terminal-spawn.md).
+  docs/archive/windows-terminal-spawn.md).
 
 .EXAMPLE
   scripts\windows\terminal-spawn-probe.ps1 -Exe F:\atlas-target\x86_64-pc-windows-msvc\release\atlas.exe `

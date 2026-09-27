@@ -184,4 +184,25 @@ describe("terminalSessions", () => {
     expect(writes[0][1]).toMatchObject({ text: "claude login\n" });
     await s.close();
   });
+
+  /// ADR-0012: an agent types a line at the prompt; the user presses Enter.
+  it("types a queued line without Enter when it was queued typed-only", async () => {
+    const st = useTerminalStore.getState();
+    st.actions.initTab("tab-t", "ws-1");
+    const t = useTerminalStore.getState().tabs["tab-t"];
+    const termId = (t.root as { terminals: string[] }).terminals[0];
+    st.actions.setPendingCommand(termId, "rm -rf build", { execute: false });
+    const s = terminalSessions.acquire(termId, { tabId: "tab-t", cwd: "/tmp" });
+    await tick();
+    expect(useTerminalStore.getState().pendingTyped[termId]).toBeUndefined();
+    channels[channels.length - 1].onmessage?.(bytes(OSC("133;A")));
+    await frame();
+    await frame();
+    const writes = calls("terminal_write_text").filter((w) =>
+      (w[1] as { text: string }).text.startsWith("rm"),
+    );
+    expect(writes).toHaveLength(1);
+    expect(writes[0][1]).toMatchObject({ text: "rm -rf build" });
+    await s.close();
+  });
 });

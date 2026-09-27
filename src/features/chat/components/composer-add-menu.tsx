@@ -45,7 +45,7 @@ interface ComposerAddMenuProps {
   /** Project root — scopes sessions/projects to this project, and is the
    *  clone destination root for GitHub repos (`<project>/.atlas/repos`). */
   projectPath: string | null;
-  /** Skill-registry agent id (e.g. "claude-code" | "codex" | "cersei"). */
+  /** Skill-registry agent id (e.g. "claude-code" | "codex" | "atlas-agent"). */
   agentId?: string;
   /** Agent accepts inline base64 images (`promptCapabilities.image`). */
   imageSupported: boolean;

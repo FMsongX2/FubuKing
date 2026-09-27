@@ -103,7 +103,7 @@ describe("ComposerOptionsPill", () => {
     // "Default" carried over from an agent with no knobs, which then snapped
     // to "Options" with no loading in between when the new binding spoke.
     saveCachedAcpConfigOptions("claude-code", [knob]);
-    useChatStore.getState().actions.switchChatAgent(TAB, "cersei");
+    useChatStore.getState().actions.switchChatAgent(TAB, "atlas-agent");
     // The user's path: the native agent's LIVE session settles on "no knobs",
     // so there is a real value in the store to go stale.
     useChatStore.getState().actions.setAcpConfigOptions(TAB, []);
@@ -116,8 +116,8 @@ describe("ComposerOptionsPill", () => {
   });
 
   it("shows loading — not the old agent's answer — when switching to an unknown agent", () => {
-    saveCachedAcpConfigOptions("cersei", [knob]);
-    useChatStore.getState().actions.switchChatAgent(TAB, "cersei");
+    saveCachedAcpConfigOptions("atlas-agent", [knob]);
+    useChatStore.getState().actions.switchChatAgent(TAB, "atlas-agent");
     render(<ComposerOptionsPill tabId={TAB} />);
     expect(pill().getAttribute("aria-busy")).toBe("false");
 

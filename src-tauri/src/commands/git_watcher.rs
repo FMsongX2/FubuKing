@@ -158,6 +158,23 @@ pub async fn git_watch_start(
             return Ok(());
         }
     }
+    // Capture arms a watcher itself, keyed by the root, when a Project becomes
+    // a repository mid-session. Adopt it under the project id rather than
+    // starting a second one — two would double every event, and `git_watch_stop`
+    // with the id would leave the root-keyed one running.
+    {
+        let mut watchers = state.watchers.write();
+        let adopt = watchers
+            .iter()
+            .find(|(k, w)| **k != key && w.root == root && **k == project_path)
+            .map(|(k, _)| k.clone());
+        if let Some(old) = adopt {
+            if let Some(watcher) = watchers.remove(&old) {
+                watchers.insert(key, watcher);
+            }
+            return Ok(());
+        }
+    }
 
     // Cache invalidation runs FROM the watcher callback so the very
     // next `mention_search` (or any cached refs read) recomputes

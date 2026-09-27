@@ -100,8 +100,8 @@ export default function MarkdownImpl({ children, className }: MarkdownProps) {
           },
           table(props) {
             return (
-              <div className="my-3 rounded-md border border-[var(--border)] overflow-hidden">
-                <table className="w-full text-sm border-collapse">{props.children}</table>
+              <div className="my-3 rounded-md border border-[var(--border)] overflow-x-auto">
+                <table className="w-max min-w-full text-sm border-collapse">{props.children}</table>
               </div>
             );
           },

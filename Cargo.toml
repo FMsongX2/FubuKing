@@ -5,10 +5,10 @@
 # (`=1.4.0`), the ported stack pins 2.0 / `=1.5.0`, and no single cargo
 # resolution can hold two exact pins of the same crate. The old stack is gone
 # and every remaining consumer is on `=2.0.0`, so the collision is gone with it
-# (spec `docs/atlas-agent-codex-port-spec.md`, decision D4 and its premise
+# (spec `docs/archive/atlas-agent-codex-port-spec.md`, decision D4 and its premise
 # correction; issue #38).
 #
-# The workspace exists so the vendored Codex engine (#42) lands in the same
+# The workspace exists so the vendored engine (#42) lands in the same
 # dependency graph as the app instead of a parallel one. Nothing about how
 # Atlas builds today changes: the patch tables and profiles below are the ones
 # that were in `src-tauri/Cargo.toml`, moved rather than rewritten, because
@@ -30,6 +30,7 @@ members = [
   "crates/atlas-agent-store",
   "crates/atlas-agent-transcript",
   "crates/atlas-agent-wire",
+  "crates/atlas-artifacts",
   "crates/atlas-bus",
   "crates/atlas-checkpoint",
   "crates/atlas-codeindex",
@@ -47,117 +48,117 @@ members = [
   "crates/atlas-thread-metadata",
   "src-tauri",
 
-  # The vendored Codex engine — see the block below.
-  "vendor/codex/agent-graph-store",
-  "vendor/codex/agent-identity",
-  "vendor/codex/analytics",
-  "vendor/codex/app-server",
-  "vendor/codex/app-server-client",
-  "vendor/codex/app-server-protocol",
-  "vendor/codex/app-server-protocol-noop-macros",
-  "vendor/codex/app-server-transport",
-  "vendor/codex/app-server/tests/common",
-  "vendor/codex/apply-patch",
-  "vendor/codex/arg0",
-  "vendor/codex/async-utils",
-  "vendor/codex/aws-auth",
-  "vendor/codex/backend-client",
-  "vendor/codex/chatgpt",
-  "vendor/codex/cloud-config",
-  "vendor/codex/code-mode",
-  "vendor/codex/code-mode-protocol",
-  "vendor/codex/codex-api",
-  "vendor/codex/codex-backend-openapi-models",
-  "vendor/codex/codex-client",
-  "vendor/codex/codex-experimental-api-macros",
-  "vendor/codex/codex-home",
-  "vendor/codex/codex-mcp",
-  "vendor/codex/collaboration-mode-templates",
-  "vendor/codex/config",
-  "vendor/codex/connectors",
-  "vendor/codex/context-fragments",
-  "vendor/codex/core",
-  "vendor/codex/core-plugins",
-  "vendor/codex/core/tests/common",
-  "vendor/codex/diagnostics",
-  "vendor/codex/exec-server",
-  "vendor/codex/exec-server-protocol",
-  "vendor/codex/exec-server/tests/support",
-  "vendor/codex/execpolicy",
-  "vendor/codex/ext/agent",
-  "vendor/codex/ext/connectors",
-  "vendor/codex/ext/extension-api",
-  "vendor/codex/ext/git-attribution",
-  "vendor/codex/ext/goal",
-  "vendor/codex/ext/guardian",
-  "vendor/codex/ext/guardian-v2",
-  "vendor/codex/ext/image-generation",
-  "vendor/codex/ext/items",
-  "vendor/codex/ext/mcp",
-  "vendor/codex/ext/memories",
-  "vendor/codex/ext/queue",
-  "vendor/codex/ext/skills",
-  "vendor/codex/ext/web-search",
-  "vendor/codex/external-agent-migration",
-  "vendor/codex/features",
-  "vendor/codex/feedback",
-  "vendor/codex/file-search",
-  "vendor/codex/file-system",
-  "vendor/codex/file-watcher",
-  "vendor/codex/git-utils",
-  "vendor/codex/history",
-  "vendor/codex/hooks",
-  "vendor/codex/http-client",
-  "vendor/codex/install-context",
-  "vendor/codex/keyring-store",
-  "vendor/codex/linux-sandbox",
-  "vendor/codex/login",
-  "vendor/codex/memories/read",
-  "vendor/codex/memories/write",
-  "vendor/codex/model-provider",
-  "vendor/codex/model-provider-info",
-  "vendor/codex/models-manager",
-  "vendor/codex/network-proxy",
-  "vendor/codex/otel",
-  "vendor/codex/plugin",
-  "vendor/codex/process-hardening",
-  "vendor/codex/prompts",
-  "vendor/codex/protocol",
-  "vendor/codex/response-debug-context",
-  "vendor/codex/rmcp-client",
-  "vendor/codex/rollout",
-  "vendor/codex/rollout-trace",
-  "vendor/codex/sandboxing",
-  "vendor/codex/secrets",
-  "vendor/codex/shell-command",
-  "vendor/codex/shell-escalation",
-  "vendor/codex/skills",
-  "vendor/codex/state",
-  "vendor/codex/terminal-detection",
-  "vendor/codex/test-binary-support",
-  "vendor/codex/thread-store",
-  "vendor/codex/tools",
-  "vendor/codex/uds",
-  "vendor/codex/utils/absolute-path",
-  "vendor/codex/utils/audio",
-  "vendor/codex/utils/cache",
-  "vendor/codex/utils/cargo-bin",
-  "vendor/codex/utils/cli",
-  "vendor/codex/utils/home-dir",
-  "vendor/codex/utils/image",
-  "vendor/codex/utils/json-to-toml",
-  "vendor/codex/utils/output-truncation",
-  "vendor/codex/utils/path-uri",
-  "vendor/codex/utils/path-utils",
-  "vendor/codex/utils/plugins",
-  "vendor/codex/utils/pty",
-  "vendor/codex/utils/rustls-provider",
-  "vendor/codex/utils/stream-parser",
-  "vendor/codex/utils/string",
-  "vendor/codex/utils/template",
-  "vendor/codex/websocket-client",
-  "vendor/codex/windows-sandbox-rs",
-  "vendor/codex/workload-identity",
+  # The vendored engine — see the block below.
+  "vendor/atlas-engine/agent-graph-store",
+  "vendor/atlas-engine/agent-identity",
+  "vendor/atlas-engine/analytics",
+  "vendor/atlas-engine/app-server",
+  "vendor/atlas-engine/app-server-client",
+  "vendor/atlas-engine/app-server-protocol",
+  "vendor/atlas-engine/app-server-protocol-noop-macros",
+  "vendor/atlas-engine/app-server-transport",
+  "vendor/atlas-engine/app-server/tests/common",
+  "vendor/atlas-engine/apply-patch",
+  "vendor/atlas-engine/arg0",
+  "vendor/atlas-engine/async-utils",
+  "vendor/atlas-engine/aws-auth",
+  "vendor/atlas-engine/backend-client",
+  "vendor/atlas-engine/chatgpt",
+  "vendor/atlas-engine/cloud-config",
+  "vendor/atlas-engine/code-mode",
+  "vendor/atlas-engine/code-mode-protocol",
+  "vendor/atlas-engine/atlas-engine-api",
+  "vendor/atlas-engine/atlas-engine-backend-openapi-models",
+  "vendor/atlas-engine/atlas-engine-client",
+  "vendor/atlas-engine/atlas-engine-experimental-api-macros",
+  "vendor/atlas-engine/atlas-engine-home",
+  "vendor/atlas-engine/atlas-engine-mcp",
+  "vendor/atlas-engine/collaboration-mode-templates",
+  "vendor/atlas-engine/config",
+  "vendor/atlas-engine/connectors",
+  "vendor/atlas-engine/context-fragments",
+  "vendor/atlas-engine/core",
+  "vendor/atlas-engine/core-plugins",
+  "vendor/atlas-engine/core/tests/common",
+  "vendor/atlas-engine/diagnostics",
+  "vendor/atlas-engine/exec-server",
+  "vendor/atlas-engine/exec-server-protocol",
+  "vendor/atlas-engine/exec-server/tests/support",
+  "vendor/atlas-engine/execpolicy",
+  "vendor/atlas-engine/ext/agent",
+  "vendor/atlas-engine/ext/connectors",
+  "vendor/atlas-engine/ext/extension-api",
+  "vendor/atlas-engine/ext/git-attribution",
+  "vendor/atlas-engine/ext/goal",
+  "vendor/atlas-engine/ext/guardian",
+  "vendor/atlas-engine/ext/guardian-v2",
+  "vendor/atlas-engine/ext/image-generation",
+  "vendor/atlas-engine/ext/items",
+  "vendor/atlas-engine/ext/mcp",
+  "vendor/atlas-engine/ext/memories",
+  "vendor/atlas-engine/ext/queue",
+  "vendor/atlas-engine/ext/skills",
+  "vendor/atlas-engine/ext/web-search",
+  "vendor/atlas-engine/external-agent-migration",
+  "vendor/atlas-engine/features",
+  "vendor/atlas-engine/feedback",
+  "vendor/atlas-engine/file-search",
+  "vendor/atlas-engine/file-system",
+  "vendor/atlas-engine/file-watcher",
+  "vendor/atlas-engine/git-utils",
+  "vendor/atlas-engine/history",
+  "vendor/atlas-engine/hooks",
+  "vendor/atlas-engine/http-client",
+  "vendor/atlas-engine/install-context",
+  "vendor/atlas-engine/keyring-store",
+  "vendor/atlas-engine/linux-sandbox",
+  "vendor/atlas-engine/login",
+  "vendor/atlas-engine/memories/read",
+  "vendor/atlas-engine/memories/write",
+  "vendor/atlas-engine/model-provider",
+  "vendor/atlas-engine/model-provider-info",
+  "vendor/atlas-engine/models-manager",
+  "vendor/atlas-engine/network-proxy",
+  "vendor/atlas-engine/otel",
+  "vendor/atlas-engine/plugin",
+  "vendor/atlas-engine/process-hardening",
+  "vendor/atlas-engine/prompts",
+  "vendor/atlas-engine/protocol",
+  "vendor/atlas-engine/response-debug-context",
+  "vendor/atlas-engine/rmcp-client",
+  "vendor/atlas-engine/rollout",
+  "vendor/atlas-engine/rollout-trace",
+  "vendor/atlas-engine/sandboxing",
+  "vendor/atlas-engine/secrets",
+  "vendor/atlas-engine/shell-command",
+  "vendor/atlas-engine/shell-escalation",
+  "vendor/atlas-engine/skills",
+  "vendor/atlas-engine/state",
+  "vendor/atlas-engine/terminal-detection",
+  "vendor/atlas-engine/test-binary-support",
+  "vendor/atlas-engine/thread-store",
+  "vendor/atlas-engine/tools",
+  "vendor/atlas-engine/uds",
+  "vendor/atlas-engine/utils/absolute-path",
+  "vendor/atlas-engine/utils/audio",
+  "vendor/atlas-engine/utils/cache",
+  "vendor/atlas-engine/utils/cargo-bin",
+  "vendor/atlas-engine/utils/cli",
+  "vendor/atlas-engine/utils/home-dir",
+  "vendor/atlas-engine/utils/image",
+  "vendor/atlas-engine/utils/json-to-toml",
+  "vendor/atlas-engine/utils/output-truncation",
+  "vendor/atlas-engine/utils/path-uri",
+  "vendor/atlas-engine/utils/path-utils",
+  "vendor/atlas-engine/utils/plugins",
+  "vendor/atlas-engine/utils/pty",
+  "vendor/atlas-engine/utils/rustls-provider",
+  "vendor/atlas-engine/utils/stream-parser",
+  "vendor/atlas-engine/utils/string",
+  "vendor/atlas-engine/utils/template",
+  "vendor/atlas-engine/websocket-client",
+  "vendor/atlas-engine/windows-sandbox-rs",
+  "vendor/atlas-engine/workload-identity",
 ]
 
 # Deliberately outside the workspace. Each is built on its own, with its own
@@ -174,27 +175,27 @@ exclude = [
   "crates/atlas-kb-server",
 ]
 
-# ─── Vendored Codex engine (ADR-0003 fork point `42b5f05`) ───────────────────
+# ─── Vendored engine (ADR-0003 fork point `42b5f05`; renamed in ADR-0011) ──────────
 # The engine closure, vendored whole: no submodule, no upstream remote, no
 # upstream tracking (ADR-0003, D2, D4 — issue #42). Copied from
-# `openai/codex` @ 42b5f05 with `target/` excluded; upstream's LICENSE and
-# NOTICE travel with the code in `vendor/codex/`, as Apache-2.0 §4 requires.
+# the upstream repository @ 42b5f05 with `target/` excluded; upstream's LICENSE and
+# NOTICE travel with the code in `vendor/atlas-engine/`, as Apache-2.0 §4 requires.
 #
 # **"Quarantined" here means the phone-home PATHS are severed, not that the
 # crates are unused** — the Sep-03 audit misread the old wording exactly that
 # way, so say it precisely: 104 of these 110 members ARE in the shipping
-# binary's closure. What does not ship is their telemetry: `codex-analytics`
+# binary's closure. What does not ship is their telemetry: `atlas-engine-analytics`
 # had its destination, POST and capture sink removed (#43, spec D2; the local
-# fact-reducer stays for its 79 tests), `codex-otel` defaults to
+# fact-reducer stays for its 79 tests), `atlas-engine-otel` defaults to
 # `exporter: None` (upstream defaulted to a hardcoded Statsig endpoint), and
-# `codex-feedback`'s uploader is gone — its `sentry` dep is now `sentry-types`
-# for one test-only attachment builder. `tests/codex-quarantine.test.ts`
+# `atlas-engine-feedback`'s uploader is gone — its `sentry` dep is now `sentry-types`
+# for one test-only attachment builder. `tests/engine-quarantine.test.ts`
 # documents which crates the containment rules cover.
 #
 # Closure size, because it is not the number the spec quotes: the Port
-# Inventory's "77 crates, 63 droppable" is the closure of `codex-core`. D1
+# Inventory's "77 crates, 63 droppable" is the closure of `atlas-engine-core`. D1
 # chose the in-process **app-server client**, whose closure is larger — it also
-# pulls `codex-app-server` itself and the `ext/` extensions the inventory lists
+# pulls `atlas-engine-app-server` itself and the `ext/` extensions the inventory lists
 # as droppable. 105 crates normal+build, 110 including the five test-support
 # crates the vendored crates' own dev-dependencies need (the spec's Testing
 # Decisions keep upstream's suite). Upstream has 140 members, so 30 are
@@ -225,121 +226,121 @@ license = "Apache-2.0"
 #     because `cargo metadata`'s resolve graph is a workspace-wide union and
 #     reports edges the app never compiles.
 
-# Codex's workspace dependency table, verbatim except that internal `path`
-# entries are rebased onto `vendor/codex/`. 24 entries naming crates outside the
+# Upstream's workspace dependency table, verbatim except that internal `path`
+# entries are rebased onto `vendor/atlas-engine/`. 24 entries naming crates outside the
 # vendored closure are dropped rather than left dangling.
 [workspace.dependencies]
 
 # Internal
-app_test_support = { path = "vendor/codex/app-server/tests/common" }
-codex-analytics = { path = "vendor/codex/analytics" }
-codex-agent-graph-store = { path = "vendor/codex/agent-graph-store" }
-codex-agent-identity = { path = "vendor/codex/agent-identity" }
-codex-api = { path = "vendor/codex/codex-api" }
-codex-aws-auth = { path = "vendor/codex/aws-auth" }
-codex-app-server = { path = "vendor/codex/app-server" }
-codex-app-server-transport = { path = "vendor/codex/app-server-transport" }
-codex-app-server-client = { path = "vendor/codex/app-server-client" }
-codex-app-server-protocol = { path = "vendor/codex/app-server-protocol" }
-codex-app-server-protocol-noop-macros = { path = "vendor/codex/app-server-protocol-noop-macros" }
-codex-apply-patch = { path = "vendor/codex/apply-patch" }
-codex-arg0 = { path = "vendor/codex/arg0" }
-codex-async-utils = { path = "vendor/codex/async-utils" }
-codex-backend-client = { path = "vendor/codex/backend-client" }
-codex-chatgpt = { path = "vendor/codex/chatgpt" }
-codex-client = { path = "vendor/codex/codex-client" }
-codex-collaboration-mode-templates = { path = "vendor/codex/collaboration-mode-templates" }
-codex-cloud-config = { path = "vendor/codex/cloud-config" }
-codex-code-mode = { path = "vendor/codex/code-mode" }
-codex-code-mode-protocol = { path = "vendor/codex/code-mode-protocol" }
-codex-home = { path = "vendor/codex/codex-home" }
-codex-http-client = { path = "vendor/codex/http-client" }
-codex-websocket-client = { path = "vendor/codex/websocket-client" }
-codex-config = { path = "vendor/codex/config" }
-codex-connectors = { path = "vendor/codex/connectors" }
-codex-agent-extension = { path = "vendor/codex/ext/agent" }
-codex-connectors-extension = { path = "vendor/codex/ext/connectors" }
-codex-context-fragments = { path = "vendor/codex/context-fragments" }
-codex-core = { path = "vendor/codex/core" }
-codex-core-plugins = { path = "vendor/codex/core-plugins" }
-codex-diagnostics = { path = "vendor/codex/diagnostics" }
-codex-file-system = { path = "vendor/codex/file-system" }
-codex-exec-server-protocol = { path = "vendor/codex/exec-server-protocol" }
-codex-exec-server = { path = "vendor/codex/exec-server" }
-codex-exec-server-test-support = { path = "vendor/codex/exec-server/tests/support" }
-codex-execpolicy = { path = "vendor/codex/execpolicy" }
-codex-extension-api = { path = "vendor/codex/ext/extension-api" }
-codex-extension-items = { path = "vendor/codex/ext/items" }
-codex-goal-extension = { path = "vendor/codex/ext/goal" }
-codex-git-attribution = { path = "vendor/codex/ext/git-attribution" }
-codex-guardian = { path = "vendor/codex/ext/guardian" }
-codex-guardian-v2 = { path = "vendor/codex/ext/guardian-v2" }
-codex-image-generation-extension = { path = "vendor/codex/ext/image-generation" }
-codex-external-agent-migration = { path = "vendor/codex/external-agent-migration" }
-codex-experimental-api-macros = { path = "vendor/codex/codex-experimental-api-macros" }
-codex-features = { path = "vendor/codex/features" }
-codex-feedback = { path = "vendor/codex/feedback" }
-codex-install-context = { path = "vendor/codex/install-context" }
-codex-file-search = { path = "vendor/codex/file-search" }
-codex-file-watcher = { path = "vendor/codex/file-watcher" }
-codex-git-utils = { path = "vendor/codex/git-utils" }
-codex-hooks = { path = "vendor/codex/hooks" }
-codex-history = { path = "vendor/codex/history" }
-codex-keyring-store = { path = "vendor/codex/keyring-store" }
-codex-linux-sandbox = { path = "vendor/codex/linux-sandbox" }
-codex-login = { path = "vendor/codex/login" }
-codex-memories-extension = { path = "vendor/codex/ext/memories" }
-codex-web-search-extension = { path = "vendor/codex/ext/web-search" }
-codex-memories-read = { path = "vendor/codex/memories/read" }
-codex-memories-write = { path = "vendor/codex/memories/write" }
-codex-mcp = { path = "vendor/codex/codex-mcp" }
-codex-mcp-extension = { path = "vendor/codex/ext/mcp" }
-codex-model-provider-info = { path = "vendor/codex/model-provider-info" }
-codex-models-manager = { path = "vendor/codex/models-manager" }
-codex-network-proxy = { path = "vendor/codex/network-proxy" }
-codex-otel = { path = "vendor/codex/otel" }
-codex-plugin = { path = "vendor/codex/plugin" }
-codex-model-provider = { path = "vendor/codex/model-provider" }
-codex-process-hardening = { path = "vendor/codex/process-hardening" }
-codex-protocol = { path = "vendor/codex/protocol" }
-codex-prompts = { path = "vendor/codex/prompts" }
-codex-queue-extension = { path = "vendor/codex/ext/queue" }
-codex-response-debug-context = { path = "vendor/codex/response-debug-context" }
-codex-rmcp-client = { path = "vendor/codex/rmcp-client" }
-codex-rollout = { path = "vendor/codex/rollout" }
-codex-rollout-trace = { path = "vendor/codex/rollout-trace" }
-codex-sandboxing = { path = "vendor/codex/sandboxing" }
-codex-secrets = { path = "vendor/codex/secrets" }
-codex-shell-command = { path = "vendor/codex/shell-command" }
-codex-shell-escalation = { path = "vendor/codex/shell-escalation" }
-codex-skills-extension = { path = "vendor/codex/ext/skills" }
-codex-skills = { path = "vendor/codex/skills" }
-codex-state = { path = "vendor/codex/state" }
-codex-terminal-detection = { path = "vendor/codex/terminal-detection" }
-codex-test-binary-support = { path = "vendor/codex/test-binary-support" }
-codex-thread-store = { path = "vendor/codex/thread-store" }
-codex-tools = { path = "vendor/codex/tools" }
-codex-uds = { path = "vendor/codex/uds" }
-codex-utils-absolute-path = { path = "vendor/codex/utils/absolute-path" }
-codex-utils-audio = { path = "vendor/codex/utils/audio" }
-codex-utils-cache = { path = "vendor/codex/utils/cache" }
-codex-utils-cargo-bin = { path = "vendor/codex/utils/cargo-bin" }
-codex-utils-cli = { path = "vendor/codex/utils/cli" }
-codex-utils-home-dir = { path = "vendor/codex/utils/home-dir" }
-codex-utils-image = { path = "vendor/codex/utils/image" }
-codex-utils-json-to-toml = { path = "vendor/codex/utils/json-to-toml" }
-codex-utils-output-truncation = { path = "vendor/codex/utils/output-truncation" }
-codex-utils-path = { path = "vendor/codex/utils/path-utils" }
-codex-utils-path-uri = { path = "vendor/codex/utils/path-uri" }
-codex-utils-plugins = { path = "vendor/codex/utils/plugins" }
-codex-utils-pty = { path = "vendor/codex/utils/pty" }
-codex-utils-rustls-provider = { path = "vendor/codex/utils/rustls-provider" }
-codex-utils-stream-parser = { path = "vendor/codex/utils/stream-parser" }
-codex-utils-string = { path = "vendor/codex/utils/string" }
-codex-utils-template = { path = "vendor/codex/utils/template" }
-codex-workload-identity = { path = "vendor/codex/workload-identity" }
-codex-windows-sandbox = { path = "vendor/codex/windows-sandbox-rs" }
-core_test_support = { path = "vendor/codex/core/tests/common" }
+app_test_support = { path = "vendor/atlas-engine/app-server/tests/common" }
+atlas-engine-analytics = { path = "vendor/atlas-engine/analytics" }
+atlas-engine-agent-graph-store = { path = "vendor/atlas-engine/agent-graph-store" }
+atlas-engine-agent-identity = { path = "vendor/atlas-engine/agent-identity" }
+atlas-engine-api = { path = "vendor/atlas-engine/atlas-engine-api" }
+atlas-engine-aws-auth = { path = "vendor/atlas-engine/aws-auth" }
+atlas-engine-app-server = { path = "vendor/atlas-engine/app-server" }
+atlas-engine-app-server-transport = { path = "vendor/atlas-engine/app-server-transport" }
+atlas-engine-app-server-client = { path = "vendor/atlas-engine/app-server-client" }
+atlas-engine-app-server-protocol = { path = "vendor/atlas-engine/app-server-protocol" }
+atlas-engine-app-server-protocol-noop-macros = { path = "vendor/atlas-engine/app-server-protocol-noop-macros" }
+atlas-engine-apply-patch = { path = "vendor/atlas-engine/apply-patch" }
+atlas-engine-arg0 = { path = "vendor/atlas-engine/arg0" }
+atlas-engine-async-utils = { path = "vendor/atlas-engine/async-utils" }
+atlas-engine-backend-client = { path = "vendor/atlas-engine/backend-client" }
+atlas-engine-chatgpt = { path = "vendor/atlas-engine/chatgpt" }
+atlas-engine-client = { path = "vendor/atlas-engine/atlas-engine-client" }
+atlas-engine-collaboration-mode-templates = { path = "vendor/atlas-engine/collaboration-mode-templates" }
+atlas-engine-cloud-config = { path = "vendor/atlas-engine/cloud-config" }
+atlas-engine-code-mode = { path = "vendor/atlas-engine/code-mode" }
+atlas-engine-code-mode-protocol = { path = "vendor/atlas-engine/code-mode-protocol" }
+atlas-engine-home = { path = "vendor/atlas-engine/atlas-engine-home" }
+atlas-engine-http-client = { path = "vendor/atlas-engine/http-client" }
+atlas-engine-websocket-client = { path = "vendor/atlas-engine/websocket-client" }
+atlas-engine-config = { path = "vendor/atlas-engine/config" }
+atlas-engine-connectors = { path = "vendor/atlas-engine/connectors" }
+atlas-engine-agent-extension = { path = "vendor/atlas-engine/ext/agent" }
+atlas-engine-connectors-extension = { path = "vendor/atlas-engine/ext/connectors" }
+atlas-engine-context-fragments = { path = "vendor/atlas-engine/context-fragments" }
+atlas-engine-core = { path = "vendor/atlas-engine/core" }
+atlas-engine-core-plugins = { path = "vendor/atlas-engine/core-plugins" }
+atlas-engine-diagnostics = { path = "vendor/atlas-engine/diagnostics" }
+atlas-engine-file-system = { path = "vendor/atlas-engine/file-system" }
+atlas-engine-exec-server-protocol = { path = "vendor/atlas-engine/exec-server-protocol" }
+atlas-engine-exec-server = { path = "vendor/atlas-engine/exec-server" }
+atlas-engine-exec-server-test-support = { path = "vendor/atlas-engine/exec-server/tests/support" }
+atlas-engine-execpolicy = { path = "vendor/atlas-engine/execpolicy" }
+atlas-engine-extension-api = { path = "vendor/atlas-engine/ext/extension-api" }
+atlas-engine-extension-items = { path = "vendor/atlas-engine/ext/items" }
+atlas-engine-goal-extension = { path = "vendor/atlas-engine/ext/goal" }
+atlas-engine-git-attribution = { path = "vendor/atlas-engine/ext/git-attribution" }
+atlas-engine-guardian = { path = "vendor/atlas-engine/ext/guardian" }
+atlas-engine-guardian-v2 = { path = "vendor/atlas-engine/ext/guardian-v2" }
+atlas-engine-image-generation-extension = { path = "vendor/atlas-engine/ext/image-generation" }
+atlas-engine-external-agent-migration = { path = "vendor/atlas-engine/external-agent-migration" }
+atlas-engine-experimental-api-macros = { path = "vendor/atlas-engine/atlas-engine-experimental-api-macros" }
+atlas-engine-features = { path = "vendor/atlas-engine/features" }
+atlas-engine-feedback = { path = "vendor/atlas-engine/feedback" }
+atlas-engine-install-context = { path = "vendor/atlas-engine/install-context" }
+atlas-engine-file-search = { path = "vendor/atlas-engine/file-search" }
+atlas-engine-file-watcher = { path = "vendor/atlas-engine/file-watcher" }
+atlas-engine-git-utils = { path = "vendor/atlas-engine/git-utils" }
+atlas-engine-hooks = { path = "vendor/atlas-engine/hooks" }
+atlas-engine-history = { path = "vendor/atlas-engine/history" }
+atlas-engine-keyring-store = { path = "vendor/atlas-engine/keyring-store" }
+atlas-engine-linux-sandbox = { path = "vendor/atlas-engine/linux-sandbox" }
+atlas-engine-login = { path = "vendor/atlas-engine/login" }
+atlas-engine-memories-extension = { path = "vendor/atlas-engine/ext/memories" }
+atlas-engine-web-search-extension = { path = "vendor/atlas-engine/ext/web-search" }
+atlas-engine-memories-read = { path = "vendor/atlas-engine/memories/read" }
+atlas-engine-memories-write = { path = "vendor/atlas-engine/memories/write" }
+atlas-engine-mcp = { path = "vendor/atlas-engine/atlas-engine-mcp" }
+atlas-engine-mcp-extension = { path = "vendor/atlas-engine/ext/mcp" }
+atlas-engine-model-provider-info = { path = "vendor/atlas-engine/model-provider-info" }
+atlas-engine-models-manager = { path = "vendor/atlas-engine/models-manager" }
+atlas-engine-network-proxy = { path = "vendor/atlas-engine/network-proxy" }
+atlas-engine-otel = { path = "vendor/atlas-engine/otel" }
+atlas-engine-plugin = { path = "vendor/atlas-engine/plugin" }
+atlas-engine-model-provider = { path = "vendor/atlas-engine/model-provider" }
+atlas-engine-process-hardening = { path = "vendor/atlas-engine/process-hardening" }
+atlas-engine-protocol = { path = "vendor/atlas-engine/protocol" }
+atlas-engine-prompts = { path = "vendor/atlas-engine/prompts" }
+atlas-engine-queue-extension = { path = "vendor/atlas-engine/ext/queue" }
+atlas-engine-response-debug-context = { path = "vendor/atlas-engine/response-debug-context" }
+atlas-engine-rmcp-client = { path = "vendor/atlas-engine/rmcp-client" }
+atlas-engine-rollout = { path = "vendor/atlas-engine/rollout" }
+atlas-engine-rollout-trace = { path = "vendor/atlas-engine/rollout-trace" }
+atlas-engine-sandboxing = { path = "vendor/atlas-engine/sandboxing" }
+atlas-engine-secrets = { path = "vendor/atlas-engine/secrets" }
+atlas-engine-shell-command = { path = "vendor/atlas-engine/shell-command" }
+atlas-engine-shell-escalation = { path = "vendor/atlas-engine/shell-escalation" }
+atlas-engine-skills-extension = { path = "vendor/atlas-engine/ext/skills" }
+atlas-engine-skills = { path = "vendor/atlas-engine/skills" }
+atlas-engine-state = { path = "vendor/atlas-engine/state" }
+atlas-engine-terminal-detection = { path = "vendor/atlas-engine/terminal-detection" }
+atlas-engine-test-binary-support = { path = "vendor/atlas-engine/test-binary-support" }
+atlas-engine-thread-store = { path = "vendor/atlas-engine/thread-store" }
+atlas-engine-tools = { path = "vendor/atlas-engine/tools" }
+atlas-engine-uds = { path = "vendor/atlas-engine/uds" }
+atlas-engine-utils-absolute-path = { path = "vendor/atlas-engine/utils/absolute-path" }
+atlas-engine-utils-audio = { path = "vendor/atlas-engine/utils/audio" }
+atlas-engine-utils-cache = { path = "vendor/atlas-engine/utils/cache" }
+atlas-engine-utils-cargo-bin = { path = "vendor/atlas-engine/utils/cargo-bin" }
+atlas-engine-utils-cli = { path = "vendor/atlas-engine/utils/cli" }
+atlas-engine-utils-home-dir = { path = "vendor/atlas-engine/utils/home-dir" }
+atlas-engine-utils-image = { path = "vendor/atlas-engine/utils/image" }
+atlas-engine-utils-json-to-toml = { path = "vendor/atlas-engine/utils/json-to-toml" }
+atlas-engine-utils-output-truncation = { path = "vendor/atlas-engine/utils/output-truncation" }
+atlas-engine-utils-path = { path = "vendor/atlas-engine/utils/path-utils" }
+atlas-engine-utils-path-uri = { path = "vendor/atlas-engine/utils/path-uri" }
+atlas-engine-utils-plugins = { path = "vendor/atlas-engine/utils/plugins" }
+atlas-engine-utils-pty = { path = "vendor/atlas-engine/utils/pty" }
+atlas-engine-utils-rustls-provider = { path = "vendor/atlas-engine/utils/rustls-provider" }
+atlas-engine-utils-stream-parser = { path = "vendor/atlas-engine/utils/stream-parser" }
+atlas-engine-utils-string = { path = "vendor/atlas-engine/utils/string" }
+atlas-engine-utils-template = { path = "vendor/atlas-engine/utils/template" }
+atlas-engine-workload-identity = { path = "vendor/atlas-engine/workload-identity" }
+atlas-engine-windows-sandbox = { path = "vendor/atlas-engine/windows-sandbox-rs" }
+core_test_support = { path = "vendor/atlas-engine/core/tests/common" }
 
 # External
 age = "0.11.1"
@@ -464,7 +465,7 @@ regex-lite = "0.1.8"
 # yet with both on, any `Client::new()` that never called `.use_rustls_tls()`
 # silently took native-tls. Dropping it removes native-tls, hyper-tls and
 # tokio-native-tls from the graph and puts every client on rustls/ring.
-# `cookies` stays: codex-http-client implements `reqwest::cookie::CookieStore`.
+# `cookies` stays: atlas-engine-http-client implements `reqwest::cookie::CookieStore`.
 reqwest = { version = "0.12", default-features = false, features = [
     "charset",
     "http2",
@@ -645,8 +646,8 @@ unnecessary_to_owned = "deny"
 # cargo-shear cannot see the platform-specific openssl-sys usage, so we
 # silence the false positive here instead of deleting a real dependency.
 
-# ─── Cersei SDK — gone (#54) ─────────────────────────────────────────────────
-# The `cersei-provider` and `cersei-agent` patch entries lived here. They
+# ─── Previous native SDK — gone (#54) ─────────────────────────────────────────────────
+# The old SDK's two vendored-fork patch entries lived here. They
 # carried two fixes the published crates lacked: incremental UTF-8 decoding in
 # the SSE decoders, and racing `tool.execute()` against the cancel token.
 #
@@ -729,7 +730,7 @@ codegen-units = 256
 debug = "line-tables-only"
 
 # Optimize ALL transitive dependencies in dev mode at `opt-level = 1`
-# (Tauri, wry, tao, tokio, serde, reqwest, the vendored cersei forks, etc.).
+# (Tauri, wry, tao, tokio, serde, reqwest, the old vendored SDK forks, etc.).
 # First clean build pays a one-time ~3–5 minute cost; subsequent rebuilds only
 # recompile the app crate and are unaffected. Net effect: `bunx tauri dev`
 # startup drops noticeably because Tauri's runtime is no longer running
@@ -766,6 +767,8 @@ opt-level = 1
 [profile.dev.package.atlas-agent-transcript]
 opt-level = 1
 [profile.dev.package.atlas-agent-wire]
+opt-level = 1
+[profile.dev.package.atlas-artifacts]
 opt-level = 1
 [profile.dev.package.atlas-bus]
 opt-level = 1
@@ -819,435 +822,435 @@ opt-level = 1
 opt-level = 1
 incremental = false
 
-[profile.dev.package.codex-agent-extension]
+[profile.dev.package.atlas-engine-agent-extension]
 opt-level = 1
 incremental = false
 
-[profile.dev.package.codex-agent-graph-store]
+[profile.dev.package.atlas-engine-agent-graph-store]
 opt-level = 1
 incremental = false
 
-[profile.dev.package.codex-agent-identity]
+[profile.dev.package.atlas-engine-agent-identity]
 opt-level = 1
 incremental = false
 
-[profile.dev.package.codex-analytics]
+[profile.dev.package.atlas-engine-analytics]
 opt-level = 1
 incremental = false
 
-[profile.dev.package.codex-api]
+[profile.dev.package.atlas-engine-api]
 opt-level = 1
 incremental = false
 
-[profile.dev.package.codex-app-server]
+[profile.dev.package.atlas-engine-app-server]
 opt-level = 1
 incremental = false
 
-[profile.dev.package.codex-app-server-client]
+[profile.dev.package.atlas-engine-app-server-client]
 opt-level = 1
 incremental = false
 
-[profile.dev.package.codex-app-server-protocol]
+[profile.dev.package.atlas-engine-app-server-protocol]
 opt-level = 1
 incremental = false
 
-[profile.dev.package.codex-app-server-protocol-noop-macros]
+[profile.dev.package.atlas-engine-app-server-protocol-noop-macros]
 opt-level = 1
 incremental = false
 
-[profile.dev.package.codex-app-server-transport]
+[profile.dev.package.atlas-engine-app-server-transport]
 opt-level = 1
 incremental = false
 
-[profile.dev.package.codex-apply-patch]
+[profile.dev.package.atlas-engine-apply-patch]
 opt-level = 1
 incremental = false
 
-[profile.dev.package.codex-arg0]
+[profile.dev.package.atlas-engine-arg0]
 opt-level = 1
 incremental = false
 
-[profile.dev.package.codex-async-utils]
+[profile.dev.package.atlas-engine-async-utils]
 opt-level = 1
 incremental = false
 
-[profile.dev.package.codex-aws-auth]
+[profile.dev.package.atlas-engine-aws-auth]
 opt-level = 1
 incremental = false
 
-[profile.dev.package.codex-backend-client]
+[profile.dev.package.atlas-engine-backend-client]
 opt-level = 1
 incremental = false
 
-[profile.dev.package.codex-backend-openapi-models]
+[profile.dev.package.atlas-engine-backend-openapi-models]
 opt-level = 1
 incremental = false
 
-[profile.dev.package.codex-chatgpt]
+[profile.dev.package.atlas-engine-chatgpt]
 opt-level = 1
 incremental = false
 
-[profile.dev.package.codex-client]
+[profile.dev.package.atlas-engine-client]
 opt-level = 1
 incremental = false
 
-[profile.dev.package.codex-cloud-config]
+[profile.dev.package.atlas-engine-cloud-config]
 opt-level = 1
 incremental = false
 
-[profile.dev.package.codex-code-mode]
+[profile.dev.package.atlas-engine-code-mode]
 opt-level = 1
 incremental = false
 
-[profile.dev.package.codex-code-mode-protocol]
+[profile.dev.package.atlas-engine-code-mode-protocol]
 opt-level = 1
 incremental = false
 
-[profile.dev.package.codex-collaboration-mode-templates]
+[profile.dev.package.atlas-engine-collaboration-mode-templates]
 opt-level = 1
 incremental = false
 
-[profile.dev.package.codex-config]
+[profile.dev.package.atlas-engine-config]
 opt-level = 1
 incremental = false
 
-[profile.dev.package.codex-connectors]
+[profile.dev.package.atlas-engine-connectors]
 opt-level = 1
 incremental = false
 
-[profile.dev.package.codex-connectors-extension]
+[profile.dev.package.atlas-engine-connectors-extension]
 opt-level = 1
 incremental = false
 
-[profile.dev.package.codex-context-fragments]
+[profile.dev.package.atlas-engine-context-fragments]
 opt-level = 1
 incremental = false
 
-[profile.dev.package.codex-core]
+[profile.dev.package.atlas-engine-core]
 opt-level = 1
 incremental = false
 
-[profile.dev.package.codex-core-plugins]
+[profile.dev.package.atlas-engine-core-plugins]
 opt-level = 1
 incremental = false
 
-[profile.dev.package.codex-diagnostics]
+[profile.dev.package.atlas-engine-diagnostics]
 opt-level = 1
 incremental = false
 
-[profile.dev.package.codex-exec-server]
+[profile.dev.package.atlas-engine-exec-server]
 opt-level = 1
 incremental = false
 
-[profile.dev.package.codex-exec-server-protocol]
+[profile.dev.package.atlas-engine-exec-server-protocol]
 opt-level = 1
 incremental = false
 
-[profile.dev.package.codex-exec-server-test-support]
+[profile.dev.package.atlas-engine-exec-server-test-support]
 opt-level = 1
 incremental = false
 
-[profile.dev.package.codex-execpolicy]
+[profile.dev.package.atlas-engine-execpolicy]
 opt-level = 1
 incremental = false
 
-[profile.dev.package.codex-experimental-api-macros]
+[profile.dev.package.atlas-engine-experimental-api-macros]
 opt-level = 1
 incremental = false
 
-[profile.dev.package.codex-extension-api]
+[profile.dev.package.atlas-engine-extension-api]
 opt-level = 1
 incremental = false
 
-[profile.dev.package.codex-extension-items]
+[profile.dev.package.atlas-engine-extension-items]
 opt-level = 1
 incremental = false
 
-[profile.dev.package.codex-external-agent-migration]
+[profile.dev.package.atlas-engine-external-agent-migration]
 opt-level = 1
 incremental = false
 
-[profile.dev.package.codex-features]
+[profile.dev.package.atlas-engine-features]
 opt-level = 1
 incremental = false
 
-[profile.dev.package.codex-feedback]
+[profile.dev.package.atlas-engine-feedback]
 opt-level = 1
 incremental = false
 
-[profile.dev.package.codex-file-search]
+[profile.dev.package.atlas-engine-file-search]
 opt-level = 1
 incremental = false
 
-[profile.dev.package.codex-file-system]
+[profile.dev.package.atlas-engine-file-system]
 opt-level = 1
 incremental = false
 
-[profile.dev.package.codex-file-watcher]
+[profile.dev.package.atlas-engine-file-watcher]
 opt-level = 1
 incremental = false
 
-[profile.dev.package.codex-git-attribution]
+[profile.dev.package.atlas-engine-git-attribution]
 opt-level = 1
 incremental = false
 
-[profile.dev.package.codex-git-utils]
+[profile.dev.package.atlas-engine-git-utils]
 opt-level = 1
 incremental = false
 
-[profile.dev.package.codex-goal-extension]
+[profile.dev.package.atlas-engine-goal-extension]
 opt-level = 1
 incremental = false
 
-[profile.dev.package.codex-guardian]
+[profile.dev.package.atlas-engine-guardian]
 opt-level = 1
 incremental = false
 
-[profile.dev.package.codex-guardian-v2]
+[profile.dev.package.atlas-engine-guardian-v2]
 opt-level = 1
 incremental = false
 
-[profile.dev.package.codex-history]
+[profile.dev.package.atlas-engine-history]
 opt-level = 1
 incremental = false
 
-[profile.dev.package.codex-home]
+[profile.dev.package.atlas-engine-home]
 opt-level = 1
 incremental = false
 
-[profile.dev.package.codex-hooks]
+[profile.dev.package.atlas-engine-hooks]
 opt-level = 1
 incremental = false
 
-[profile.dev.package.codex-http-client]
+[profile.dev.package.atlas-engine-http-client]
 opt-level = 1
 incremental = false
 
-[profile.dev.package.codex-image-generation-extension]
+[profile.dev.package.atlas-engine-image-generation-extension]
 opt-level = 1
 incremental = false
 
-[profile.dev.package.codex-install-context]
+[profile.dev.package.atlas-engine-install-context]
 opt-level = 1
 incremental = false
 
-[profile.dev.package.codex-keyring-store]
+[profile.dev.package.atlas-engine-keyring-store]
 opt-level = 1
 incremental = false
 
-[profile.dev.package.codex-linux-sandbox]
+[profile.dev.package.atlas-engine-linux-sandbox]
 opt-level = 1
 incremental = false
 
-[profile.dev.package.codex-login]
+[profile.dev.package.atlas-engine-login]
 opt-level = 1
 incremental = false
 
-[profile.dev.package.codex-mcp]
+[profile.dev.package.atlas-engine-mcp]
 opt-level = 1
 incremental = false
 
-[profile.dev.package.codex-mcp-extension]
+[profile.dev.package.atlas-engine-mcp-extension]
 opt-level = 1
 incremental = false
 
-[profile.dev.package.codex-memories-extension]
+[profile.dev.package.atlas-engine-memories-extension]
 opt-level = 1
 incremental = false
 
-[profile.dev.package.codex-memories-read]
+[profile.dev.package.atlas-engine-memories-read]
 opt-level = 1
 incremental = false
 
-[profile.dev.package.codex-memories-write]
+[profile.dev.package.atlas-engine-memories-write]
 opt-level = 1
 incremental = false
 
-[profile.dev.package.codex-model-provider]
+[profile.dev.package.atlas-engine-model-provider]
 opt-level = 1
 incremental = false
 
-[profile.dev.package.codex-model-provider-info]
+[profile.dev.package.atlas-engine-model-provider-info]
 opt-level = 1
 incremental = false
 
-[profile.dev.package.codex-models-manager]
+[profile.dev.package.atlas-engine-models-manager]
 opt-level = 1
 incremental = false
 
-[profile.dev.package.codex-network-proxy]
+[profile.dev.package.atlas-engine-network-proxy]
 opt-level = 1
 incremental = false
 
-[profile.dev.package.codex-otel]
+[profile.dev.package.atlas-engine-otel]
 opt-level = 1
 incremental = false
 
-[profile.dev.package.codex-plugin]
+[profile.dev.package.atlas-engine-plugin]
 opt-level = 1
 incremental = false
 
-[profile.dev.package.codex-process-hardening]
+[profile.dev.package.atlas-engine-process-hardening]
 opt-level = 1
 incremental = false
 
-[profile.dev.package.codex-prompts]
+[profile.dev.package.atlas-engine-prompts]
 opt-level = 1
 incremental = false
 
-[profile.dev.package.codex-protocol]
+[profile.dev.package.atlas-engine-protocol]
 opt-level = 1
 incremental = false
 
-[profile.dev.package.codex-queue-extension]
+[profile.dev.package.atlas-engine-queue-extension]
 opt-level = 1
 incremental = false
 
-[profile.dev.package.codex-response-debug-context]
+[profile.dev.package.atlas-engine-response-debug-context]
 opt-level = 1
 incremental = false
 
-[profile.dev.package.codex-rmcp-client]
+[profile.dev.package.atlas-engine-rmcp-client]
 opt-level = 1
 incremental = false
 
-[profile.dev.package.codex-rollout]
+[profile.dev.package.atlas-engine-rollout]
 opt-level = 1
 incremental = false
 
-[profile.dev.package.codex-rollout-trace]
+[profile.dev.package.atlas-engine-rollout-trace]
 opt-level = 1
 incremental = false
 
-[profile.dev.package.codex-sandboxing]
+[profile.dev.package.atlas-engine-sandboxing]
 opt-level = 1
 incremental = false
 
-[profile.dev.package.codex-secrets]
+[profile.dev.package.atlas-engine-secrets]
 opt-level = 1
 incremental = false
 
-[profile.dev.package.codex-shell-command]
+[profile.dev.package.atlas-engine-shell-command]
 opt-level = 1
 incremental = false
 
-[profile.dev.package.codex-shell-escalation]
+[profile.dev.package.atlas-engine-shell-escalation]
 opt-level = 1
 incremental = false
 
-[profile.dev.package.codex-skills]
+[profile.dev.package.atlas-engine-skills]
 opt-level = 1
 incremental = false
 
-[profile.dev.package.codex-skills-extension]
+[profile.dev.package.atlas-engine-skills-extension]
 opt-level = 1
 incremental = false
 
-[profile.dev.package.codex-state]
+[profile.dev.package.atlas-engine-state]
 opt-level = 1
 incremental = false
 
-[profile.dev.package.codex-terminal-detection]
+[profile.dev.package.atlas-engine-terminal-detection]
 opt-level = 1
 incremental = false
 
-[profile.dev.package.codex-test-binary-support]
+[profile.dev.package.atlas-engine-test-binary-support]
 opt-level = 1
 incremental = false
 
-[profile.dev.package.codex-thread-store]
+[profile.dev.package.atlas-engine-thread-store]
 opt-level = 1
 incremental = false
 
-[profile.dev.package.codex-tools]
+[profile.dev.package.atlas-engine-tools]
 opt-level = 1
 incremental = false
 
-[profile.dev.package.codex-uds]
+[profile.dev.package.atlas-engine-uds]
 opt-level = 1
 incremental = false
 
-[profile.dev.package.codex-utils-absolute-path]
+[profile.dev.package.atlas-engine-utils-absolute-path]
 opt-level = 1
 incremental = false
 
-[profile.dev.package.codex-utils-audio]
+[profile.dev.package.atlas-engine-utils-audio]
 opt-level = 1
 incremental = false
 
-[profile.dev.package.codex-utils-cache]
+[profile.dev.package.atlas-engine-utils-cache]
 opt-level = 1
 incremental = false
 
-[profile.dev.package.codex-utils-cargo-bin]
+[profile.dev.package.atlas-engine-utils-cargo-bin]
 opt-level = 1
 incremental = false
 
-[profile.dev.package.codex-utils-cli]
+[profile.dev.package.atlas-engine-utils-cli]
 opt-level = 1
 incremental = false
 
-[profile.dev.package.codex-utils-home-dir]
+[profile.dev.package.atlas-engine-utils-home-dir]
 opt-level = 1
 incremental = false
 
-[profile.dev.package.codex-utils-image]
+[profile.dev.package.atlas-engine-utils-image]
 opt-level = 1
 incremental = false
 
-[profile.dev.package.codex-utils-json-to-toml]
+[profile.dev.package.atlas-engine-utils-json-to-toml]
 opt-level = 1
 incremental = false
 
-[profile.dev.package.codex-utils-output-truncation]
+[profile.dev.package.atlas-engine-utils-output-truncation]
 opt-level = 1
 incremental = false
 
-[profile.dev.package.codex-utils-path]
+[profile.dev.package.atlas-engine-utils-path]
 opt-level = 1
 incremental = false
 
-[profile.dev.package.codex-utils-path-uri]
+[profile.dev.package.atlas-engine-utils-path-uri]
 opt-level = 1
 incremental = false
 
-[profile.dev.package.codex-utils-plugins]
+[profile.dev.package.atlas-engine-utils-plugins]
 opt-level = 1
 incremental = false
 
-[profile.dev.package.codex-utils-pty]
+[profile.dev.package.atlas-engine-utils-pty]
 opt-level = 1
 incremental = false
 
-[profile.dev.package.codex-utils-rustls-provider]
+[profile.dev.package.atlas-engine-utils-rustls-provider]
 opt-level = 1
 incremental = false
 
-[profile.dev.package.codex-utils-stream-parser]
+[profile.dev.package.atlas-engine-utils-stream-parser]
 opt-level = 1
 incremental = false
 
-[profile.dev.package.codex-utils-string]
+[profile.dev.package.atlas-engine-utils-string]
 opt-level = 1
 incremental = false
 
-[profile.dev.package.codex-utils-template]
+[profile.dev.package.atlas-engine-utils-template]
 opt-level = 1
 incremental = false
 
-[profile.dev.package.codex-web-search-extension]
+[profile.dev.package.atlas-engine-web-search-extension]
 opt-level = 1
 incremental = false
 
-[profile.dev.package.codex-websocket-client]
+[profile.dev.package.atlas-engine-websocket-client]
 opt-level = 1
 incremental = false
 
-[profile.dev.package.codex-windows-sandbox]
+[profile.dev.package.atlas-engine-windows-sandbox]
 opt-level = 1
 incremental = false
 
-[profile.dev.package.codex-workload-identity]
+[profile.dev.package.atlas-engine-workload-identity]
 opt-level = 1
 incremental = false
 

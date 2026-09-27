@@ -2,7 +2,7 @@ import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import { createSelectors } from "@/lib/create-selectors";
 import type { ChatMessage } from "@/types/agent";
-import { userMessageText } from "../lib/turn-rows";
+import { assistantMessageText, userMessageText } from "../lib/turn-rows";
 
 /**
  * Pinned user messages in an agent chat — the comms pin rail, applied to the
@@ -42,6 +42,9 @@ export interface ChatPin {
   text: string;
   /** ISO timestamp of the pin itself, for the `timeAgo` stamp. */
   at: string;
+  /** Which side of the exchange. Absent on pins from before responses could
+   *  be pinned, which were all prompts. */
+  role?: "user" | "assistant";
 }
 
 /**
@@ -57,18 +60,19 @@ export interface ChatPin {
  *
  * Timestamp breaks ties between identical prompts where it survived; text
  * alone is the last resort for a timestamp the paint path invented
- * (`m.timestamp ?? now`). User messages only — the same prose in an assistant
- * reply must not hijack the jump.
+ * (`m.timestamp ?? now`). Matched within the pin's own side of the exchange —
+ * the same prose in a reply must not hijack a prompt's jump, or vice versa.
  */
 export function resolvePinIndex(messages: ReadonlyArray<ChatMessage>, pin: ChatPin): number {
+  const role = pin.role ?? "user";
   let byStamp = -1;
   let byText = -1;
   for (let i = 0; i < messages.length; i++) {
     const m = messages[i];
     if (m.id === pin.messageId) return i;
-    if (m.role !== "user") continue;
+    if (m.role !== role) continue;
     if (byStamp >= 0) continue;
-    if (userMessageText(m) !== pin.text) continue;
+    if ((role === "user" ? userMessageText(m) : assistantMessageText(m)) !== pin.text) continue;
     if (m.timestamp === pin.timestamp) byStamp = i;
     else if (byText < 0) byText = i;
   }

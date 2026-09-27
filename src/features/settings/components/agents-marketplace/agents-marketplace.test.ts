@@ -27,6 +27,8 @@ function listed(e: Partial<Entry> = {}): Entry {
     distributionKind: "binary",
     unverified: false,
     unsupportedReason: null,
+    installedVersion: null,
+    updateAvailable: false,
     ...e,
   } as Entry;
 }
@@ -134,10 +136,10 @@ describe("marketplaceCards", () => {
   });
 
   it("leaves the native agent out — it is not a marketplace agent", () => {
-    // Cersei is in-process. There is nothing to install and nothing to remove.
+    // The native agent is in-process. There is nothing to install and nothing to remove.
     const cards = marketplaceCards(
       [],
-      index([{ id: "cersei", kind: "native", source: "in-process" }]),
+      index([{ id: "atlas-agent", kind: "native", source: "in-process" }]),
     );
     expect(cards).toEqual([]);
   });

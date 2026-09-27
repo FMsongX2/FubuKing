@@ -1,0 +1,30 @@
+# Modified by Atlas from upstream OpenAI Codex (Apache-2.0). See CONTEXT.md.
+[package]
+edition.workspace = true
+license.workspace = true
+name = "atlas-engine-skills"
+version.workspace = true
+build = "build.rs"
+
+[lib]
+doctest = false
+name = "atlas_engine_skills"
+path = "src/lib.rs"
+
+[lints]
+workspace = true
+
+[dependencies]
+atlas-engine-protocol = { workspace = true }
+atlas-engine-shell-command = { workspace = true }
+atlas-engine-utils-absolute-path = { workspace = true }
+atlas-engine-utils-path-uri = { workspace = true }
+include_dir = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+serde_yaml = { workspace = true }
+shlex = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+
+[dev-dependencies]
+pretty_assertions = { workspace = true }

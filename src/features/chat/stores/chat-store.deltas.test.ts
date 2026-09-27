@@ -20,7 +20,7 @@ vi.mock("@tauri-apps/api/event", () => ({
 
 import type { AgentDelta, SessionMessage, ToolCall } from "@/types/agents";
 import type { SwitchableAgent } from "@/types/agent";
-import { MEMORY_UNCONSULTED_NOTICE, useChatStore } from "./chat-store";
+import { useChatStore } from "./chat-store";
 
 const TAB = "tab-1";
 const AGENT = "agent-1";
@@ -85,27 +85,6 @@ beforeEach(() => {
     pendingPermissions: {},
     queues: {},
     activeSessionId: null,
-  });
-});
-
-describe("the memory-not-consulted notice", () => {
-  // Host-observed, not agent-reported: it rides its own event rather than the
-  // frozen delta wire, so it is applied through the action directly.
-  it("says so in the thread, where the answer it qualifies is", () => {
-    boundTab();
-    useChatStore.getState().actions.noteMemoryUnconsulted(ACP);
-
-    expect(last()).toMatchObject({
-      role: "assistant",
-      content: MEMORY_UNCONSULTED_NOTICE,
-    });
-  });
-
-  it("is silent about a session it does not know", () => {
-    boundTab();
-    const before = messages().length;
-    useChatStore.getState().actions.noteMemoryUnconsulted("some-other-session");
-    expect(messages()).toHaveLength(before);
   });
 });
 
@@ -308,7 +287,7 @@ describe("applyAgentDelta: one delta kind at a time", () => {
     },
     {
       name: "model_changed is ignored for the native agent, whose model the UI owns",
-      agentType: "cersei",
+      agentType: "atlas-agent",
       deltas: () => [d("model_changed", { model_id: "google/gemini" })],
       expect: () => expect(session().acpCurrentModel).toBeUndefined(),
     },

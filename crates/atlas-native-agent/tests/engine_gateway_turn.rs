@@ -23,7 +23,7 @@ use atlas_native_agent::engine::auth::{AtlasExternalAuth, AtlasTokenSource};
 use atlas_native_agent::engine::catalog_cache::{CatalogueFetcher, GatewayCatalogueFetcher};
 use atlas_native_agent::engine::config::{EngineHome, EngineProvider, EngineSettings};
 use atlas_native_agent::engine::connection::EngineConnection;
-use codex_login::auth::ExternalAuthFuture;
+use atlas_engine_login::auth::ExternalAuthFuture;
 use serde_json::Value;
 use wiremock::matchers::{method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
@@ -283,7 +283,7 @@ async fn harness_full(
 
     let external_auth = Arc::new(AtlasExternalAuth::new(token.clone()));
     let connection = match EngineConnection::connect_full(
-        AgentId::new("cersei"),
+        AgentId::new("atlas-agent"),
         settings,
         sink,
         Some(external_auth),
@@ -552,7 +552,7 @@ async fn an_unauthorized_token_is_not_retried_at_all() {
     // recovery runs before the classification sees the error, and it allows one
     // retry either way. The `token_expired` / `unauthorized` distinction is
     // asserted where it is actually decided — the classification table in
-    // `codex_api::atlas_gateway`, which is what the unary calls go through.
+    // `atlas_engine_api::atlas_gateway`, which is what the unary calls go through.
     // Here the claim is narrower and still worth holding: a dead credential
     // does not turn into a retry storm.
     let unauthorized = ResponseTemplate::new(401).set_body_raw(
@@ -758,7 +758,7 @@ async fn no_cache_and_an_unreachable_catalogue_fails_connect_honestly() {
     let (sink, _events) = event_sink();
     let token: Arc<dyn AtlasTokenSource> = Arc::new(StaticToken);
     let result = EngineConnection::connect_full(
-        AgentId::new("cersei"),
+        AgentId::new("atlas-agent"),
         gateway_settings(home.path(), &server),
         sink,
         Some(Arc::new(AtlasExternalAuth::new(token.clone()))),
@@ -797,7 +797,7 @@ async fn a_stale_cache_carries_the_connection_when_the_gateway_is_down() {
     let (sink, _events) = event_sink();
     let token: Arc<dyn AtlasTokenSource> = Arc::new(StaticToken);
     let connection = EngineConnection::connect_full(
-        AgentId::new("cersei"),
+        AgentId::new("atlas-agent"),
         gateway_settings(home.path(), &server),
         sink,
         Some(Arc::new(AtlasExternalAuth::new(token.clone()))),
@@ -833,7 +833,7 @@ async fn a_fresh_cache_skips_the_fetch() {
     let (sink, _events) = event_sink();
     let token: Arc<dyn AtlasTokenSource> = Arc::new(StaticToken);
     let connection = EngineConnection::connect_full(
-        AgentId::new("cersei"),
+        AgentId::new("atlas-agent"),
         gateway_settings(home.path(), &server),
         sink,
         Some(Arc::new(AtlasExternalAuth::new(token.clone()))),
@@ -1131,7 +1131,7 @@ async fn connection_at(
     let token: Arc<dyn AtlasTokenSource> = Arc::new(StaticToken);
     let external_auth = Arc::new(AtlasExternalAuth::new(token.clone()));
     let connection = EngineConnection::connect_full(
-        AgentId::new("cersei"),
+        AgentId::new("atlas-agent"),
         settings,
         sink,
         Some(external_auth),
@@ -1382,7 +1382,7 @@ async fn review_runs_inline_on_this_thread_and_this_model() {
 async fn a_repo_skill_joins_the_picker_and_runs_as_a_skill_turn() {
     let home = tempfile::tempdir().expect("tempdir");
     let cwd = tempfile::tempdir().expect("tempdir");
-    let skill_dir = cwd.path().join(".codex/skills/release-notes");
+    let skill_dir = cwd.path().join(".atlas-agent/skills/release-notes");
     std::fs::create_dir_all(&skill_dir).expect("skill dir");
     std::fs::write(
         skill_dir.join("SKILL.md"),
@@ -1544,6 +1544,115 @@ async fn compact_is_visible_in_the_thread_not_a_silent_shrug() {
         tokio::time::sleep(std::time::Duration::from_millis(50)).await;
     }
     assert!(seen, "compaction must be visible in the thread timeline");
+}
+
+#[tokio::test]
+async fn a_gateway_sized_prompt_compacts_before_the_request_and_retries_once() {
+    // The gateway counts serialized UTF-8 prompt bytes, including tool schemas,
+    // rather than trusting the provider's previous usage. Drive a prompt just
+    // beyond that admission limit: the oversized form must never reach HTTP,
+    // local compaction must fit and summarize it, and the rebuilt turn must
+    // complete on its single recovery attempt.
+    let h = harness(vec![
+        (Some(1), sse_ok(answer("summary after preflight"))),
+        (None, sse_ok(answer("recovered after compaction"))),
+    ])
+    .await;
+    let session_id = h.open_thread().await;
+    let oversized = "x".repeat(600_003);
+
+    let response = h
+        .connection
+        .prompt(acp::PromptRequest::new(session_id, text(&oversized)))
+        .await
+        .expect("the oversized turn should compact and recover");
+
+    assert_eq!(response.stop_reason, acp::StopReason::EndTurn);
+    assert!(
+        h.assistant_text().contains("recovered after compaction"),
+        "the rebuilt turn must finish after compaction: {}",
+        h.assistant_text(),
+    );
+
+    let requests = h
+        .server
+        .received_requests()
+        .await
+        .expect("the mock server must record requests");
+    let completion_requests: Vec<_> = requests
+        .iter()
+        .filter(|request| request.url.path().ends_with("/chat/completions"))
+        .collect();
+    assert_eq!(
+        completion_requests.len(),
+        2,
+        "only the compact request and one rebuilt turn may reach the gateway",
+    );
+    assert!(
+        completion_requests
+            .iter()
+            .all(|request| request.body.len() < oversized.len()),
+        "the known-oversized request must be rejected locally before HTTP",
+    );
+}
+
+#[tokio::test]
+async fn prompt_too_large_compacts_and_retries_but_request_too_large_stops() {
+    let prompt_overflow = ResponseTemplate::new(413).set_body_raw(
+        r#"{"error":{"message":"prompt exceeds the model context","type":"invalid_request_error","code":"prompt_too_large"}}"#,
+        "application/json",
+    );
+    let h = harness(vec![
+        (Some(1), prompt_overflow),
+        (Some(1), sse_ok(answer("overflow summary"))),
+        (None, sse_ok(answer("recovered from gateway overflow"))),
+    ])
+    .await;
+    let session_id = h.open_thread().await;
+
+    let response = h
+        .connection
+        .prompt(acp::PromptRequest::new(session_id, text("ordinary prompt")))
+        .await
+        .expect("prompt_too_large should compact and retry once");
+    assert_eq!(response.stop_reason, acp::StopReason::EndTurn);
+    assert!(
+        h.assistant_text()
+            .contains("recovered from gateway overflow")
+    );
+    let attempts = h
+        .server
+        .received_requests()
+        .await
+        .expect("recording")
+        .iter()
+        .filter(|request| request.url.path().ends_with("/chat/completions"))
+        .count();
+    assert_eq!(
+        attempts, 3,
+        "one failed turn, one compact request, and one rebuilt turn"
+    );
+
+    let body_overflow = ResponseTemplate::new(413).set_body_raw(
+        r#"{"error":{"message":"body exceeds two megabytes","type":"invalid_request_error","code":"request_too_large"}}"#,
+        "application/json",
+    );
+    let h = harness(vec![(None, body_overflow)]).await;
+    let session_id = h.open_thread().await;
+    let outcome = h
+        .connection
+        .prompt(acp::PromptRequest::new(session_id, text("ordinary prompt")))
+        .await;
+    assert!(outcome.is_err(), "request_too_large must remain terminal");
+    let attempts = h
+        .server
+        .received_requests()
+        .await
+        .expect("recording")
+        .iter()
+        .filter(|request| request.url.path().ends_with("/chat/completions"))
+        .count();
+    assert_eq!(attempts, 1, "raw body overflow must not compact or retry");
 }
 
 #[tokio::test]

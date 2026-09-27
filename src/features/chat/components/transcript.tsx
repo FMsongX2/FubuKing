@@ -100,6 +100,10 @@ const TOP_BLUR_RAMP = 34;
 
 /** Gap left above an anchored row, so it doesn't sit flush against the top. */
 const ANCHOR_GAP = 24;
+/** The ring a comment jump leaves on the row it landed on, and for how long.
+ *  Same treatment as the Timeline's `landed` row. */
+const LANDED_CLASSES = ["ring-1", "ring-[var(--atlas-border-strong)]", "rounded-lg"];
+const LANDED_MS = 2_000;
 
 /** Breathing room between the last row and the composer. Applied as content
  *  padding rather than a spacer element so it scrolls with the thread and the
@@ -656,6 +660,35 @@ export const Transcript = forwardRef<TranscriptHandle, TranscriptProps>(function
     pendingAnchorRef.current = lastUser >= 0 ? rows[lastUser].id : null;
   }, [cacheKey, rows, live]);
 
+  // A jump from the comments panel names the row to light up once the turn is
+  // on screen — the row itself when it is in the DOM (a response, a prompt),
+  // else the "Worked" header hiding it. Applied imperatively: the ring is a
+  // two-second decoration, not row state, and routing it through the memoized
+  // row list would re-render every mounted row for it.
+  const pendingHighlightRef = useRef<string[] | null>(null);
+  const landedRef = useRef<{ node: HTMLElement; timer: ReturnType<typeof setTimeout> } | null>(
+    null,
+  );
+  const markLanded = useCallback((row: HTMLElement) => {
+    // The ring goes on the row's content column, not the full-width wrapper
+    // — the same footprint the Timeline's landed entry has.
+    const node = (row.firstElementChild as HTMLElement | null) ?? row;
+    const prev = landedRef.current;
+    if (prev) {
+      clearTimeout(prev.timer);
+      prev.node.classList.remove(...LANDED_CLASSES);
+    }
+    node.classList.add(...LANDED_CLASSES);
+    landedRef.current = {
+      node,
+      timer: setTimeout(() => {
+        node.classList.remove(...LANDED_CLASSES);
+        landedRef.current = null;
+      }, LANDED_MS),
+    };
+  }, []);
+  useEffect(() => () => void (landedRef.current && clearTimeout(landedRef.current.timer)), []);
+
   useLayoutEffect(() => {
     const id = pendingAnchorRef.current;
     if (!id) return;
@@ -663,15 +696,26 @@ export const Transcript = forwardRef<TranscriptHandle, TranscriptProps>(function
     const node = el?.querySelector<HTMLElement>(`[data-row-id="${CSS.escape(id)}"]`);
     if (!el || !node) return;
     pendingAnchorRef.current = null;
+    let landed: HTMLElement | null = null;
+    const wanted = pendingHighlightRef.current;
+    if (wanted) {
+      pendingHighlightRef.current = null;
+      for (const rowId of wanted) {
+        landed = el.querySelector<HTMLElement>(`[data-row-id="${CSS.escape(rowId)}"]`);
+        if (landed) break;
+      }
+    }
+    const anchor = landed ?? node;
     // `offsetTop` is measured from the positioned ancestor, so it is
     // independent of the current scroll position.
-    el.scrollTop = Math.max(0, node.offsetTop - ANCHOR_GAP);
+    el.scrollTop = Math.max(0, anchor.offsetTop - ANCHOR_GAP);
     // Hold this row in place while the screenful of markdown around it
     // finishes parsing. Without this the reader watches the thread creep as
     // each block swaps from placeholder to formatted.
-    stickyRef.current = { rowId: id, offset: ANCHOR_GAP };
+    stickyRef.current = { rowId: anchor.dataset.rowId ?? id, offset: ANCHOR_GAP };
     stickyUntil.current = performance.now() + STICKY_SETTLE_MS;
     invalidate();
+    if (landed) markLanded(landed);
   });
 
   // Any deliberate input means the reader has taken over — stop correcting
@@ -821,8 +865,11 @@ export const Transcript = forwardRef<TranscriptHandle, TranscriptProps>(function
 
   useEffect(() => {
     const handler = (e: Event) => {
-      const detail = (e as CustomEvent<{ index: number }>).detail;
-      if (typeof detail?.index === "number") scrollToMessage(detail.index);
+      const detail = (e as CustomEvent<{ index: number; highlightRowIds?: string[] }>).detail;
+      if (typeof detail?.index === "number") {
+        pendingHighlightRef.current = detail.highlightRowIds ?? null;
+        scrollToMessage(detail.index);
+      }
     };
     window.addEventListener("atlas:chat-jump", handler);
     return () => window.removeEventListener("atlas:chat-jump", handler);
@@ -853,7 +900,7 @@ export const Transcript = forwardRef<TranscriptHandle, TranscriptProps>(function
         // (`user-row-actions.tsx`), which is hidden until the row is hovered.
         // The fling hover-suspension in `use-transcript-scroll.ts` keeps hover
         // styles from firing as rows pass under a resting pointer mid-scroll.
-        <div key={row.id} className="atlas-row group" data-row-id={row.id}>
+        <div key={row.id} className="atlas-row group group/row" data-row-id={row.id}>
           <RowView
             row={row}
             tabId={tabId}
@@ -1011,9 +1058,17 @@ function RowView({
         />
       );
     case RowKind.Prose:
-      return <ProseRowView row={row} agentLabel={agentLabel} priority={priority} />;
+      return (
+        <ProseRowView
+          row={row}
+          tabId={tabId}
+          agentLabel={agentLabel}
+          priority={priority}
+          pinScopeKey={pinScopeKey}
+        />
+      );
     case RowKind.Thinking:
-      return <ThinkingRowView row={row} onToggleExpand={onToggleExpand} />;
+      return <ThinkingRowView row={row} tabId={tabId} onToggleExpand={onToggleExpand} />;
     case RowKind.Marker:
       return <MarkerRowView row={row} tabId={tabId} />;
     case RowKind.MarkerGroup:

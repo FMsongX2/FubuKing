@@ -1,0 +1,22 @@
+# Modified by Atlas from upstream OpenAI Codex (Apache-2.0). See CONTEXT.md.
+[package]
+edition.workspace = true
+license.workspace = true
+name = "atlas-engine-memories-read"
+version.workspace = true
+
+[lib]
+name = "atlas_engine_memories_read"
+path = "src/lib.rs"
+doctest = false
+
+[lints]
+workspace = true
+
+[dependencies]
+atlas-engine-protocol = { workspace = true }
+atlas-engine-shell-command = { workspace = true }
+atlas-engine-utils-absolute-path = { workspace = true }
+
+[dev-dependencies]
+pretty_assertions = { workspace = true }

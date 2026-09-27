@@ -232,8 +232,21 @@ export type BindFailureAction =
   | "sign-in"
   /** Already signed in once and still refused — report the agent's own words. */
   | "signed-in-but-refused"
+  /** Say nothing: the composer is already explaining this one. */
+  | "silent"
   /** Not an auth problem (or not an agent we can sign in): show the message. */
   | "report";
+
+/** Substring tokens for "the native agent has no entitled models".
+ *
+ *  MUST stay in sync with `CatalogueUnavailable`'s `Display` in
+ *  `crates/atlas-native-agent/src/engine/catalog_cache.rs`. Matched on prose
+ *  for the same reason `AUTH_TOKENS` is: the failure arrives as an `anyhow`
+ *  string with no `kind`, and the alternative — a new `ErrorClass` variant —
+ *  means changing a FROZEN wire taxonomy (`atlas-agent-wire::error`) and its
+ *  contract test to silence a toast. `agent-signin.test.ts` guards the parity.
+ */
+const NO_MODELS_TOKENS = ["has no models to offer"];
 
 /** Decide how to handle a bind failure.
  *
@@ -250,8 +263,26 @@ export function bindFailureAction(opts: {
   alreadyAttempted: boolean;
 }): BindFailureAction {
   const { agentType, err, alreadyAttempted } = opts;
+  if (isNativeWithoutModels(agentType, err)) return "silent";
   if (!agentType || !canSignIn(agentType) || !isAuthError(err)) return "report";
   return alreadyAttempted ? "signed-in-but-refused" : "sign-in";
+}
+
+/** The native agent could not bind because this Organisation is entitled to no
+ *  models.
+ *
+ *  Worth saying nothing about, because two surfaces already say it and both are
+ *  attached to the thing the user is looking at: `AiGrantBar` sits under the
+ *  composer and disables it, and the model picker reads "No models". A toast
+ *  adds a third copy that has to be dismissed, and it fires again on every
+ *  rebind — on opening a tab, on switching organisation, on focus.
+ *
+ *  Narrow on purpose. Only the native agent, and only this failure: every other
+ *  bind failure still reports, because nothing else on screen explains those. */
+function isNativeWithoutModels(agentType: string | undefined, err: unknown): boolean {
+  if (!agentType || catalogEntry(agentType)?.kind !== "native") return false;
+  const message = errInfo(err).message.toLowerCase();
+  return NO_MODELS_TOKENS.some((token) => message.includes(token));
 }
 
 // ── Sign-in dialog plumbing ─────────────────────────────────────────────────

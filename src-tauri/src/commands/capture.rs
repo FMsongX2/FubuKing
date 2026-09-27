@@ -135,6 +135,7 @@ enum Job {
         role: Role,
         mode: Mode,
         body: String,
+        created_at: chrono::DateTime<chrono::Utc>,
     },
     ToolCall {
         binding: SessionBinding,
@@ -158,21 +159,6 @@ enum Job {
         /// Recorded once per call, not once per path.
         patch: Option<String>,
     },
-    /// Send everything pending for this Project.
-    ///
-    /// Progressive and interruptible by construction: each pass sends what it
-    /// can and leaves the rest pending, so closing Atlas mid-backlog resumes
-    /// rather than restarting. An explicit drain bypasses the offline backoff —
-    /// it exists because a human just did something (promote, connect, retry).
-    Drain {
-        project_root: PathBuf,
-    },
-    /// Import any on-disk transcripts for this Project that are not yet
-    /// recorded — the historical backfill and the ongoing terminal-gap scan,
-    /// which are the same operation run at different times.
-    ImportTranscripts {
-        project_root: PathBuf,
-    },
     /// Walk from the last-seen commit to HEAD and link what it finds.
     ///
     /// Not tied to a Session — it is driven by the repository moving, and the
@@ -183,6 +169,11 @@ enum Job {
     },
     FinishTurn {
         binding: SessionBinding,
+    },
+    /// The agent took back the Session's last `turns` turns (a retry).
+    RewindTurns {
+        binding: SessionBinding,
+        turns: i64,
     },
     Usage {
         binding: SessionBinding,
@@ -246,8 +237,50 @@ struct ShellWindow {
     before: std::collections::BTreeSet<String>,
     /// Where HEAD stood. A command that COMMITS its own writes leaves the tree
     /// clean again, so a moved HEAD is the only evidence the window keeps.
-    head: Option<String>,
+    head: Option<HeadMark>,
     started: Instant,
+}
+
+/// Where HEAD stood when a shell window or a turn opened.
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum HeadMark {
+    At(String),
+    /// No commit yet — a fresh `git init`, or not a repository at all. Every
+    /// commit that appears afterwards is new, which is the one fact the first
+    /// commit of a Project needs: without it the root commit had no "before"
+    /// and was never linked.
+    Unborn,
+}
+
+impl HeadMark {
+    /// `None` when HEAD could not be read for some other reason — a failed git
+    /// call is not evidence that history is empty.
+    fn read(project_root: &Path) -> Option<Self> {
+        if let Some(head) = atlas_checkpoint::git::head_commit(project_root) {
+            return Some(Self::At(head));
+        }
+        let unborn = !project_root.join(".git").exists()
+            || atlas_checkpoint::git::is_unborn(project_root);
+        unborn.then_some(Self::Unborn)
+    }
+}
+
+/// What moved between `before` and `after`: the paths changed and the commits
+/// crossed, oldest first. `None` when HEAD did not move or git could not say.
+fn head_moved(
+    project_root: &Path,
+    before: &HeadMark,
+    after: &str,
+) -> Option<(Vec<atlas_checkpoint::git::ChangedPath>, Vec<String>)> {
+    let (from, since) = match before {
+        HeadMark::At(sha) if sha == after => return None,
+        HeadMark::At(sha) => (sha.as_str(), Some(sha.as_str())),
+        HeadMark::Unborn => (atlas_checkpoint::git::EMPTY_TREE, None),
+    };
+    let changes = atlas_checkpoint::git::changed_between(project_root, from, after)?;
+    let commits =
+        atlas_checkpoint::git::commits_between(project_root, since, after).unwrap_or_default();
+    Some((changes, commits))
 }
 
 /// The sampling state for one tool call's writes.
@@ -265,6 +298,10 @@ struct PendingMessage {
     role: Role,
     mode: Mode,
     body: String,
+    /// When the message's first chunk arrived. The row is written at turn end,
+    /// so without this every response in a turn would carry the turn's end
+    /// time — and the timeline, and active time, would read them as one burst.
+    started_at: chrono::DateTime<chrono::Utc>,
 }
 
 /// Everything a turn has streamed so far, plus the session binding as it stood
@@ -290,7 +327,7 @@ pub struct CaptureState {
     /// window at; the turn is then the tightest boundary that provably
     /// predates the command. Advanced after each use, so two calls in one
     /// turn cannot claim the same commits twice.
-    turn_heads: Mutex<HashMap<String, String>>,
+    turn_heads: Mutex<HashMap<String, HeadMark>>,
     /// Commits a closed shell window saw HEAD move across, keyed by tool-call
     /// id, parked until the worker takes them with the call's job. They ride
     /// separately because the ordinary walk's cursor has already consumed
@@ -313,7 +350,12 @@ pub struct CaptureState {
     /// under `catch_unwind` — but a dead worker is silent capture loss, which is
     /// exactly what the health signal exists to make visible).
     worker_alive: Arc<AtomicBool>,
+    /// The sync worker's liveness, as [`CaptureState::worker_alive`] is the
+    /// recording worker's.
+    sync_alive: Arc<AtomicBool>,
     tx: mpsc::Sender<Job>,
+    /// Requests for the sync worker ([`SyncRequest`]).
+    sync_tx: mpsc::Sender<SyncRequest>,
 }
 
 /// A late-bound source of access tokens, shared between the command surface and
@@ -330,7 +372,7 @@ type Notifier = Arc<Mutex<Option<AppHandle>>>;
 /// appears up to fifteen seconds after you sent the prompt. Capture writes move
 /// no git ref, so `atlas:git-changed` never fires for them and there was nothing
 /// else to listen to.
-const CAPTURE_CHANGED: &str = "atlas:capture-changed";
+pub const CAPTURE_CHANGED: &str = "atlas:capture-changed";
 
 /// Coalescing window for [`CAPTURE_CHANGED`].
 ///
@@ -340,7 +382,36 @@ const CAPTURE_CHANGED: &str = "atlas:capture-changed";
 /// the first write of a burst shows immediately and the last one is not lost.
 const NOTIFY_DEBOUNCE: Duration = Duration::from_millis(250);
 
-/// Per-root drain backoff, owned by the worker.
+/// Work for the **sync worker** — the thread that talks to the cloud and
+/// reads transcripts off disk, so the recording worker never does.
+///
+/// # Why a second thread
+///
+/// Everything used to run on the one capture worker, for every Project: a
+/// cloud drain looped until the whole outbox was sent — minutes, after
+/// promoting a Project with a local backlog — holding that Project's store
+/// lock across every upload, while every other job waited in the channel.
+/// Recording stopped for **all** Projects (new prompts, turns and tool calls
+/// sat in memory, lost if the app quit), and every other Project's sync
+/// waited behind the one backlog. Now the recording worker only writes
+/// locally; this worker drains and imports through a sibling connection
+/// ([`Store::sibling`]) so it never holds the recorder's store lock, gives
+/// each Project a bounded pass ([`SYNC_PASS_BUDGET`]) in turn, and keeps one
+/// entry per Project however many times a drain is asked for.
+enum SyncRequest {
+    /// Send this Project's outbox. `forced` bypasses the offline backoff: a
+    /// human just did something (promote, connect, retry).
+    Drain { project_root: PathBuf, forced: bool },
+    /// Import any on-disk transcripts for this Project that are not yet
+    /// recorded — the historical backfill and the terminal-gap scan.
+    Import { project_root: PathBuf },
+}
+
+/// How long one drain pass may keep starting batches before it yields to the
+/// next Project that is due. A batch in flight always finishes.
+const SYNC_PASS_BUDGET: Duration = Duration::from_secs(3);
+
+/// Per-root drain backoff, owned by the sync worker.
 struct DrainBackoff {
     next_attempt: Instant,
     delay: Duration,
@@ -385,7 +456,6 @@ impl CaptureState {
         // Until it is, the closure yields no credential — which parks the drain
         // instead of failing it, and is exactly Local-mode behaviour.
         let token: TokenProvider = Arc::new(Mutex::new(None));
-        let token_for_worker = token.clone();
         let notify: Notifier = Arc::new(Mutex::new(None));
         let notify_for_worker = notify.clone();
         let stores: StoreRegistry = Arc::new(Mutex::new(HashMap::new()));
@@ -398,10 +468,22 @@ impl CaptureState {
         // milliseconds.
         std::thread::Builder::new()
             .name("atlas-capture".into())
-            .spawn(move || {
-                worker(rx, token_for_worker, notify_for_worker, stores_for_worker, alive_for_worker)
-            })
+            .spawn(move || worker(rx, notify_for_worker, stores_for_worker, alive_for_worker))
             .expect("capture worker thread");
+        // The cloud and the transcript scan, on a thread of their own so a
+        // long upload or import never holds a turn's recording (see
+        // [`SyncRequest`]).
+        let (sync_tx, sync_rx) = mpsc::channel();
+        let sync_alive = Arc::new(AtomicBool::new(true));
+        let (sync_token, sync_notify, sync_stores, sync_alive_for_worker) =
+            (token.clone(), notify.clone(), stores.clone(), sync_alive.clone());
+        std::thread::Builder::new()
+            .name("atlas-capture-sync".into())
+            .spawn(move || {
+                let ingest = Box::new(atlas_checkpoint::sync::ingest_base);
+                sync_worker(sync_rx, sync_token, sync_notify, sync_stores, sync_alive_for_worker, ingest)
+            })
+            .expect("capture sync thread");
         Self {
             sessions: Mutex::new(HashMap::new()),
             pending_writes: Mutex::new(HashMap::new()),
@@ -414,7 +496,9 @@ impl CaptureState {
             notify,
             stores,
             worker_alive,
+            sync_alive,
             tx,
+            sync_tx,
         }
     }
 
@@ -439,7 +523,7 @@ impl CaptureState {
 
     /// Is the capture worker thread still running?
     fn is_worker_alive(&self) -> bool {
-        self.worker_alive.load(Ordering::Relaxed)
+        self.worker_alive.load(Ordering::Relaxed) && self.sync_alive.load(Ordering::Relaxed)
     }
 
     /// Install the credential source the drain uses.
@@ -456,6 +540,30 @@ impl CaptureState {
     /// behaviour that existed before this event.
     pub fn install_notifier(&self, app: AppHandle) {
         *lock_ok(&self.notify) = Some(app);
+    }
+
+    /// Arm the git watcher for a Project that became a repository after it was
+    /// opened.
+    ///
+    /// The watcher is started when the frontend activates a Project, and
+    /// `git_watch_start` skips a folder that is not a repository yet — so an
+    /// agent that runs `git init` in a fresh folder left the Project unwatched
+    /// for the rest of the app session: no commit walk, no cursor, and every
+    /// Checkpoint depending on the per-call path alone. A shell call finishing
+    /// is when a new `.git/` can have appeared. The registry check is a map
+    /// read; the restart only happens once.
+    fn ensure_git_watcher(&self, project_root: &Path) {
+        if !project_root.join(".git").exists() {
+            return;
+        }
+        let Some(app) = lock_ok(&self.notify).clone() else { return };
+        if app.state::<super::git_watcher::GitWatcherState>().is_watching_root(project_root) {
+            return;
+        }
+        let root = project_root.to_string_lossy().into_owned();
+        tauri::async_runtime::spawn(async move {
+            heal_git_watcher(&app, &root, None).await;
+        });
     }
 
     /// Record the user's prompt and bind the session, from the send path.
@@ -487,7 +595,7 @@ impl CaptureState {
         let source = source_for(plugin_id);
         // The coarse shell anchor: where HEAD stands as this turn begins. Read
         // BEFORE any lock — it spawns git once per prompt.
-        if let Some(head) = atlas_checkpoint::git::head_commit(Path::new(cwd)) {
+        if let Some(head) = HeadMark::read(Path::new(cwd)) {
             lock_ok(&self.turn_heads).insert(session_id.to_string(), head);
         }
         let needs_seed = !lock_ok(&self.sessions).contains_key(session_id);
@@ -517,6 +625,12 @@ impl CaptureState {
             if model.is_some() {
                 entry.model = model.map(str::to_string);
             }
+            // A Session that began before `git init` had no branch to record.
+            // Ask again on each send until it has one — one `git` call per
+            // send, only while unknown — so a later prompt fills it in.
+            if entry.branch.is_none() {
+                entry.branch = atlas_checkpoint::git::current_branch(Path::new(cwd));
+            }
             entry.clone()
         };
 
@@ -532,9 +646,7 @@ impl CaptureState {
     /// backlog is hundreds of megabytes and must never block the click that
     /// started it.
     pub fn note_drain(&self, project_root: &std::path::Path) {
-        self.submit(Job::Drain {
-            project_root: project_root.to_path_buf(),
-        });
+        self.submit_sync(SyncRequest::Drain { project_root: project_root.to_path_buf(), forced: true });
     }
 
     /// Import on-disk transcripts for a Project.
@@ -545,9 +657,7 @@ impl CaptureState {
     /// what makes running it repeatedly affordable. Whether the import may run
     /// at all (the Cloud bulk-disclosure gate) is checked in `import_for`.
     pub fn note_import(&self, project_root: &std::path::Path) {
-        self.submit(Job::ImportTranscripts {
-            project_root: project_root.to_path_buf(),
-        });
+        self.submit_sync(SyncRequest::Import { project_root: project_root.to_path_buf() });
     }
 
     /// The repository moved, or a Project was just opened — walk for new
@@ -599,7 +709,13 @@ impl CaptureState {
                 existing.mode = mode;
                 existing.body = body;
             }
-            None => turn.messages.push(PendingMessage { id, role, mode, body }),
+            None => turn.messages.push(PendingMessage {
+                id,
+                role,
+                mode,
+                body,
+                started_at: chrono::Utc::now(),
+            }),
         }
     }
 
@@ -675,6 +791,7 @@ impl CaptureState {
                 role: message.role,
                 mode: message.mode,
                 body: message.body.clone(),
+                created_at: message.started_at,
             });
         }
     }
@@ -793,6 +910,9 @@ impl CaptureState {
         project_root: &std::path::Path,
         terminal: bool,
     ) -> Vec<PendingWrite> {
+        if terminal {
+            self.ensure_git_watcher(project_root);
+        }
         if !terminal {
             // Registered under the session so an open window is evicted when the
             // session ends. Taken and released BEFORE `shell_windows`, matching
@@ -813,7 +933,7 @@ impl CaptureState {
                         call_id.to_string(),
                         ShellWindow {
                             before,
-                            head: atlas_checkpoint::git::head_commit(project_root),
+                            head: HeadMark::read(project_root),
                             started: Instant::now(),
                         },
                     );
@@ -837,25 +957,13 @@ impl CaptureState {
             else {
                 return Vec::new();
             };
-            if before_head == after_head {
-                return Vec::new();
-            }
-            let Some(changes) = atlas_checkpoint::git::changed_between(
-                project_root,
-                &before_head,
-                &after_head,
-            ) else {
+            let Some((changes, commits)) = head_moved(project_root, &before_head, &after_head)
+            else {
                 return Vec::new();
             };
-            lock_ok(&self.turn_heads).insert(session_id.to_string(), after_head.clone());
-            if let Ok(commits) = atlas_checkpoint::git::commits_between(
-                project_root,
-                Some(&before_head),
-                &after_head,
-            ) {
-                if !commits.is_empty() {
-                    lock_ok(&self.settled_commits).insert(call_id.to_string(), commits);
-                }
+            lock_ok(&self.turn_heads).insert(session_id.to_string(), HeadMark::At(after_head));
+            if !commits.is_empty() {
+                lock_ok(&self.settled_commits).insert(call_id.to_string(), commits);
             }
             return changes
                 .into_iter()
@@ -908,37 +1016,24 @@ impl CaptureState {
         // state the agent left is the honest summary of one call.
         let after_head = atlas_checkpoint::git::head_commit(project_root);
         if let (Some(before_head), Some(after_head)) = (&window.head, &after_head) {
-            if before_head != after_head {
-                if let Some(changes) = atlas_checkpoint::git::changed_between(
-                    project_root,
-                    before_head,
-                    after_head,
-                ) {
-                    for change in changes {
-                        let path = resolve_path(&change.path, project_root);
-                        if writes.iter().any(|w| w.path.path == path.path) {
-                            continue;
-                        }
-                        writes.push(PendingWrite {
-                            path,
-                            existed_before: change.kind.existed_in_parent(),
-                        });
+            if let Some((changes, commits)) = head_moved(project_root, before_head, after_head) {
+                for change in changes {
+                    let path = resolve_path(&change.path, project_root);
+                    if writes.iter().any(|w| w.path.path == path.path) {
+                        continue;
                     }
-                    if let Ok(commits) = atlas_checkpoint::git::commits_between(
-                        project_root,
-                        Some(before_head),
-                        after_head,
-                    ) {
-                        if !commits.is_empty() {
-                            lock_ok(&self.settled_commits)
-                                .insert(call_id.to_string(), commits);
-                        }
-                    }
-                    // The turn anchor moves with us, so the coarse fallback
-                    // can never re-claim commits a per-call window settled.
-                    lock_ok(&self.turn_heads)
-                        .insert(session_id.to_string(), after_head.clone());
+                    writes.push(PendingWrite {
+                        path,
+                        existed_before: change.kind.existed_in_parent(),
+                    });
                 }
+                if !commits.is_empty() {
+                    lock_ok(&self.settled_commits).insert(call_id.to_string(), commits);
+                }
+                // The turn anchor moves with us, so the coarse fallback
+                // can never re-claim commits a per-call window settled.
+                lock_ok(&self.turn_heads)
+                    .insert(session_id.to_string(), HeadMark::At(after_head.clone()));
             }
         }
 
@@ -968,6 +1063,12 @@ impl CaptureState {
     /// Drop a session's turn anchor with the session.
     fn forget_turn_head(&self, session_id: &str) {
         lock_ok(&self.turn_heads).remove(session_id);
+    }
+
+    fn submit_sync(&self, request: SyncRequest) {
+        if self.sync_tx.send(request).is_err() {
+            tracing::error!(target: "atlas::capture", "capture sync worker is gone; nothing will be sent");
+        }
     }
 
     fn submit(&self, job: Job) {
@@ -1202,6 +1303,8 @@ fn refresh_inner(
 /// queued keep draining — pausing is about *new* records.
 #[tauri::command]
 pub async fn capture_disable(project_path: String, app: AppHandle) -> Result<(), String> {
+    let hook_app = app.clone();
+    let hook_path = project_path.clone();
     tauri::async_runtime::spawn_blocking(move || {
         let handle = app
             .state::<CaptureState>()
@@ -1210,7 +1313,10 @@ pub async fn capture_disable(project_path: String, app: AppHandle) -> Result<(),
         atlas_checkpoint::disable(&store).map_err(|e| e.to_string())
     })
     .await
-    .map_err(|e| e.to_string())?
+    .map_err(|e| e.to_string())??;
+    // A disabled Project must leave the socket set, not keep a subscription.
+    crate::commands::artifacts_cloud::resync_targets(&hook_app, Some(&hook_path));
+    Ok(())
 }
 
 /// Initialise a repository in a non-git Project, then re-detect.
@@ -1500,7 +1606,7 @@ pub async fn capture_session_summary(
         // the on-disk JSONL import of the same session is deliberately a
         // separate row and is not what a live composer is asking about.
         let mut row_id = None;
-        for source in [Source::Acp, Source::Cersei] {
+        for source in [Source::Acp, Source::Native] {
             row_id = store
                 .session_id_for(&workspace_id, source, &session_id)
                 .map_err(|e| e.to_string())?;
@@ -1517,6 +1623,22 @@ pub async fn capture_session_summary(
     .map_err(|e| e.to_string())?
 }
 
+/// Where a board row was read from.
+///
+/// `Both` is the normal state of your own work once a Project is synced: it is
+/// on this disk *and* on the server. It matters because it says a row can be
+/// opened locally — which is faster, and works offline — while still carrying
+/// comments.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum SessionOrigin {
+    /// This machine only. No comments, because there is nothing to anchor to.
+    Local,
+    /// A teammate's Session, or your own from another machine.
+    Remote,
+    Both,
+}
+
 /// One row on the Timeline board, tagged with the project it came from.
 #[derive(serde::Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -1524,9 +1646,68 @@ pub struct BoardSession {
     #[serde(flatten)]
     pub session: atlas_checkpoint::SessionSummary,
     /// Needed to read the Session back: each project has its own store, so the
-    /// board has to remember which one a row came from.
+    /// board has to remember which one a row came from. Empty for a Session
+    /// from a Project this machine has no checkout of.
     pub project_path: String,
     pub project_name: String,
+    /// Is this Session on the server? True for every remote row, and for a
+    /// local row whose Project is bound to Cloud.
+    ///
+    /// Deliberately **Project-level, not row-level**: "has every one of this
+    /// Session's rows drained" would need an outbox scan per Session on a read
+    /// that runs on every capture event, to answer a question the developer is
+    /// not asking. The queue depth is already reported by `capture_health`.
+    pub synced: bool,
+    pub origin: SessionOrigin,
+    /// The server Project id, for the reads and the socket. `None` on a
+    /// Project that was never connected.
+    pub remote_project_id: Option<String>,
+    /// Stamped server-side from the verified token. `None` on a local row —
+    /// a Session on this disk is this account's by construction.
+    pub author_id: Option<String>,
+}
+
+/// Fold a remote Session into the local read model.
+///
+/// The wire does not carry four things the local model has, and they are filled
+/// with the honest empty value rather than invented: the Session's **starting**
+/// branch (only Checkpoint branches survive the push), `needs_attention` and
+/// its reason (a local-capture concern that means nothing about someone else's
+/// machine), and the input/output token split (the server keeps only the sum
+/// and the two cache figures).
+///
+/// `active_seconds` is also not the desktop's figure for the same Session — the
+/// server derives it from gap-capped message intervals, the desktop from turn
+/// spans. They legitimately disagree; the server says so on every row.
+pub(crate) fn remote_summary(remote: atlas_artifacts::RemoteSession) -> atlas_checkpoint::SessionSummary {
+    atlas_checkpoint::SessionSummary {
+        id: remote.id,
+        title: remote.title,
+        agent: remote.agent,
+        model: remote.model,
+        source: remote.source,
+        started_at: remote.started_at,
+        updated_at: remote.updated_at,
+        last_activity_at: remote.last_activity_at,
+        active_seconds: remote.active_seconds,
+        wall_seconds: remote.wall_seconds,
+        message_count: remote.message_count,
+        tool_call_count: remote.tool_call_count,
+        checkpoint_count: remote.checkpoint_count,
+        branches: remote.branches,
+        insertions: remote.insertions,
+        deletions: remote.deletions,
+        files_touched: remote.files_touched,
+        total_tokens: remote.total_tokens,
+        input_tokens: remote.input_tokens,
+        output_tokens: remote.output_tokens,
+        cache_creation_tokens: remote.cache_creation_tokens,
+        cache_read_tokens: remote.cache_read_tokens,
+        context_used: remote.context_used,
+        context_size: remote.context_size,
+        needs_attention: false,
+        attention_reason: None,
+    }
 }
 
 /// Every Session across the Organisation's projects, newest first.
@@ -1548,13 +1729,31 @@ pub struct BoardSession {
 const BOARD_LIMIT: usize = 500;
 
 #[tauri::command]
-pub async fn artifacts_board(projects: Vec<String>) -> Result<Vec<BoardSession>, String> {
+pub async fn artifacts_board(projects: Vec<String>, app: AppHandle) -> Result<BoardPage, String> {
+    // Read the cloud cache first, on this thread: it is a lock and a clone, and
+    // taking it before the blocking hop keeps the `AppHandle` out of there.
+    //
+    // **Never a network call.** This read runs on every capture event and every
+    // git change while the Timeline is open; awaiting the ingest service here
+    // would stall a list whose whole appeal is that it is instant, and would
+    // leave it empty offline where the local Sessions are perfectly readable.
+    // The cache is filled on a ticker and by the socket instead.
+    let cloud = cloud_snapshot(&app);
+    let cloud_pending = cloud.pending;
+    let cloud_failed = cloud.failed;
+    let (remote, remote_names) = (cloud.sessions, cloud.names);
+
     tauri::async_runtime::spawn_blocking(move || {
         // One project means the board is filtered, and the caller wants that
         // project's history rather than a slice of the newest across all of
         // them — so the cap does not apply.
-        let limit = if projects.len() == 1 { usize::MAX } else { BOARD_LIMIT };
+        let single = projects.len() == 1;
+        let limit = if single { usize::MAX } else { BOARD_LIMIT };
         let mut out: Vec<BoardSession> = Vec::new();
+        // Which remote Projects this machine has a checkout of, so a teammate's
+        // Session lands under the name the developer already knows it by.
+        let mut local_projects: HashMap<String, (String, String)> = HashMap::new();
+
         for project_path in projects {
             // One unreadable store must not blank the whole board — the other
             // projects' history is still good.
@@ -1565,16 +1764,84 @@ pub async fn artifacts_board(projects: Vec<String>) -> Result<Vec<BoardSession>,
             let Ok(summaries) = atlas_checkpoint::session_summaries(&store, &workspace_id) else {
                 continue;
             };
-            let project_name = Path::new(&project_path)
+            let folder_name = Path::new(&project_path)
                 .file_name()
                 .map(|n| n.to_string_lossy().into_owned())
                 .unwrap_or_else(|| project_path.clone());
+
+            // Synced-ness is a property of the Project, read once per Project
+            // rather than per Session.
+            let binding = store.binding().ok().flatten();
+            let remote_project_id = binding
+                .as_ref()
+                .and_then(|b| b.remote_workspace_id.clone());
+
+            // A connected Project is named by the Organisation, not by whatever
+            // this machine happened to call the folder. Two people who cloned
+            // into differently-named directories must still see one Project on
+            // a shared timeline.
+            let project_name = remote_project_id
+                .as_ref()
+                .and_then(|id| remote_names.get(id).cloned())
+                .unwrap_or(folder_name);
+            let synced = binding
+                .as_ref()
+                .is_some_and(|b| b.mode == atlas_checkpoint::ProjectMode::Cloud);
+            if let Some(ref id) = remote_project_id {
+                local_projects
+                    .insert(id.clone(), (project_path.clone(), project_name.clone()));
+            }
+
             out.extend(summaries.into_iter().map(|session| BoardSession {
+                // A local row this Project has pushed is on both sides. We do
+                // not know per-row whether it drained, and do not need to: the
+                // point of `Both` is that it can be opened from disk.
+                origin: if remote.contains_key(&session.id) {
+                    SessionOrigin::Both
+                } else {
+                    SessionOrigin::Local
+                },
                 session,
                 project_path: project_path.clone(),
                 project_name: project_name.clone(),
+                synced,
+                remote_project_id: remote_project_id.clone(),
+                author_id: None,
             }));
         }
+
+        // Everything the Organisation has that this machine does not. Keyed by
+        // Session id, which is the id the local store minted and pushed
+        // verbatim — so this is a keyed union, not a reconciliation.
+        let seen: std::collections::HashSet<String> =
+            out.iter().map(|row| row.session.id.clone()).collect();
+        for (id, row) in remote {
+            if seen.contains(&id) {
+                continue;
+            }
+            let (project_path, project_name) = local_projects
+                .get(&row.workspace_id)
+                .cloned()
+                // No checkout here: leave the path empty so the opener reads it
+                // over the network, and name it as the Organisation does.
+                .unwrap_or_else(|| {
+                    let label = remote_names
+                        .get(&row.workspace_id)
+                        .cloned()
+                        .unwrap_or_else(|| row.workspace_slug.clone());
+                    (String::new(), label)
+                });
+            out.push(BoardSession {
+                project_path,
+                project_name,
+                synced: true,
+                origin: SessionOrigin::Remote,
+                remote_project_id: Some(row.workspace_id.clone()),
+                author_id: row.author_id.clone(),
+                session: remote_summary(row),
+            });
+        }
+
         // One ordering across every project, so the board reads as a timeline
         // rather than as concatenated per-project lists. Sorting before the cap
         // is what makes the cap mean "newest" rather than "whichever projects
@@ -1584,10 +1851,76 @@ pub async fn artifacts_board(projects: Vec<String>) -> Result<Vec<BoardSession>,
         // and resumed today is today's work.
         out.sort_by(|a, b| b.session.last_activity_at.cmp(&a.session.last_activity_at));
         out.truncate(limit);
-        Ok(out)
+        Ok(BoardPage { sessions: out, cloud_pending, cloud_failed })
     })
     .await
     .map_err(|e| e.to_string())?
+}
+
+/// The board, plus whether it is finished arriving.
+///
+/// `cloud_pending` exists because an empty board has two very different
+/// meanings and the viewer could not tell them apart: a synced Organisation
+/// whose first remote read is still in flight has no local rows to show, and
+/// rendering "No sessions captured yet" at that moment is simply wrong — the
+/// list appears a moment later. It is false for a local-only Organisation,
+/// which has no remote half to wait on.
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BoardPage {
+    pub sessions: Vec<BoardSession>,
+    pub cloud_pending: bool,
+    /// The remote half could not be read at all. The rows below are this
+    /// machine's, plus whatever an earlier refresh had cached — a partial view
+    /// the viewer has to label rather than present as the whole board.
+    pub cloud_failed: bool,
+}
+
+/// The Organisation's remote Sessions as of the last refresh, keyed by id.
+///
+/// Empty when signed out, in a local-only Organisation, or before the first
+/// refresh lands — all three of which mean "show the local board", which is a
+/// complete answer rather than a degraded one.
+/// The remote board as of the last refresh.
+#[derive(Default)]
+struct CloudSnapshot {
+    sessions: HashMap<String, atlas_artifacts::RemoteSession>,
+    /// Project id → the name the Organisation gave that Project.
+    names: HashMap<String, String>,
+    /// The first refresh for this Organisation has not finished yet, so an
+    /// empty board means "not looked" rather than "nothing here".
+    pending: bool,
+    /// Every refresh so far failed: the board is local-only and says so.
+    failed: bool,
+}
+
+fn cloud_snapshot(app: &AppHandle) -> CloudSnapshot {
+    let Some(state) = app.try_state::<crate::commands::artifacts_cloud::ArtifactsCloudState>()
+    else {
+        return CloudSnapshot::default();
+    };
+    // No synced Organisation: there is no remote half to wait for, so the local
+    // board is the whole answer and is never pending.
+    let Some(org_id) = state.org.lock().ok().and_then(|org| org.clone()) else {
+        return CloudSnapshot::default();
+    };
+    let pending = state.board.is_pending(&org_id);
+    let failed = state.board.has_failed(&org_id);
+    let board = state.board.snapshot(&org_id);
+    let names = board
+        .projects
+        .iter()
+        .filter_map(|(id, project)| {
+            // The name the Organisation chose, falling back to the handle it is
+            // addressed by. Never the raw id — that is not a label.
+            project
+                .name
+                .clone()
+                .or_else(|| project.slug.clone())
+                .map(|label| (id.clone(), label))
+        })
+        .collect();
+    CloudSnapshot { sessions: board.sessions, names, pending, failed }
 }
 
 /// One Checkpoint on the board, tagged with the project it came from.
@@ -1822,14 +2155,19 @@ pub async fn capture_register_cloud(
     project_path: String,
     org_id: String,
     slug: String,
+    name: Option<String>,
+    visibility: Option<String>,
+    git_url: Option<String>,
     app: AppHandle,
 ) -> Result<atlas_checkpoint::Binding, String> {
-    tauri::async_runtime::spawn_blocking(move || {
+    let hook_app = app.clone();
+    let hook_path = project_path.clone();
+    let binding = tauri::async_runtime::spawn_blocking(move || -> Result<atlas_checkpoint::Binding, String> {
         let state = app.state::<CaptureState>();
         let root = std::path::Path::new(&project_path);
 
         // Short lock: read the advisory identity signals, then release.
-        let (root_commit_sha, git_url) = {
+        let (root_commit_sha, detected_git_url) = {
             let handle = state.writer(root)?;
             let store = lock_ok(&handle);
             let binding = store
@@ -1839,6 +2177,17 @@ pub async fn capture_register_cloud(
             (binding.root_commit_sha, binding.git_url)
         };
 
+        // The developer may have typed a Repository URL, or cleared the one we
+        // detected. An explicit empty string means "no remote", which is not
+        // the same as "we did not look".
+        let git_url = match git_url {
+            Some(typed) => {
+                let typed = typed.trim().to_string();
+                (!typed.is_empty()).then_some(typed)
+            }
+            None => detected_git_url,
+        };
+
         let token = token_provider(&app);
         let config = sync_config(&project_path, &org_id, &token);
 
@@ -1846,9 +2195,16 @@ pub async fn capture_register_cloud(
         // The returned id is the Project's wire identity from here on.
         let remote_workspace_id = atlas_checkpoint::register_workspace(
             &config,
-            &slug,
-            root_commit_sha.as_deref(),
-            git_url.as_deref(),
+            atlas_checkpoint::Registration {
+                slug: &slug,
+                name: name.as_deref(),
+                root_commit_sha: root_commit_sha.as_deref(),
+                git_url: git_url.as_deref(),
+                visibility: visibility
+                    .as_deref()
+                    .map(atlas_checkpoint::Visibility::parse)
+                    .unwrap_or_default(),
+            },
         )
         .map_err(|e| e.to_string())?;
 
@@ -1860,7 +2216,11 @@ pub async fn capture_register_cloud(
         store.binding().map_err(|e| e.to_string())?.ok_or_else(|| "binding vanished".into())
     })
     .await
-    .map_err(|e| e.to_string())?
+    .map_err(|e| e.to_string())??;
+    // The binding now names a server Project; open its socket without waiting
+    // for something unrelated to re-run the renderer's retarget.
+    crate::commands::artifacts_cloud::resync_targets(&hook_app, Some(&hook_path));
+    Ok(binding)
 }
 
 /// The Organisation's Projects, with the one this repository most likely
@@ -1936,10 +2296,13 @@ pub struct ConnectOptions {
 ///
 /// From here on it behaves exactly like a Project created as Cloud — same
 /// capture, same drain, no separate code path. `workspace_id` is the picked
-/// `RemoteWorkspace.id`; trust comes from the picker list being server-fetched
-/// (`capture_connect_options`) moments earlier, so no extra verification
-/// round-trip is made here — a stale pick simply fails at drain time, which is
-/// a retryable state.
+/// `RemoteWorkspace.id`.
+///
+/// The server does the binding, not us: `POST /workspaces/connect` re-checks the
+/// pick against the root commit and the origin URL, and refuses to guess when
+/// several Projects match. Binding locally on the strength of a picker list
+/// fetched moments ago would silently accept a pick the server would not — and
+/// connecting the wrong directory pollutes a *shared* timeline.
 #[tauri::command]
 pub async fn capture_connect(
     project_path: String,
@@ -1947,26 +2310,95 @@ pub async fn capture_connect(
     slug: String,
     workspace_id: String,
     app: AppHandle,
-) -> Result<atlas_checkpoint::Binding, String> {
-    tauri::async_runtime::spawn_blocking(move || {
+) -> Result<ConnectResult, String> {
+    let hook_app = app.clone();
+    let hook_path = project_path.clone();
+    let result = tauri::async_runtime::spawn_blocking(move || -> Result<ConnectResult, String> {
         let root = std::path::Path::new(&project_path);
         let state = app.state::<CaptureState>();
+
+        let detection = atlas_checkpoint::detect(root);
+        let token = token_provider(&app);
+        let config = sync_config(&project_path, &org_id, &token);
+
+        let outcome = atlas_checkpoint::connect_workspace(
+            &config,
+            atlas_checkpoint::ConnectRequest {
+                workspace_id: Some(&workspace_id),
+                slug: Some(&slug),
+                root_commit_sha: detection.root_commit_sha.as_deref(),
+                git_url: detection.git_url.as_deref(),
+                create: false,
+            },
+        )
+        .map_err(|e| e.to_string())?;
+
+        let (remote_id, remote_slug) = match outcome {
+            atlas_checkpoint::ConnectOutcome::Connected { workspace_id, slug: s, .. } => {
+                (workspace_id, s.unwrap_or(slug))
+            }
+            // Nothing bound. Hand the candidates back so the picker can ask
+            // again rather than reporting a failure the developer cannot act on.
+            atlas_checkpoint::ConnectOutcome::Ambiguous { candidates } => {
+                return Ok(ConnectResult { binding: None, candidates, matched: false })
+            }
+            atlas_checkpoint::ConnectOutcome::NoMatch => {
+                return Ok(ConnectResult { binding: None, candidates: Vec::new(), matched: false })
+            }
+        };
+
         let handle = state.writer(root)?;
         let binding = {
             let store = lock_ok(&handle);
             store
-                .set_cloud_binding(&org_id, &slug, Some(&workspace_id))
+                .set_cloud_binding(&org_id, &remote_slug, Some(&remote_id))
                 .map_err(|e| e.to_string())?;
+            approve_import_if_nothing_to_disclose(&store, root);
             store
                 .binding()
                 .map_err(|e| e.to_string())?
                 .ok_or("enable capture for this Project first")?
         };
         state.note_drain(root);
-        Ok(binding)
+        Ok(ConnectResult { binding: Some(binding), candidates: Vec::new(), matched: true })
     })
     .await
-    .map_err(|e| e.to_string())?
+    .map_err(|e| e.to_string())??;
+    if result.matched {
+        crate::commands::artifacts_cloud::resync_targets(&hook_app, Some(&hook_path));
+    }
+    Ok(result)
+}
+
+/// The answer to a connect attempt.
+///
+/// `matched: false` with candidates is the server declining to guess, which is
+/// a question for the developer rather than an error.
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ConnectResult {
+    pub binding: Option<atlas_checkpoint::Binding>,
+    pub candidates: Vec<atlas_checkpoint::RemoteWorkspace>,
+    pub matched: bool,
+}
+
+/// Is `git` on this machine at all?
+///
+/// Capture links Sessions to commits, so a machine without git gets a banner
+/// rather than a silent half-feature. Distinct from "this directory is not a
+/// repository", which `capture_detect` already answers and which `git init`
+/// fixes.
+#[tauri::command]
+pub async fn capture_git_available() -> bool {
+    tauri::async_runtime::spawn_blocking(|| {
+        atlas_process::command("git")
+            .arg("--version")
+            .output()
+            .map(|out| out.status.success())
+            .unwrap_or(false)
+    })
+    .await
+    .unwrap_or(false)
 }
 
 /// What promoting this Project to Cloud would disclose.
@@ -2029,9 +2461,13 @@ pub async fn capture_promote(
     project_path: String,
     org_id: String,
     slug: String,
+    name: Option<String>,
+    visibility: Option<String>,
     app: AppHandle,
 ) -> Result<i64, String> {
-    tauri::async_runtime::spawn_blocking(move || {
+    let hook_app = app.clone();
+    let hook_path = project_path.clone();
+    let moved = tauri::async_runtime::spawn_blocking(move || -> Result<i64, String> {
         let state = app.state::<CaptureState>();
         let root = std::path::Path::new(&project_path);
 
@@ -2052,25 +2488,36 @@ pub async fn capture_promote(
         let config = sync_config(&project_path, &org_id, &token);
         let remote_workspace_id = atlas_checkpoint::register_workspace(
             &config,
-            &slug,
-            root_commit_sha.as_deref(),
-            git_url.as_deref(),
+            atlas_checkpoint::Registration {
+                slug: &slug,
+                name: name.as_deref(),
+                root_commit_sha: root_commit_sha.as_deref(),
+                git_url: git_url.as_deref(),
+                visibility: visibility
+                    .as_deref()
+                    .map(atlas_checkpoint::Visibility::parse)
+                    .unwrap_or_default(),
+            },
         )
         .map_err(|e| e.to_string())?;
 
         let moved = {
             let handle = state.writer(root)?;
             let store = lock_ok(&handle);
-            store
+            let moved = store
                 .promote_to_cloud(&project_path, &org_id, &slug, Some(&remote_workspace_id))
-                .map_err(|e| e.to_string())?
+                .map_err(|e| e.to_string())?;
+            approve_import_if_nothing_to_disclose(&store, root);
+            moved
         };
 
         state.note_drain(root);
         Ok(moved)
     })
     .await
-    .map_err(|e| e.to_string())?
+    .map_err(|e| e.to_string())??;
+    crate::commands::artifacts_cloud::resync_targets(&hook_app, Some(&hook_path));
+    Ok(moved)
 }
 
 /// A closure the drain can call to mint or refresh an access token.
@@ -2084,7 +2531,15 @@ fn token_provider(app: &AppHandle) -> impl Fn() -> Option<String> {
         // Blocking on the async mint is fine here: every caller runs on a
         // `spawn_blocking` thread or the capture worker, never a runtime core
         // thread and never the UI thread.
-        tauri::async_runtime::block_on(core.mint_access_token()).ok()
+        match tauri::async_runtime::block_on(core.mint_access_token()) {
+            Ok(token) => Some(token),
+            // `None` parks the caller as "not signed in"; without this line a
+            // mint failure is indistinguishable from an unreachable registry.
+            Err(e) => {
+                tracing::warn!(target: "atlas::capture", "access token mint failed: {e:?}");
+                None
+            }
+        }
     }
 }
 
@@ -2104,6 +2559,7 @@ fn sync_config<'a>(
         wire_workspace_id: project_path.to_string(),
         token,
         timeout: std::time::Duration::from_secs(30),
+        deadline: None,
     }
 }
 
@@ -2135,8 +2591,8 @@ fn open_reader_raw(project_path: &str) -> Result<Option<Store>, atlas_checkpoint
 /// input/output token split where ACP agents only surface a context gauge, and
 /// the importer needs to tell an in-app Session from one it read off disk.
 fn source_for(plugin_id: &str) -> Source {
-    if plugin_id == atlas_native_agent::CERSEI_AGENT_ID {
-        Source::Cersei
+    if plugin_id == atlas_native_agent::ATLAS_AGENT_ID {
+        Source::Native
     } else {
         Source::Acp
     }
@@ -2229,13 +2685,7 @@ fn open_in(stores: &StoreRegistry, root: &Path) -> Result<StoreHandle, String> {
 /// worker takes a store's mutex for the duration of one job and releases it, so
 /// a write command issued while the worker is idle does not have to wait for the
 /// worker to notice — and, more importantly, does not open a competing store.
-fn worker(
-    rx: mpsc::Receiver<Job>,
-    drain_token: TokenProvider,
-    notify: Notifier,
-    stores: StoreRegistry,
-    alive: Arc<AtomicBool>,
-) {
+fn worker(rx: mpsc::Receiver<Job>, notify: Notifier, stores: StoreRegistry, alive: Arc<AtomicBool>) {
     /// Flips the liveness flag on the way out, however the thread exits — so a
     /// dead worker is a `Stopped` health state instead of a silent gap.
     struct AliveGuard(Arc<AtomicBool>);
@@ -2248,28 +2698,19 @@ fn worker(
 
     // Session ids are assigned by the store on first write and reused after.
     let mut session_ids: HashMap<String, String> = HashMap::new();
-    // Offline backoff per Project root — worker-owned, because the worker is
-    // the only place drains run.
-    let backoff: BackoffMap = Arc::new(Mutex::new(HashMap::new()));
 
     // Change notification, coalesced. `dirty` says a write landed that a reader
     // would want; `last_emit` enforces the window. Starting `last_emit` a full
     // window in the past makes the very first write emit immediately.
     let mut dirty = false;
     let mut last_emit = Instant::now() - NOTIFY_DEBOUNCE;
-    // The scan runs on its own clock now, because the receive timeout is short
-    // while there is a pending notification to flush.
-    let mut last_scan = Instant::now();
-
     loop {
         // Short wait while a notification is pending, so the trailing edge of a
         // burst is announced promptly rather than at the next scan.
+        // Only local writes run here: the cloud drain and the transcript scan
+        // are the sync worker's ([`sync_worker`]), so a job never waits on the
+        // network or a long import.
         let wait = if dirty { NOTIFY_DEBOUNCE } else { IMPORT_SCAN_INTERVAL };
-        // A timeout rather than a blocking receive, so the ongoing transcript
-        // scan reaches **every bound Project** — including backgrounded ones.
-        // The existing sessions watcher is a global singleton pointed at the
-        // active project, so inheriting it would miss exactly the terminal
-        // Sessions this is meant to catch.
         let job = match rx.recv_timeout(wait) {
             Ok(job) => Some(job),
             Err(mpsc::RecvTimeoutError::Timeout) => None,
@@ -2282,48 +2723,13 @@ fn worker(
             // process. The job is lost (and logged); the mutexes it may have
             // poisoned are recovered by `lock_ok` everywhere.
             //
-            // Every job except a drain changes something a reader can see —
-            // a drain only moves outbox state, which no view renders.
-            let visible = !matches!(job, Job::Drain { .. });
+            // Every job changes something a reader can see.
             let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                process_job(job, &mut session_ids, &drain_token, &stores, &backoff);
+                process_job(job, &mut session_ids, &stores);
             }));
             if result.is_err() {
                 tracing::error!(target: "atlas::capture", "capture job panicked; job dropped");
             }
-            dirty |= visible;
-        }
-
-        if last_scan.elapsed() >= IMPORT_SCAN_INTERVAL {
-            last_scan = Instant::now();
-            {
-                let open: Vec<(PathBuf, StoreHandle)> = lock_ok(&stores)
-                    .iter()
-                    .filter(|(_, handle)| handle.is_writer)
-                    .map(|(root, handle)| (root.clone(), handle.clone()))
-                    .collect();
-                // The registry lock is released before the work starts: an
-                // import can run for minutes, and holding the map would stall
-                // every other Project behind one of them.
-                for (root, handle) in open {
-                    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                        let mut store = lock_ok(&handle.store);
-                        import_for(&mut store, &root);
-                        // Reconnecting requires no action from the developer:
-                        // the same tick that scans for transcripts retries the
-                        // outbox (gated by the per-root backoff).
-                        drain_for(&mut store, &root, &drain_token, &backoff, false);
-                    }));
-                    if result.is_err() {
-                        tracing::error!(
-                            target: "atlas::capture",
-                            project = %root.display(),
-                            "capture tick panicked; continuing"
-                        );
-                    }
-                }
-            }
-            // An import may have added Sessions, so the board wants to know.
             dirty = true;
         }
 
@@ -2338,13 +2744,7 @@ fn worker(
 }
 
 /// Handle one queued job.
-fn process_job(
-    job: Job,
-    session_ids: &mut HashMap<String, String>,
-    drain_token: &TokenProvider,
-    stores: &StoreRegistry,
-    backoff: &BackoffMap,
-) {
+fn process_job(job: Job, session_ids: &mut HashMap<String, String>, stores: &StoreRegistry) {
     // Needs no store at all.
     if let Job::EndSession { native_session_id } = &job {
         session_ids.remove(native_session_id);
@@ -2354,13 +2754,12 @@ fn process_job(
     // A commit walk is not tied to a Session, so it carries its own root
     // rather than a binding.
     let (session_binding, root) = match &job {
-        Job::WalkCommits { project_root, .. }
-        | Job::ImportTranscripts { project_root }
-        | Job::Drain { project_root } => (None, project_root.clone()),
+        Job::WalkCommits { project_root, .. } => (None, project_root.clone()),
         Job::Prompt { binding, .. }
         | Job::Turn { binding, .. }
         | Job::ToolCall { binding, .. }
         | Job::FinishTurn { binding }
+        | Job::RewindTurns { binding, .. }
         | Job::Usage { binding, .. } => (Some(binding.clone()), binding.project_root.clone()),
         Job::EndSession { .. } => unreachable!("handled above"),
     };
@@ -2452,20 +2851,6 @@ fn process_job(
         return;
     }
 
-    if let Job::ImportTranscripts { .. } = &job {
-        // `import_for` checks both the pause state and the Cloud
-        // bulk-disclosure approval itself.
-        import_for(store, &root);
-        return;
-    }
-
-    if let Job::Drain { .. } = &job {
-        // Explicit drains (promotion, connect, retry) bypass the backoff — a
-        // human just asked for this one.
-        drain_for(store, &root, drain_token, backoff, true);
-        return;
-    }
-
     // Everything below records something new.
     if !capturing {
         return;
@@ -2490,10 +2875,7 @@ fn process_job(
     let mut link_after: Vec<String> = Vec::new();
     let outcome = match job {
         // Already handled above; none of these needs a Session.
-        Job::WalkCommits { .. }
-        | Job::ImportTranscripts { .. }
-        | Job::Drain { .. }
-        | Job::EndSession { .. } => Ok(()),
+        Job::WalkCommits { .. } | Job::EndSession { .. } => Ok(()),
         Job::Prompt { prompt, .. } => capture
             .record_prompt(
                 &key,
@@ -2514,6 +2896,7 @@ fn process_job(
             role,
             mode,
             body,
+            created_at,
             ..
         } => match session_ids.get(&binding.native_session_id) {
             Some(session_id) => capture
@@ -2525,7 +2908,7 @@ fn process_job(
                         role,
                         mode,
                         body,
-                        created_at: None,
+                        created_at: Some(created_at),
                     },
                 )
                 .map(|_| ()),
@@ -2574,6 +2957,10 @@ fn process_job(
         },
         Job::FinishTurn { .. } => match session_ids.get(&binding.native_session_id) {
             Some(session_id) => capture.finish_turn(session_id, binding.turn_seq),
+            None => Ok(()),
+        },
+        Job::RewindTurns { turns, .. } => match session_ids.get(&binding.native_session_id) {
+            Some(session_id) => capture.rewind_turns(session_id, turns),
             None => Ok(()),
         },
         Job::Usage { totals, .. } => match session_ids.get(&binding.native_session_id) {
@@ -2661,25 +3048,30 @@ fn import_for(store: &mut Store, root: &std::path::Path) {
 /// Offline is the ordinary case here, not an error: rows simply stay pending —
 /// with exponential backoff on the retry so a dead network is not hammered
 /// every 30 seconds. `forced` bypasses the backoff for explicit human actions.
+///
+/// `deadline` bounds the pass ([`SYNC_PASS_BUDGET`]); `true` when it yielded
+/// with rows still pending, so the caller queues the Project for another turn.
 fn drain_for(
     store: &mut Store,
     root: &std::path::Path,
+    base_url: &str,
     token: &TokenProvider,
     backoff: &BackoffMap,
     forced: bool,
-) {
-    let Ok(Some(binding)) = store.binding() else { return };
+    deadline: Option<Instant>,
+) -> bool {
+    let Ok(Some(binding)) = store.binding() else { return false };
     if binding.mode != ProjectMode::Cloud {
         // Local mode is the same database with draining switched off.
-        return;
+        return false;
     }
-    let Some(org_id) = binding.org_id.clone() else { return };
+    let Some(org_id) = binding.org_id.clone() else { return false };
 
     // Terminal until re-registration: the server said this identity may not
     // push, and retrying a revoked membership every 30 seconds forever is
     // noise. `set_cloud_binding` clears the gate on a fresh registration.
     if binding.drain_state == DrainGate::NotAuthorized {
-        return;
+        return false;
     }
 
     // The wire identity is the server-assigned project id (slug as a
@@ -2690,13 +3082,13 @@ fn drain_for(
     // older build) and must not drain at all.
     if binding.remote_workspace_id.is_none() && binding.slug.is_none() {
         warn_once_unregistered(root);
-        return;
+        return false;
     }
 
     if !forced {
         if let Some(entry) = lock_ok(backoff).get(root) {
             if Instant::now() < entry.next_attempt {
-                return;
+                return false;
             }
         }
     }
@@ -2722,7 +3114,7 @@ fn drain_for(
         .expect("gated on a wire identity existing");
 
     let config = atlas_checkpoint::SyncConfig {
-        base_url: atlas_checkpoint::sync::ingest_base(),
+        base_url: base_url.to_string(),
         org_id,
         // Local row keying: `pending_artifacts` selects by the path rows were
         // written under. The wire identity is what lands on every artifact.
@@ -2730,8 +3122,10 @@ fn drain_for(
         wire_workspace_id,
         token: &mint_token,
         timeout: std::time::Duration::from_secs(30),
+        deadline,
     };
 
+    let mut yielded = false;
     match atlas_checkpoint::drain(store, &config) {
         Ok(outcome) if outcome.status == atlas_checkpoint::DrainStatus::NotAuthorized => {
             // A terminal state, not a retry loop: persisted so every later tick
@@ -2759,6 +3153,7 @@ fn drain_for(
         }
         Ok(outcome) => {
             lock_ok(backoff).remove(root);
+            yielded = outcome.status == atlas_checkpoint::DrainStatus::Yielded;
             if outcome.sent > 0 || outcome.failed > 0 {
                 tracing::info!(
                     target: "atlas::capture",
@@ -2772,6 +3167,194 @@ fn drain_for(
         Err(e) => {
             bump_backoff(backoff, root, None);
             tracing::warn!(target: "atlas::capture", "drain failed: {e}");
+        }
+    }
+    yielded
+}
+
+/// The sync worker: cloud drains and transcript imports for every Project, off
+/// the recording path ([`SyncRequest`] says why).
+///
+/// Round-robin and deduplicated: `due` holds each Project at most once, however
+/// many drains were asked for; a pass that yields ([`SYNC_PASS_BUDGET`]) goes to
+/// the back, so a large backlog in one Project shares the uplink with every
+/// other Project instead of holding it until it is empty. Every thirty seconds
+/// each open Project is queued for an import scan and a (backoff-gated) drain,
+/// which is how a Project reconnects without the developer doing anything.
+///
+/// Each drain and import runs on a **sibling** connection ([`with_sibling`]):
+/// the recorder's store lock is taken only for the instant it takes to open
+/// one, so a turn is never recorded late because a Project is syncing.
+///
+/// `ingest` names the ingest server, read once per pass (the deployed one in
+/// the app; a stub in tests).
+fn sync_worker(
+    rx: mpsc::Receiver<SyncRequest>,
+    token: TokenProvider,
+    notify: Notifier,
+    stores: StoreRegistry,
+    alive: Arc<AtomicBool>,
+    ingest: Box<dyn Fn() -> String + Send>,
+) {
+    struct AliveGuard(Arc<AtomicBool>);
+    impl Drop for AliveGuard {
+        fn drop(&mut self) {
+            self.0.store(false, Ordering::Relaxed);
+        }
+    }
+    let _guard = AliveGuard(alive);
+
+    let backoff: BackoffMap = Arc::new(Mutex::new(HashMap::new()));
+    let mut queue = SyncQueue::default();
+    let mut last_scan = Instant::now();
+    let mut dirty = false;
+    let mut last_emit = Instant::now() - NOTIFY_DEBOUNCE;
+
+    loop {
+        // Block only when there is nothing to do; otherwise just take what
+        // arrived, so a new request joins the rotation at once.
+        let wait = if !queue.is_empty() {
+            Duration::ZERO
+        } else if dirty {
+            NOTIFY_DEBOUNCE
+        } else {
+            IMPORT_SCAN_INTERVAL.saturating_sub(last_scan.elapsed())
+        };
+        let first = if wait.is_zero() {
+            match rx.try_recv() {
+                Ok(request) => Some(request),
+                Err(mpsc::TryRecvError::Empty) => None,
+                Err(mpsc::TryRecvError::Disconnected) => return,
+            }
+        } else {
+            match rx.recv_timeout(wait) {
+                Ok(request) => Some(request),
+                Err(mpsc::RecvTimeoutError::Timeout) => None,
+                Err(mpsc::RecvTimeoutError::Disconnected) => return,
+            }
+        };
+        for request in first.into_iter().chain(std::iter::from_fn(|| rx.try_recv().ok())) {
+            queue.push(request);
+        }
+
+        if last_scan.elapsed() >= IMPORT_SCAN_INTERVAL {
+            last_scan = Instant::now();
+            let open: Vec<PathBuf> =
+                lock_ok(&stores).iter().filter(|(_, h)| h.is_writer).map(|(root, _)| root.clone()).collect();
+            for root in open {
+                queue.push(SyncRequest::Import { project_root: root.clone() });
+                queue.push(SyncRequest::Drain { project_root: root, forced: false });
+            }
+        }
+
+        // One import and one drain pass, then back to the channel.
+        if let Some(root) = queue.next_import() {
+            if with_sibling(&stores, &root, |store| import_for(store, &root)).is_some() {
+                dirty = true;
+            }
+        }
+        if let Some((root, forced)) = queue.next_drain() {
+            let deadline = Some(Instant::now() + SYNC_PASS_BUDGET);
+            let base_url = ingest();
+            let yielded = with_sibling(&stores, &root, |store| {
+                drain_for(store, &root, &base_url, &token, &backoff, forced, deadline)
+            });
+            if yielded == Some(true) {
+                queue.requeue(root);
+            }
+            dirty = true;
+        }
+
+        if dirty && last_emit.elapsed() >= NOTIFY_DEBOUNCE {
+            dirty = false;
+            last_emit = Instant::now();
+            if let Some(app) = lock_ok(&notify).as_ref() {
+                let _ = app.emit(CAPTURE_CHANGED, ());
+            }
+        }
+    }
+}
+
+/// What the sync worker has to do: each Project at most once per kind, in
+/// arrival order, with "forced" remembered for a drain asked for more than
+/// once.
+#[derive(Default)]
+struct SyncQueue {
+    drains: std::collections::VecDeque<PathBuf>,
+    forced: std::collections::HashSet<PathBuf>,
+    imports: std::collections::VecDeque<PathBuf>,
+}
+
+impl SyncQueue {
+    fn is_empty(&self) -> bool {
+        self.drains.is_empty() && self.imports.is_empty()
+    }
+
+    fn push(&mut self, request: SyncRequest) {
+        match request {
+            SyncRequest::Drain { project_root, forced } => {
+                if forced {
+                    self.forced.insert(project_root.clone());
+                }
+                if !self.drains.contains(&project_root) {
+                    self.drains.push_back(project_root);
+                }
+            }
+            SyncRequest::Import { project_root } => {
+                if !self.imports.contains(&project_root) {
+                    self.imports.push_back(project_root);
+                }
+            }
+        }
+    }
+
+    fn next_drain(&mut self) -> Option<(PathBuf, bool)> {
+        let root = self.drains.pop_front()?;
+        let forced = self.forced.remove(&root);
+        Some((root, forced))
+    }
+
+    fn next_import(&mut self) -> Option<PathBuf> {
+        self.imports.pop_front()
+    }
+
+    /// A drain that yielded goes to the back of the line.
+    fn requeue(&mut self, root: PathBuf) {
+        if !self.drains.contains(&root) {
+            self.drains.push_back(root);
+        }
+    }
+}
+
+/// Runs `f` on a **sibling** of the Project's writing store — a connection of
+/// its own under the same writer lock ([`Store::sibling`]) — so long work
+/// never holds the store the recorder writes through. `None` when the Project
+/// is not enabled here, or another process holds its writer lock. A panic in
+/// `f` is contained and logged, like a panicking recording job.
+fn with_sibling<R>(stores: &StoreRegistry, root: &Path, f: impl FnOnce(&mut Store) -> R) -> Option<R> {
+    // The same guard the recorder uses: never create `.atlas/` for a Project
+    // that has not enabled capture.
+    if !enabled_on_disk(root) {
+        return None;
+    }
+    let handle = open_in(stores, root).ok()?;
+    if !handle.is_writer {
+        return None;
+    }
+    // The recorder's lock, held only while the sibling opens.
+    let sibling = lock_ok(&handle.store).sibling();
+    let mut sibling = match sibling {
+        Ok(store) => store,
+        Err(e) => {
+            tracing::warn!(target: "atlas::capture", project = %root.display(), "sync connection failed: {e}");
+            return None;
+        }
+    };
+    match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| f(&mut sibling))) {
+        Ok(result) => Some(result),
+        Err(_) => {
+            tracing::error!(target: "atlas::capture", project = %root.display(), "capture sync pass panicked; continuing");
+            None
         }
     }
 }
@@ -2816,6 +3399,36 @@ fn warn_once_unregistered(root: &std::path::Path) {
 /// This is the checkpoint importer, whose contract (research §C9 touchpoint
 /// #11) explicitly survives the history port: Atlas stopped *reading* CLI
 /// storage for its UI, and never touches these files.
+/// After Promote or Connect: approve the transcript import when it would
+/// disclose nothing.
+///
+/// Binding to Cloud clears the import gate, and the gate exists so a bulk
+/// publish of on-disk transcripts is always shown first. Create → Cloud shows
+/// that preview and confirming it — even an empty one, "new sessions sync from
+/// now on" — approves the gate. Promote and Connect never show it, so they left
+/// the gate closed with nothing behind it: a "History import is waiting for
+/// your review" banner leading to an empty dialog, and future transcripts that
+/// would not sync until someone clicked through it. With nothing to import
+/// there is nothing to disclose, so approve exactly as Create's empty confirm
+/// does. Anything to import keeps the gate and the banner — that review is the
+/// point. Best-effort: a failure leaves the gate closed, the safe side.
+fn approve_import_if_nothing_to_disclose(store: &Store, root: &std::path::Path) {
+    let nothing_to_import = match transcript_source_for(root) {
+        None => true,
+        Some(source) => {
+            let path = root.to_string_lossy();
+            atlas_checkpoint::import::preview_with_store(store, &path, &source, ProjectMode::Cloud)
+                .new_session_count
+                == 0
+        }
+    };
+    if nothing_to_import {
+        if let Err(e) = store.set_import_approved(true) {
+            tracing::warn!(target: "atlas::capture", "could not approve an empty import: {e}");
+        }
+    }
+}
+
 fn transcript_source_for(root: &std::path::Path) -> Option<atlas_checkpoint::TranscriptSource> {
     let projects = dirs::home_dir()?.join(".claude").join("projects");
     let encoded = atlas_agent_transcript::encode_cwd(&root.to_string_lossy());
@@ -3183,6 +3796,13 @@ impl OutboundMiddleware<SessionDeltaEnvelope> for CaptureMiddleware {
                 // The streamed bodies are complete now — record them, then
                 // close the turn.
                 state.flush_turn(&envelope.session_id, &binding);
+            }
+
+            SessionDelta::HistoryRewound { turns } => {
+                // A retry took the last turn back before re-sending its
+                // prompt. Marked in the store so the chat's comment anchors
+                // stop counting it; queued behind the turn it takes back.
+                state.submit(Job::RewindTurns { binding, turns: i64::from(*turns) });
             }
 
             SessionDelta::AgentDisconnected { .. } => {
@@ -3755,5 +4375,176 @@ mod diff_path_tests {
             std::path::Path::new("/repo")
         )
         .is_none());
+    }
+}
+
+#[cfg(test)]
+mod sync_worker_tests {
+    //! Syncing never blocks recording, and one Project's backlog never blocks
+    //! another's sync. The real [`sync_worker`] against a slow stub ingest.
+
+    use std::io::{BufRead, BufReader, Read, Write};
+    use std::net::TcpListener;
+
+    use atlas_checkpoint::{Capture, Role, SessionKey, Source, SyncState, TurnContent};
+
+    use super::*;
+
+    #[test]
+    fn a_drain_asked_for_twice_is_queued_once_and_remembers_it_was_forced() {
+        let (a, b) = (PathBuf::from("/a"), PathBuf::from("/b"));
+        let mut queue = SyncQueue::default();
+        queue.push(SyncRequest::Drain { project_root: a.clone(), forced: false });
+        queue.push(SyncRequest::Drain { project_root: b.clone(), forced: false });
+        queue.push(SyncRequest::Drain { project_root: a.clone(), forced: true });
+        queue.push(SyncRequest::Import { project_root: a.clone() });
+        queue.push(SyncRequest::Import { project_root: a.clone() });
+        assert_eq!(queue.next_drain(), Some((a.clone(), true)), "once, and forced");
+        assert_eq!(queue.next_drain(), Some((b, false)));
+        assert_eq!(queue.next_drain(), None);
+        assert_eq!(queue.next_import(), Some(a));
+        assert_eq!(queue.next_import(), None);
+        assert!(queue.is_empty());
+    }
+
+    #[test]
+    fn a_yielded_drain_goes_to_the_back_of_the_line() {
+        let (a, b) = (PathBuf::from("/a"), PathBuf::from("/b"));
+        let mut queue = SyncQueue::default();
+        queue.push(SyncRequest::Drain { project_root: a.clone(), forced: true });
+        queue.push(SyncRequest::Drain { project_root: b.clone(), forced: true });
+        let (first, _) = queue.next_drain().unwrap();
+        queue.requeue(first);
+        assert_eq!(queue.next_drain().map(|(r, _)| r), Some(b), "b's turn before a's second pass");
+        assert_eq!(queue.next_drain().map(|(r, _)| r), Some(a));
+    }
+
+    /// An ingest that accepts every batch after `delay`, counting batches per
+    /// wire project id.
+    fn slow_ingest(delay: Duration) -> (String, Arc<Mutex<HashMap<String, usize>>>) {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let url = format!("http://{}", listener.local_addr().unwrap());
+        let batches: Arc<Mutex<HashMap<String, usize>>> = Arc::default();
+        let seen = batches.clone();
+        std::thread::spawn(move || {
+            for stream in listener.incoming() {
+                let Ok(mut stream) = stream else { break };
+                let seen = seen.clone();
+                std::thread::spawn(move || {
+                    let mut reader = BufReader::new(stream.try_clone().unwrap());
+                    let mut line = String::new();
+                    let _ = reader.read_line(&mut line);
+                    let mut length = 0usize;
+                    loop {
+                        let mut header = String::new();
+                        if reader.read_line(&mut header).unwrap_or(0) == 0 || header.trim().is_empty() {
+                            break;
+                        }
+                        if let Some((k, v)) = header.split_once(':') {
+                            if k.trim().eq_ignore_ascii_case("content-length") {
+                                length = v.trim().parse().unwrap_or(0);
+                            }
+                        }
+                    }
+                    let mut body = vec![0u8; length];
+                    let _ = reader.read_exact(&mut body);
+                    let body = String::from_utf8_lossy(&body);
+                    for wire in ["rw-a", "rw-b"] {
+                        if body.contains(wire) {
+                            *seen.lock().unwrap().entry(wire.to_string()).or_default() += 1;
+                        }
+                    }
+                    std::thread::sleep(delay);
+                    let _ = stream
+                        .write_all(b"HTTP/1.1 202 Accepted\r\nContent-Length: 2\r\nConnection: close\r\n\r\n{}");
+                });
+            }
+        });
+        (url, batches)
+    }
+
+    /// A cloud-bound Project with `sessions` recorded Sessions pending.
+    fn cloud_project(dir: &Path, wire: &str, sessions: usize) -> StoreHandle {
+        let root = dir.to_string_lossy().to_string();
+        let mut store = Store::open(atlas_checkpoint::atlas_dir(dir)).unwrap();
+        atlas_checkpoint::bind(&store, &root, dir, ProjectMode::Local).unwrap();
+        store.promote_to_cloud(&root, "org-1", wire, Some(wire)).unwrap();
+        for i in 0..sessions {
+            record(&mut store, &root, &format!("{wire}-{i}"));
+        }
+        StoreHandle { store: Arc::new(Mutex::new(store)), is_writer: true }
+    }
+
+    fn record(store: &mut Store, root: &str, native: &str) {
+        let mut capture = Capture::new(store, ProjectMode::Cloud);
+        let key = SessionKey { workspace_id: root.to_string(), source: Source::Native, native_session_id: native.into() };
+        let session = capture.record_prompt(&key, "do the thing", 1, None, None, None).unwrap();
+        capture
+            .record_turn(
+                &session,
+                TurnContent {
+                    turn_seq: 1,
+                    native_message_id: Some(format!("{native}-m")),
+                    role: Role::Assistant,
+                    mode: atlas_checkpoint::Mode::Text,
+                    body: "done".into(),
+                    created_at: None,
+                },
+            )
+            .unwrap();
+    }
+
+    fn pending(handle: &StoreHandle, root: &Path) -> i64 {
+        lock_ok(&handle.store).row_count_in_state(&root.to_string_lossy(), SyncState::Pending).unwrap()
+    }
+
+    /// The case reported: Project A was promoted with a large local backlog.
+    /// While A syncs, (1) a turn in A records at once, (2) Project B's small
+    /// queue is sent without waiting for A's backlog, and (3) A still drains
+    /// completely, including what was recorded mid-sync.
+    #[test]
+    fn a_projects_backlog_blocks_neither_recording_nor_another_projects_sync() {
+        let (a_dir, b_dir) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
+        let a = cloud_project(a_dir.path(), "rw-a", 300);
+        let b = cloud_project(b_dir.path(), "rw-b", 1);
+        let (a_root, b_root) = (a_dir.path().to_path_buf(), b_dir.path().to_path_buf());
+        let stores: StoreRegistry = Arc::default();
+        lock_ok(&stores).insert(a_root.clone(), a.clone());
+        lock_ok(&stores).insert(b_root.clone(), b.clone());
+
+        let (url, batches) = slow_ingest(Duration::from_millis(900));
+        let token: TokenProvider = Arc::new(Mutex::new(Some(Box::new(|| Some("t".to_string())))));
+        let (tx, rx) = mpsc::channel();
+        let worker = std::thread::spawn(move || {
+            let ingest: Box<dyn Fn() -> String + Send> = Box::new(move || url.clone());
+            sync_worker(rx, token, Arc::default(), stores, Arc::new(AtomicBool::new(true)), ingest)
+        });
+        tx.send(SyncRequest::Drain { project_root: a_root.clone(), forced: true }).unwrap();
+        tx.send(SyncRequest::Drain { project_root: b_root.clone(), forced: true }).unwrap();
+
+        // (1) A is mid-upload: its recorder's store is free, a turn records now.
+        let started = Instant::now();
+        while batches.lock().unwrap().get("rw-a").copied().unwrap_or(0) == 0 {
+            assert!(started.elapsed() < Duration::from_secs(20), "A never started syncing");
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        let recorded = Instant::now();
+        record(&mut lock_ok(&a.store), &a_root.to_string_lossy(), "live-during-sync");
+        assert!(recorded.elapsed() < Duration::from_millis(500), "recording in A waited {:?}", recorded.elapsed());
+
+        // (2) B's queue is sent while A still has a backlog.
+        while pending(&b, &b_root) > 0 {
+            assert!(started.elapsed() < Duration::from_secs(30), "B was never synced");
+            std::thread::sleep(Duration::from_millis(50));
+        }
+        assert!(pending(&a, &a_root) > 0, "B waited for A's whole backlog");
+
+        // (3) A still finishes, including what was recorded mid-sync.
+        while pending(&a, &a_root) > 0 {
+            assert!(started.elapsed() < Duration::from_secs(90), "A never finished: {} pending", pending(&a, &a_root));
+            std::thread::sleep(Duration::from_millis(100));
+        }
+        drop(tx);
+        worker.join().unwrap();
     }
 }

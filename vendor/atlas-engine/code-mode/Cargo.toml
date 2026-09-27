@@ -1,0 +1,37 @@
+# Modified by Atlas from upstream OpenAI Codex (Apache-2.0). See CONTEXT.md.
+[package]
+edition.workspace = true
+license.workspace = true
+name = "atlas-engine-code-mode"
+version.workspace = true
+
+[lib]
+doctest = false
+name = "atlas_engine_code_mode"
+path = "src/lib.rs"
+
+[lints]
+workspace = true
+
+[dependencies]
+atlas-engine-code-mode-protocol = { workspace = true }
+atlas-engine-http-client = { workspace = true }
+atlas-engine-install-context = { workspace = true }
+atlas-engine-protocol = { workspace = true }
+atlas-engine-websocket-client = { workspace = true }
+futures = { workspace = true }
+http-body-util = "0.1.3"
+prost = "0.14.3"
+reqwest = { workspace = true, features = ["stream"] }
+serde_json = { workspace = true }
+tokio = { workspace = true, features = ["io-util", "macros", "net", "process", "rt", "sync", "time"] }
+tokio-tungstenite = { workspace = true }
+tokio-util = { workspace = true, features = ["rt"] }
+tonic = { workspace = true }
+tower = { version = "0.5.3", features = ["util"] }
+tracing = { workspace = true }
+uuid = { workspace = true, features = ["v4"] }
+
+[dev-dependencies]
+pretty_assertions = { workspace = true }
+tokio = { workspace = true, features = ["test-util"] }

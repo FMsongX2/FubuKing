@@ -3,6 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 import {
   ArrowUpRight,
   Check,
+  ChevronDown,
   Cloud,
   FolderGit2,
   GitBranch,
@@ -26,10 +27,18 @@ import { activeProjectId } from "@/features/projects/lib/active-project";
 
 import { CaptureDot } from "./capture-status";
 
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/ui/dropdown-menu";
+
 import type {
   Binding,
   CaptureHealth,
   ConnectOptions,
+  ConnectResult,
   Detection,
   ImportPreview,
   PromotionPreview,
@@ -67,26 +76,15 @@ import type {
  */
 
 /**
- * Cloud capture is switched off in the client.
+ * Cloud capture was gated off here for as long as the ingest service answered
+ * 405 to every GET, which made Connect unable to list and the Slug check unable
+ * to answer. Those read routes are deployed now, so the gate is gone and the
+ * only remaining reasons are the ones the developer can act on — see
+ * `cloudReason`.
  *
- * The ingest service (`ingest.tryatlas.cc`) currently answers **405 method not
- * allowed to every GET** — `GET /projects` and `GET /projects/slug-available`
- * are not deployed, only the POST routes are. So Connect could never list
- * anything ("Could not reach the server"), the Slug check could only ever say
- * "couldn't check", and Create-Cloud would bind a Project whose drain has
- * nowhere to read back from. None of that is a client fault and none of it is
- * fixable here.
- *
- * Local capture is unaffected — it never touches the network, which is the whole
- * point of it being a real mode rather than a waiting room.
- *
- * Flip this to `true` when the ingest service serves its read endpoints; nothing
- * else needs to change.
+ * Local capture is unaffected either way: it never touches the network, which is
+ * the whole point of it being a real mode rather than a waiting room.
  */
-const CLOUD_CAPTURE_ENABLED = false;
-
-/** Said wherever Cloud is offered, so the reason is on the control itself. */
-const CLOUD_UNAVAILABLE_REASON = "Cloud capture isn't available yet";
 
 /**
  * The house form language, shared with the create-organisation modal.
@@ -129,13 +127,27 @@ interface Props {
   onClose: () => void;
 }
 
+/**
+ * Everything a Cloud registration is created with.
+ *
+ * Carried as one value through the disclosure step rather than as four
+ * parallel fields, so adding a fifth does not touch every signature between
+ * the form and the confirm.
+ */
+export interface CloudDraft {
+  orgId: string;
+  slug: string;
+  /** May be empty — a Project with no remote is legitimate. */
+  gitUrl: string;
+  restricted: boolean;
+}
+
 type View =
   | { kind: "main" }
   /** Cloud create: the import disclosure, with the registration still pending. */
   | {
       kind: "cloud-confirm";
-      orgId: string;
-      slug: string;
+      draft: CloudDraft;
       preview: ImportPreview;
     }
   /** Bound Cloud Project whose history import awaits approval. */
@@ -145,8 +157,7 @@ type View =
   /** Local→Cloud promotion: the disclosure. */
   | {
       kind: "promote-confirm";
-      orgId: string;
-      slug: string;
+      draft: CloudDraft;
       preview: PromotionPreview;
     };
 
@@ -180,6 +191,15 @@ export function CapturePopover({ projectPath, health, onChanged, onClose }: Prop
    */
   const [loaded, setLoaded] = useState(false);
   const [detection, setDetection] = useState<Detection | null>(null);
+  /**
+   * Is `git` on this machine at all?
+   *
+   * Assumed present until the probe says otherwise, so the common case never
+   * flashes a banner. Distinct from `detection.isGitRepository`, which is about
+   * *this directory* and is what the `git init` offer fixes — no amount of
+   * `git init` helps a machine with no git.
+   */
+  const [gitAvailable, setGitAvailable] = useState(true);
   /** `undefined` while the read is in flight, `null` once it failed — the
    *  Cloud "Continue" button needs the difference to gate honestly. */
   const [importPreview, setImportPreview] = useState<ImportPreview | null | undefined>(undefined);
@@ -189,17 +209,22 @@ export function CapturePopover({ projectPath, health, onChanged, onClose }: Prop
 
   const load = useCallback(async () => {
     try {
-      const [current, detected, preview] = await Promise.all([
+      const [current, detected, preview, hasGit] = await Promise.all([
         invoke<Binding | null>("capture_binding", { projectPath }),
         invoke<Detection>("capture_detect", { projectPath }),
         // Read-only and cheap — the "history N sessions on disk" row and both
         // disclosure steps feed off it. A failure lands as `null`, which the
         // Cloud path surfaces with a retry instead of silently no-opping.
         invoke<ImportPreview>("capture_import_preview", { projectPath }).catch(() => null),
+        // A failed probe reads as "git is there": a banner shown wrongly is
+        // worse than one missed, because the machine that really has no git
+        // finds out from the very next operation anyway.
+        invoke<boolean>("capture_git_available").catch(() => true),
       ]);
       setBinding(current);
       setDetection(detected);
       setImportPreview(preview);
+      setGitAvailable(hasGit);
     } catch (e) {
       setError(String(e));
     } finally {
@@ -243,11 +268,11 @@ export function CapturePopover({ projectPath, health, onChanged, onClose }: Prop
     }
   };
 
-  // Ordered most-actionable-last: the service being down is not something the
-  // developer can fix, so it is stated first and the account-shaped reasons only
-  // surface once it is back.
-  const cloudReason = !CLOUD_CAPTURE_ENABLED
-    ? CLOUD_UNAVAILABLE_REASON
+  // Ordered most-actionable-last: a missing git is a machine-shaped problem the
+  // developer fixes elsewhere, so it is stated first, and the account-shaped
+  // reasons only surface once it is resolved.
+  const cloudReason = !gitAvailable
+    ? "Install git to share with an Organisation"
     : !signedIn
       ? "Sign in to share with an Organisation"
       : cloudOrgs.length === 0
@@ -286,6 +311,7 @@ export function CapturePopover({ projectPath, health, onChanged, onClose }: Prop
               projectPath={projectPath}
               binding={binding}
               detection={detection}
+              gitAvailable={gitAvailable}
               health={health}
               importPreview={importPreview}
               cloudOrgs={cloudOrgs}
@@ -301,6 +327,7 @@ export function CapturePopover({ projectPath, health, onChanged, onClose }: Prop
             <UnboundState
               projectPath={projectPath}
               detection={detection}
+              gitAvailable={gitAvailable}
               importPreview={importPreview}
               cloudReason={cloudReason}
               cloudOrgs={cloudOrgs}
@@ -308,16 +335,11 @@ export function CapturePopover({ projectPath, health, onChanged, onClose }: Prop
               run={run}
               onRetryPreview={() => void retryPreview()}
               onCancel={onClose}
-              onCloudEnable={(orgId, slug) => {
+              onCloudEnable={(draft) => {
                 // Belt to the button's braces — Continue is disabled until the
                 // preview is in, so this guard should never fire.
                 if (!importPreview) return;
-                setView({
-                  kind: "cloud-confirm",
-                  orgId,
-                  slug,
-                  preview: importPreview,
-                });
+                setView({ kind: "cloud-confirm", draft, preview: importPreview });
               }}
             />
           ))}
@@ -337,8 +359,11 @@ export function CapturePopover({ projectPath, health, onChanged, onClose }: Prop
                 await invoke("capture_enable", { projectPath, mode: "local" });
                 await invoke("capture_register_cloud", {
                   projectPath,
-                  orgId: view.orgId,
-                  slug: view.slug,
+                  orgId: view.draft.orgId,
+                  slug: view.draft.slug,
+                  name: null,
+                  visibility: view.draft.restricted ? "restricted" : "org",
+                  gitUrl: view.draft.gitUrl,
                 });
                 await invoke("capture_import_confirm", { projectPath });
               });
@@ -368,14 +393,14 @@ export function CapturePopover({ projectPath, health, onChanged, onClose }: Prop
             cloudOrgs={cloudOrgs}
             busy={busy}
             onCancel={() => setView({ kind: "main" })}
-            onContinue={async (orgId, slug) => {
+            onContinue={async (draft) => {
               setBusy(true);
               setError(null);
               try {
                 const preview = await invoke<PromotionPreview>("capture_promotion_preview", {
                   projectPath,
                 });
-                setView({ kind: "promote-confirm", orgId, slug, preview });
+                setView({ kind: "promote-confirm", draft, preview });
               } catch (e) {
                 setError(String(e));
               } finally {
@@ -400,8 +425,10 @@ export function CapturePopover({ projectPath, health, onChanged, onClose }: Prop
               const ok = await run(() =>
                 invoke("capture_promote", {
                   projectPath,
-                  orgId: view.orgId,
-                  slug: view.slug,
+                  orgId: view.draft.orgId,
+                  slug: view.draft.slug,
+                  name: null,
+                  visibility: view.draft.restricted ? "restricted" : "org",
                 }),
               );
               if (ok) setView({ kind: "main" });
@@ -733,6 +760,7 @@ function BoundState({
   projectPath,
   binding,
   detection,
+  gitAvailable,
   health,
   importPreview,
   cloudOrgs,
@@ -745,6 +773,8 @@ function BoundState({
   projectPath: string;
   binding: Binding;
   detection: Detection | null;
+  /** Is `git` on this machine? Not whether this directory is a repository. */
+  gitAvailable: boolean;
   health: CaptureHealth | null;
   importPreview: ImportPreview | null | undefined;
   cloudOrgs: Array<Organisation & { remoteId: string }>;
@@ -788,12 +818,18 @@ function BoundState({
       <Detected detection={detection} importPreview={importPreview} />
 
       {/* Git is not required, and the offer says what it unlocks rather than
-       *  demanding anything. Sessions are already being captured either way. */}
-      {detection && !detection.isGitRepository && (
-        <GitInitOffer
-          busy={busy}
-          onGitInit={() => void run(() => invoke("capture_git_init", { projectPath }))}
-        />
+       *  demanding anything. Sessions are already being captured either way.
+       *  With no git on the machine there is nothing to offer, only to state. */}
+      {!gitAvailable ? (
+        <GitMissingBanner />
+      ) : (
+        detection &&
+        !detection.isGitRepository && (
+          <GitInitOffer
+            busy={busy}
+            onGitInit={() => void run(() => invoke("capture_git_init", { projectPath }))}
+          />
+        )
       )}
 
       {/* A Cloud Project whose bulk import was never approved imports
@@ -897,6 +933,7 @@ function BoundState({
 function UnboundState({
   projectPath,
   detection,
+  gitAvailable,
   importPreview,
   cloudReason,
   cloudOrgs,
@@ -908,6 +945,8 @@ function UnboundState({
 }: {
   projectPath: string;
   detection: Detection | null;
+  /** Is `git` on this machine? Not whether this directory is a repository. */
+  gitAvailable: boolean;
   /** `undefined` = still loading, `null` = the read failed. */
   importPreview: ImportPreview | null | undefined;
   cloudReason: string | null;
@@ -916,13 +955,16 @@ function UnboundState({
   run: (action: () => Promise<unknown>) => Promise<boolean>;
   onRetryPreview: () => void;
   onCancel: () => void;
-  onCloudEnable: (orgId: string, slug: string) => void;
+  onCloudEnable: (draft: CloudDraft) => void;
 }) {
   const [tab, setTab] = useState<"create" | "connect">("create");
   const [mode, setMode] = useState<ProjectMode>("local");
   const [orgId, setOrgId] = useState<string>(cloudOrgs[0]?.remoteId ?? "");
   const [slug, setSlug] = useState("");
   const [slugDirty, setSlugDirty] = useState(false);
+  const [gitUrl, setGitUrl] = useState("");
+  const [gitUrlDirty, setGitUrlDirty] = useState(false);
+  const [restricted, setRestricted] = useState(false);
 
   // The org store can hydrate after this mounts (fresh sign-in) — default the
   // picker to the first linked Organisation once one exists.
@@ -935,6 +977,13 @@ function UnboundState({
   useEffect(() => {
     if (!slugDirty && detection) setSlug(detection.suggestedSlug);
   }, [detection, slugDirty]);
+
+  // Same rule for the Repository URL, prefilled from this checkout's origin.
+  // `gitUrl` is nullable on a repository with no remote, and clearing the field
+  // by hand is a deliberate answer we must not overwrite on the next read.
+  useEffect(() => {
+    if (!gitUrlDirty && detection) setGitUrl(detection.gitUrl ?? "");
+  }, [detection, gitUrlDirty]);
 
   const slugState = useSlugAvailability(
     projectPath,
@@ -1014,16 +1063,28 @@ function UnboundState({
                 setSlug(value);
               }}
               slugState={slugState}
+              gitUrl={gitUrl}
+              onGitUrlChange={(value) => {
+                setGitUrlDirty(true);
+                setGitUrl(value);
+              }}
+              restricted={restricted}
+              onRestrictedChange={setRestricted}
             />
           )}
 
           <Detected detection={detection} importPreview={importPreview} />
 
-          {detection && !detection.isGitRepository && (
-            <GitInitOffer
-              busy={busy}
-              onGitInit={() => void run(() => invoke("capture_git_init", { projectPath }))}
-            />
+          {!gitAvailable ? (
+            <GitMissingBanner />
+          ) : (
+            detection &&
+            !detection.isGitRepository && (
+              <GitInitOffer
+                busy={busy}
+                onGitInit={() => void run(() => invoke("capture_git_init", { projectPath }))}
+              />
+            )
           )}
 
           {/* The preview read failed: Continue has nothing to disclose, so say
@@ -1058,7 +1119,12 @@ function UnboundState({
                   void run(() => invoke("capture_enable", { projectPath, mode: "local" }));
                 } else {
                   // No mutation yet — the disclosure step owns all of them.
-                  onCloudEnable(orgId, slug.trim());
+                  onCloudEnable({
+                    orgId,
+                    slug: slug.trim(),
+                    gitUrl: gitUrl.trim(),
+                    restricted,
+                  });
                 }
               }}
               label={mode === "cloud" ? "Continue" : "Enable"}
@@ -1183,17 +1249,26 @@ function useSlugAvailability(projectPath: string, orgId: string, slug: string): 
   return state;
 }
 
-/** Org picker + Slug field, shared by Create-Cloud and Promote. */
+/** Org label + Slug, Repository URL and visibility, shared by Create-Cloud and Promote. */
 function CloudFields({
   cloudOrgs,
   slug,
   onSlugChange,
   slugState,
+  gitUrl,
+  onGitUrlChange,
+  restricted,
+  onRestrictedChange,
 }: {
   cloudOrgs: Array<Organisation & { remoteId: string }>;
   slug: string;
   onSlugChange: (slug: string) => void;
   slugState: SlugState;
+  /** Prefilled from the detected origin; editable, and legitimately empty. */
+  gitUrl: string;
+  onGitUrlChange: (url: string) => void;
+  restricted: boolean;
+  onRestrictedChange: (restricted: boolean) => void;
 }) {
   return (
     <div className={cn(GROUP, "space-y-2")}>
@@ -1223,6 +1298,39 @@ function CloudFields({
       </label>
 
       <SlugStatus state={slugState} />
+
+      {/* A URL and nothing more — it is what lets a teammate's desktop find
+       *  this Project from their own checkout's origin. Prefilled from the
+       *  detected remote, and cleared on purpose is a real answer. */}
+      <label className="flex items-center gap-2">
+        <span className="w-[70px] shrink-0 text-xs text-[var(--muted-foreground)]">Repository</span>
+        <input
+          value={gitUrl}
+          onChange={(e) => onGitUrlChange(e.target.value)}
+          spellCheck={false}
+          autoCapitalize="off"
+          placeholder="github.com/acme/my-project"
+          className={cn(FIELD, "h-7 flex-1 font-mono text-xs")}
+        />
+      </label>
+
+      <label className="flex cursor-pointer items-start gap-2">
+        <input
+          type="checkbox"
+          checked={restricted}
+          onChange={(e) => onRestrictedChange(e.target.checked)}
+          className="mt-0.5 size-3 shrink-0 cursor-pointer accent-[var(--primary)]"
+        />
+        <span className="min-w-0">
+          <span className="text-xs text-[var(--secondary-foreground)]">
+            Restrict to named members
+          </span>
+          <span className="block text-2xs text-[var(--muted-foreground)]">
+            Otherwise every member of the Organisation can read it and push to it. You can change
+            this later.
+          </span>
+        </span>
+      </label>
     </div>
   );
 }
@@ -1294,6 +1402,12 @@ function ConnectTab({
   const [orgId, setOrgId] = useState<string>(cloudOrgs[0]?.remoteId ?? "");
   const [options, setOptions] = useState<ConnectOptions | null | undefined>(undefined);
   const [selected, setSelected] = useState<string | null>(null);
+  /** The server's reason for binding nothing, if it declined. */
+  const [refused, setRefused] = useState<string | null>(null);
+  /** Why the listing failed, as Rust reported it — a 403 and a dead network
+   *  need different fixes, and one sentence for both sent people checking
+   *  Wi-Fi for a permission problem. */
+  const [listError, setListError] = useState<string | null>(null);
   const seq = useRef(0);
 
   useEffect(() => {
@@ -1305,14 +1419,18 @@ function ConnectTab({
     const mine = ++seq.current;
     setOptions(undefined);
     setSelected(null);
+    setRefused(null);
+    setListError(null);
     invoke<ConnectOptions>("capture_connect_options", { projectPath, orgId })
       .then((result) => {
         if (mine !== seq.current) return;
         setOptions(result);
         setSelected(result.preselected);
       })
-      .catch(() => {
-        if (mine === seq.current) setOptions(null);
+      .catch((e: unknown) => {
+        if (mine !== seq.current) return;
+        setOptions(null);
+        setListError(String(e));
       });
   }, [projectPath, orgId, cloudReason]);
 
@@ -1336,7 +1454,9 @@ function ConnectTab({
         </p>
       ) : options === null ? (
         <p className="rounded-lg bg-[var(--atlas-status-warning-background)] px-2.5 py-1.5 text-xs text-[var(--atlas-status-warning-foreground)]">
-          Could not reach the server. Check the connection and reopen this tab.
+          {listError
+            ? `Could not list this Organisation's Projects: ${listError}`
+            : "Could not reach the server. Check the connection and reopen this tab."}
         </p>
       ) : options.workspaces.length === 0 ? (
         <p className={cn(GROUP, "text-xs text-[var(--muted-foreground)]")}>
@@ -1349,46 +1469,63 @@ function ConnectTab({
               {options.warning}
             </p>
           )}
-          <div
-            role="radiogroup"
-            aria-label="Project to connect to"
-            className="max-h-[180px] space-y-0.5 overflow-y-auto"
-          >
-            {options.workspaces.map((remote) => (
-              <button
-                key={remote.id}
-                type="button"
-                role="radio"
-                aria-checked={selected === remote.id}
-                onClick={() => setSelected(remote.id)}
-                className={cn(
-                  "flex w-full cursor-pointer items-center gap-2 rounded-lg border px-2.5 py-1.5 text-left transition-colors duration-150",
-                  selected === remote.id
-                    ? "border-[var(--atlas-element-active)] bg-[var(--atlas-element-selected)]"
-                    : "border-transparent hover:bg-[var(--atlas-element-hover)]",
+          {/* A dropdown rather than an inline list: the Organisation's Project
+           *  count is unbounded and unpaged, and a scroller of them pushed the
+           *  Connect button off the popover. The trigger states the current
+           *  pick, which is the only part that has to be visible at rest. */}
+          <DropdownMenu>
+            <DropdownMenuTrigger
+              className={cn(
+                FIELD,
+                "flex cursor-pointer items-center justify-between gap-2 text-left",
+              )}
+              aria-label="Project to connect to"
+            >
+              <span className="min-w-0 flex-1 truncate">
+                {project ? (
+                  <span className="font-mono text-xs text-[var(--foreground)]">{project.slug}</span>
+                ) : (
+                  <span className="text-xs text-[var(--muted-foreground)]">Choose a Project…</span>
                 )}
-              >
-                <span className="shrink-0">
-                  {selected === remote.id ? (
-                    <Check size={11} className="text-[var(--foreground)]" />
-                  ) : (
-                    <span className="block h-[11px] w-[11px] rounded-full border border-[var(--atlas-border-strong)]" />
-                  )}
-                </span>
-                <span className="min-w-0 flex-1">
-                  <span className="block truncate font-mono text-xs text-[var(--foreground)]">
-                    {remote.slug}
+              </span>
+              <ChevronDown size={11} className="shrink-0 text-[var(--muted-foreground)]" />
+            </DropdownMenuTrigger>
+            <DropdownMenuContent className="max-h-[220px] w-(--anchor-width)">
+              {options.workspaces.map((remote) => (
+                <DropdownMenuItem
+                  key={remote.id}
+                  onClick={() => setSelected(remote.id)}
+                  className="items-start gap-2"
+                >
+                  <Check
+                    size={11}
+                    className={cn(
+                      "mt-0.5 shrink-0",
+                      selected === remote.id ? "opacity-100" : "opacity-0",
+                    )}
+                  />
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate font-mono text-xs">{remote.slug}</span>
+                    {remote.gitUrl && (
+                      <span className="block truncate text-2xs text-[var(--muted-foreground)]">
+                        {remote.gitUrl}
+                      </span>
+                    )}
                   </span>
-                  {remote.gitUrl && (
-                    <span className="block truncate text-2xs text-[var(--muted-foreground)]">
-                      {remote.gitUrl}
-                    </span>
-                  )}
-                </span>
-              </button>
-            ))}
-          </div>
+                </DropdownMenuItem>
+              ))}
+            </DropdownMenuContent>
+          </DropdownMenu>
         </>
+      )}
+
+      {/* The server declined to bind. Not an error — several Projects share
+       *  this repository's root commit, or none does — so the pick is handed
+       *  back rather than reported as a failure. */}
+      {refused && (
+        <p className="rounded-lg bg-[var(--atlas-status-warning-background)] px-2.5 py-1.5 text-xs text-[var(--atlas-status-warning-foreground)]">
+          {refused}
+        </p>
       )}
 
       <div className="flex justify-end gap-2 pt-1">
@@ -1398,15 +1535,22 @@ function ConnectTab({
           disabled={!project}
           onClick={() => {
             if (!project) return;
+            setRefused(null);
             void run(async () => {
               // Connect needs a binding row to attach the Cloud identity to.
               await invoke("capture_enable", { projectPath, mode: "local" });
-              await invoke("capture_connect", {
+              const result = await invoke<ConnectResult>("capture_connect", {
                 projectPath,
                 orgId,
                 slug: project.slug,
                 workspaceId: project.id,
               });
+              if (result.matched) return;
+              setRefused(
+                result.candidates.length > 0
+                  ? `${result.candidates.length} Projects share this repository’s root commit. Pick the right one — repositories created from the same template look identical here.`
+                  : "The server did not recognise this pick. Reopen this tab to refresh the Project list.",
+              );
             });
           }}
           label="Connect"
@@ -1430,10 +1574,12 @@ function PromoteForm({
   cloudOrgs: Array<Organisation & { remoteId: string }>;
   busy: boolean;
   onCancel: () => void;
-  onContinue: (orgId: string, slug: string) => void;
+  onContinue: (draft: CloudDraft) => void;
 }) {
   const [orgId, setOrgId] = useState<string>(cloudOrgs[0]?.remoteId ?? "");
   const [slug, setSlug] = useState(detection?.suggestedSlug ?? "");
+  const [gitUrl, setGitUrl] = useState(detection?.gitUrl ?? "");
+  const [restricted, setRestricted] = useState(false);
   const slugState = useSlugAvailability(projectPath, orgId, slug);
 
   useEffect(() => {
@@ -1452,13 +1598,24 @@ function PromoteForm({
         Everything captured here joins your Organisation's timeline. You'll see exactly what before
         anything is sent.
       </p>
-      <CloudFields cloudOrgs={cloudOrgs} slug={slug} onSlugChange={setSlug} slugState={slugState} />
+      <CloudFields
+        cloudOrgs={cloudOrgs}
+        slug={slug}
+        onSlugChange={setSlug}
+        slugState={slugState}
+        gitUrl={gitUrl}
+        onGitUrlChange={setGitUrl}
+        restricted={restricted}
+        onRestrictedChange={setRestricted}
+      />
       <div className="flex justify-end gap-2 pt-1">
         <GhostButton label="Cancel" onClick={onCancel} disabled={busy} />
         <PrimaryButton
           busy={busy}
           disabled={!ready}
-          onClick={() => onContinue(orgId, slug.trim())}
+          onClick={() =>
+            onContinue({ orgId, slug: slug.trim(), gitUrl: gitUrl.trim(), restricted })
+          }
           label="Continue"
         />
       </div>
@@ -1756,6 +1913,29 @@ function TimelinePreview() {
 
       <p className="mt-2 text-2xs text-[var(--muted-foreground)]">
         Every prompt, tool call and commit, kept on one thread you can reopen months later.
+      </p>
+    </div>
+  );
+}
+
+/**
+ * Git is not on this machine at all.
+ *
+ * Stated, not actionable: installing git is not something the popover can do,
+ * and offering a button that opens a download page from inside a capture panel
+ * would be a worse lie than saying nothing. Shown *instead of* `GitInitOffer`,
+ * which would otherwise offer to run a binary that is not there.
+ */
+function GitMissingBanner() {
+  return (
+    <div className="flex items-start gap-2 rounded-lg border border-dashed border-[var(--atlas-status-warning-foreground)]/40 px-2.5 py-2">
+      <GitBranch
+        size={12}
+        className="mt-0.5 shrink-0 text-[var(--atlas-status-warning-foreground)]"
+      />
+      <p className="min-w-0 text-xs text-[var(--secondary-foreground)]">
+        Git is not installed on this machine. Sessions are still recorded, but they cannot be linked
+        to commits and cannot be shared with an Organisation.
       </p>
     </div>
   );

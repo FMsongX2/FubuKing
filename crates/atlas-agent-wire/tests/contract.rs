@@ -300,6 +300,7 @@ fn sample_message() -> Message {
         tool_calls: vec![sample_tool_call()],
         plan: Some(Vec::new()),
         model: Some("anthropic/claude".into()),
+        images: Vec::new(),
         // Fixed, not `now()`: the golden pins the serialized timestamp.
         timestamp: "2026-01-02T03:04:05Z".parse().unwrap(),
     }

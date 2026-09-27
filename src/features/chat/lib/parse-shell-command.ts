@@ -6,7 +6,7 @@
 // which is exactly what the transcript looked like before this existed.
 //
 // This is a port of the engine's own answer to that problem,
-// `vendor/codex/shell-command/src/parse_command.rs`, which is why the command
+// `vendor/atlas-engine/shell-command/src/parse_command.rs`, which is why the command
 // tables below match its lists rather than anyone's intuition. Ported to TS
 // rather than piped through from Rust for two reasons: the delta wire contract
 // is frozen (`docs/agents/delta-wire-contract.md`), and the classification has

@@ -8,7 +8,7 @@
 //! Config reaches the engine two ways, and the split is not arbitrary:
 //!
 //! - **`ConfigOverrides`** for the things that have no config-file spelling.
-//!   `codex_self_exe` is the load-bearing one — the engine's own docs say it
+//!   `atlas_engine_self_exe` is the load-bearing one — the engine's own docs say it
 //!   "cannot be set in the config file: it must be set in code via
 //!   `ConfigOverrides`". Sandbox and approval defaults ride along here too.
 //! - **TOML overrides** for everything that *is* a config key: the provider
@@ -22,12 +22,12 @@ use std::path::PathBuf;
 
 use anyhow::Context;
 use anyhow::Result;
-use codex_core::config::Config;
-use codex_core::config::ConfigBuilder;
-use codex_core::config::ConfigOverrides;
-use codex_protocol::config_types::SandboxMode;
-use codex_protocol::openai_models::ModelsResponse;
-use codex_protocol::protocol::AskForApproval;
+use atlas_engine_core::config::Config;
+use atlas_engine_core::config::ConfigBuilder;
+use atlas_engine_core::config::ConfigOverrides;
+use atlas_engine_protocol::config_types::SandboxMode;
+use atlas_engine_protocol::openai_models::ModelsResponse;
+use atlas_engine_protocol::protocol::AskForApproval;
 use toml::Value as TomlValue;
 
 /// The engine's own `DEFAULT_STREAM_MAX_RETRIES`, restated so the seam can
@@ -41,8 +41,8 @@ pub const DEFAULT_STREAM_MAX_RETRIES: usize = 5;
 /// this path and creates a `0644` installation-id file inside it. So this must
 /// be a directory Atlas owns.
 ///
-/// It is emphatically **not** `~/.codex`. Pointing it there would have the app
-/// adopt, and write into, the user's real Codex CLI state.
+/// It is emphatically **not** `~/.atlas_engine`. Pointing it there would have the app
+/// adopt, and write into, the engine's default dot-directory under the user's home.
 ///
 /// Everything under here is engine-private working storage in D9's sense: the
 /// engine may keep rollouts and its own SQLite here, and no history or sidebar
@@ -54,7 +54,7 @@ pub struct EngineHome(PathBuf);
 impl EngineHome {
     /// The engine's home inside Atlas's own config directory.
     ///
-    /// `config_dir` is what the Cersei path is handed today, so both engines
+    /// `config_dir` is what the previous native path is handed today, so both engines
     /// keep their state under the same Atlas-owned root and a profile wipe
     /// takes both.
     pub fn under_config_dir(config_dir: &Path) -> Self {
@@ -184,12 +184,12 @@ pub struct EngineSettings {
     /// whole embedding, and it has an explicit code-level seam precisely so an
     /// embedder can satisfy it without adopting the engine's argv0 dispatch.
     pub self_exe: Option<PathBuf>,
-    /// The path to the `codex-linux-sandbox` helper, on Linux.
+    /// The path to the `atlas-engine-linux-sandbox` helper, on Linux.
     ///
     /// The seatbelt sandbox macOS uses is `/usr/bin/sandbox-exec`, already on
     /// disk, so `self_exe` above is the whole story there. Linux has no such
     /// binary: `SandboxType::LinuxSeccomp` re-execs a helper whose *arg0* is
-    /// `codex-linux-sandbox`, and with no path for it the engine refuses the
+    /// `atlas-engine-linux-sandbox`, and with no path for it the engine refuses the
     /// transform (`MissingLinuxSandboxExecutable`) before spawning anything.
     /// Under the default `WorkspaceWrite` policy that turns every sandboxed
     /// tool call into a no-op that still ends the turn normally.
@@ -202,7 +202,7 @@ pub struct EngineSettings {
     ///
     /// A real Linux build would have to earn this rather than set it: `main.rs`
     /// would need the engine's arg0 dispatch, so that Atlas re-entered as
-    /// `codex-linux-sandbox` runs the helper instead of the app, and only then
+    /// `atlas-engine-linux-sandbox` runs the helper instead of the app, and only then
     /// could this point at Atlas's own executable. That is deliberately not
     /// implemented here.
     pub linux_sandbox_exe: Option<PathBuf>,
@@ -259,8 +259,9 @@ impl EngineSettings {
     /// Phase 2's tracer bullet is carried by "a dev-configured provider … until
     /// the gateway dialect lands", so the provider is a developer's choice
     /// rather than a product decision, and the environment is where a developer
-    /// makes it. Every value has a working default so the switch does something
-    /// sensible with nothing set.
+    /// makes it. The provider values have working defaults; the model has none
+    /// (ADR-0007: no hardcoded model), so with `ATLAS_ENGINE_MODEL` unset the
+    /// engine falls back to its catalogue's first-priority row.
     ///
     /// This is deliberately **not** how the shipped agent will be configured.
     /// In Phase 3 the provider becomes the Atlas gateway and the credential
@@ -268,8 +269,7 @@ impl EngineSettings {
     pub fn from_env(config_dir: &Path, cwd: PathBuf) -> Self {
         let base_url = std::env::var("ATLAS_ENGINE_BASE_URL")
             .unwrap_or_else(|_| "https://api.openai.com/v1".to_string());
-        let model =
-            std::env::var("ATLAS_ENGINE_MODEL").unwrap_or_else(|_| "gpt-5-codex".to_string());
+        let model = std::env::var("ATLAS_ENGINE_MODEL").ok();
         // Named rather than read: the engine resolves the variable itself, so
         // the key never passes through Atlas.
         let env_key = std::env::var("ATLAS_ENGINE_API_KEY_ENV")
@@ -278,7 +278,7 @@ impl EngineSettings {
         Self::new(
             EngineHome::under_config_dir(config_dir),
             EngineProvider::dev("atlas-dev", base_url, Some(env_key)),
-            Some(model),
+            model,
             cwd,
         )
     }
@@ -294,7 +294,7 @@ impl EngineSettings {
             cwd: Some(self.cwd.clone()),
             approval_policy: Some(self.approval_policy),
             sandbox_mode: Some(self.sandbox_mode),
-            codex_self_exe: self.self_exe.clone(),
+            atlas_engine_self_exe: self.self_exe.clone(),
             ..Default::default()
         }
     }
@@ -328,7 +328,59 @@ impl EngineSettings {
                 key("stream_max_retries"),
                 TomlValue::Integer(self.stream_max_retries as i64),
             ),
+            // ADR-0013: the model may ask the user a clarifying question
+            // mid-turn, in every permission mode. Upstream gates its question
+            // tool to the Plan collaboration mode; Atlas's four modes are
+            // approval/sandbox pairs that all run in the engine's `Default`
+            // collaboration mode, and this is the engine's own switch for
+            // opening `Default` — so nothing under the vendored engine
+            // changes. Reversed by deleting this row; the seam's handler for
+            // the question can stay.
+            //
+            // Set here rather than in the per-thread overrides `mcp.rs`
+            // builds: every thread the engine loads reads these, including a
+            // forked one, which is started with no per-thread config at all.
+            (
+                "features.default_mode_request_user_input".to_string(),
+                TomlValue::Boolean(true),
+            ),
+            // The feature is marked under development upstream, and the
+            // engine posts a warning naming it into every new thread unless
+            // told not to. Turning it on is Atlas's decision, not something
+            // the user did or can act on.
+            (
+                "suppress_unstable_features_warning".to_string(),
+                TomlValue::Boolean(true),
+            ),
         ];
+        if cfg!(target_os = "windows") {
+            // Windows shell commands ran with no sandbox at all. File writes
+            // were already contained — `executor_windows_sandbox_level` quietly
+            // upgrades `Disabled` to `RestrictedToken` for any Windows-shaped
+            // cwd, so `apply_patch` always got a restricted token — but exec
+            // reads the level RAW off the turn context, so `Disabled` resolved
+            // through `get_platform_sandbox(false)` to `SandboxType::None`.
+            //
+            // "unelevated" is `WindowsSandboxLevel::RestrictedToken`: write
+            // containment only. Reads are NOT restricted. "No network" is
+            // environment rather than enforcement — a blackhole `HTTP_PROXY`
+            // plus `NPM_CONFIG_OFFLINE`, which every package manager in the
+            // ticket's matrix honoured, but which anything opening a raw
+            // socket can ignore. The "elevated" level enforces reads and the
+            // network properly, and needs a per-machine provisioning step, so
+            // it cannot be the default for an app people just install.
+            //
+            // Measured on Windows 11 before flipping this: build tools, git,
+            // PowerShell and the python.exe Store alias all keep working;
+            // `npm install` and `bun install` stop, because they need the
+            // network this policy has always denied and that only macOS and
+            // Linux were actually enforcing. Those recover through the
+            // orchestrator's existing escalate-and-approve path.
+            out.push((
+                "windows.sandbox".to_string(),
+                TomlValue::String("unelevated".to_string()),
+            ));
+        }
         if let Some(env_key) = &p.env_key {
             out.push((key("env_key"), TomlValue::String(env_key.clone())));
         }
@@ -405,7 +457,7 @@ impl EngineSettings {
         }
 
         ConfigBuilder::default()
-            .codex_home(self.home.path().to_path_buf())
+            .atlas_agent_home(self.home.path().to_path_buf())
             .cli_overrides(self.cli_overrides())
             .harness_overrides(self.config_overrides())
             .fallback_cwd(Some(self.cwd.clone()))
@@ -424,7 +476,7 @@ mod tests {
         EngineSettings::new(
             EngineHome::at(tmp.join("engine")),
             EngineProvider::dev("atlas-dev", "https://example.invalid/v1", None),
-            Some("gpt-5-codex".to_string()),
+            Some("test-model".to_string()),
             tmp.to_path_buf(),
         )
     }
@@ -453,13 +505,14 @@ mod tests {
     }
 
     #[test]
-    fn the_engine_home_is_atlas_owned_and_never_the_users_codex_cli_state() {
+    fn the_engine_home_is_under_the_app_config_dir_never_a_dotdir_in_home() {
         // Starting the runtime writes an installation-id file into this
-        // directory. Pointing it at ~/.codex would make Atlas write into the
-        // user's real Codex CLI state.
+        // directory. It must be Atlas's own app-config tree, never the
+        // engine's default dot-directory under the user's home, which another
+        // program (or an older build) may own.
         let home = EngineHome::under_config_dir(Path::new("/Users/somebody/Library/atlas"));
         assert!(home.path().starts_with("/Users/somebody/Library/atlas"));
-        assert!(!home.path().to_string_lossy().contains(".codex"));
+        assert!(!home.path().to_string_lossy().contains("/."));
     }
 
     #[test]
@@ -491,6 +544,38 @@ mod tests {
     }
 
     #[test]
+    #[cfg(target_os = "windows")]
+    fn windows_shell_commands_run_under_the_restricted_token() {
+        // Without this key the level stays `Disabled`, and exec reads the level
+        // raw, so `get_platform_sandbox(false)` hands back `None` and every
+        // shell command runs unsandboxed. "unelevated" maps to
+        // `WindowsSandboxLevel::RestrictedToken`.
+        let tmp = std::env::temp_dir();
+        let overrides = settings(&tmp).cli_overrides();
+        assert_eq!(
+            overrides
+                .iter()
+                .find(|(k, _)| k == "windows.sandbox")
+                .map(|(_, v)| v.clone()),
+            Some(TomlValue::String("unelevated".into())),
+        );
+    }
+
+    #[test]
+    #[cfg(not(target_os = "windows"))]
+    fn the_windows_sandbox_key_is_not_set_off_windows() {
+        // It is a Windows-only posture change; the other platforms already have
+        // Seatbelt and Seccomp and must not see the key at all.
+        let tmp = std::env::temp_dir();
+        assert!(
+            !settings(&tmp)
+                .cli_overrides()
+                .iter()
+                .any(|(k, _)| k == "windows.sandbox"),
+        );
+    }
+
+    #[test]
     fn an_account_authenticated_provider_declares_no_env_key() {
         // The D10 shape: no `env_key`, because auth arrives through the
         // ExternalAuth provider rather than the environment. An env_key here
@@ -505,7 +590,7 @@ mod tests {
         let keyed = EngineSettings::new(
             EngineHome::at(tmp.join("engine")),
             EngineProvider::dev("byok", "https://example.invalid/v1", Some("DEV_KEY".into())),
-            Some("gpt-5-codex".to_string()),
+            Some("test-model".to_string()),
             tmp.clone(),
         );
         assert!(
@@ -524,8 +609,8 @@ mod tests {
         // ConfigOverrides or not at all.
         let tmp = std::env::temp_dir();
         let overrides = settings(&tmp).config_overrides();
-        assert_eq!(overrides.codex_self_exe, std::env::current_exe().ok());
-        assert!(overrides.codex_self_exe.is_some(), "current_exe must resolve in a test binary");
+        assert_eq!(overrides.atlas_engine_self_exe, std::env::current_exe().ok());
+        assert!(overrides.atlas_engine_self_exe.is_some(), "current_exe must resolve in a test binary");
     }
 
     #[test]
@@ -565,7 +650,7 @@ mod tests {
         let config = s.build_config(None).await.expect("config should load");
 
         assert!(s.home.path().is_dir(), "the engine home must exist after build");
-        assert_eq!(config.model.as_deref(), Some("gpt-5-codex"));
+        assert_eq!(config.model.as_deref(), Some("test-model"));
         assert_eq!(
             config.model_provider.base_url.as_deref(),
             Some("https://example.invalid/v1"),
@@ -575,6 +660,46 @@ mod tests {
             "the engine's own login surface must stay off (D10)",
         );
         assert_eq!(config.analytics_enabled, Some(false));
+
+        // The override has to survive config loading, not just appear in the
+        // list: `windows.sandbox = "unelevated"` is what makes exec resolve to
+        // `SandboxType::WindowsRestrictedToken` instead of `None`.
+        #[cfg(target_os = "windows")]
+        {
+            use atlas_engine_core::windows_sandbox::WindowsSandboxLevelExt;
+            assert_eq!(
+                atlas_engine_protocol::config_types::WindowsSandboxLevel::from_config(&config),
+                atlas_engine_protocol::config_types::WindowsSandboxLevel::RestrictedToken,
+            );
+        }
+    }
+
+    /// ADR-0013: the clarifying-question tool is offered in every permission
+    /// mode, not only in the engine's Plan collaboration mode. Atlas's four
+    /// modes all run in the engine's `Default` collaboration mode, so the
+    /// feature that opens `Default` is what makes the tool available in
+    /// default, acceptEdits, plan and bypass alike. Read off the config the
+    /// engine actually loads — a mistyped key is dropped silently, and the
+    /// tool would answer "unavailable in Default mode" instead.
+    #[tokio::test]
+    async fn the_question_tool_is_available_in_every_permission_mode() {
+        use atlas_engine_features::Feature;
+        use atlas_engine_protocol::config_types::ModeKind;
+
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let config = settings(tmp.path()).build_config(None).await.expect("config loads");
+
+        assert!(config.features.enabled(Feature::DefaultModeRequestUserInput));
+        assert!(config.experimental_request_user_input_enabled, "the tool is registered");
+        assert!(
+            atlas_engine_tools::request_user_input_available_modes(&config.features)
+                .contains(&ModeKind::Default),
+            "every Atlas permission mode runs in the engine's Default collaboration mode",
+        );
+        // Upstream marks the feature under development, which would post an
+        // "Under-development features enabled" warning into every new chat.
+        // Turning it on is Atlas's decision (ADR-0013), not the user's.
+        assert!(config.suppress_unstable_features_warning);
     }
 
     #[test]

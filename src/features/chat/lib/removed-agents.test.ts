@@ -24,8 +24,8 @@ describe("uninstalledBetween", () => {
   it("names an external that was installed and no longer is", () => {
     expect(
       uninstalledBetween(
-        [entry("cersei", true, "native"), entry("claude-acp", true), entry("codex-acp", true)],
-        [entry("cersei", true, "native"), entry("codex-acp", true)],
+        [entry("atlas-agent", true, "native"), entry("claude-acp", true), entry("codex-acp", true)],
+        [entry("atlas-agent", true, "native"), entry("codex-acp", true)],
       ),
     ).toEqual(["claude-acp"]);
   });
@@ -50,7 +50,7 @@ describe("uninstalledBetween", () => {
   it("never reads the first hydrate as a mass uninstall", () => {
     // Pre-hydration the catalog is empty; the native agent alone is not a
     // removal either.
-    expect(uninstalledBetween([], [entry("cersei", true, "native")])).toEqual([]);
-    expect(uninstalledBetween([entry("cersei", true, "native")], [])).toEqual([]);
+    expect(uninstalledBetween([], [entry("atlas-agent", true, "native")])).toEqual([]);
+    expect(uninstalledBetween([entry("atlas-agent", true, "native")], [])).toEqual([]);
   });
 });

@@ -1,8 +1,8 @@
 //! Session-memory extraction: categories, output parsing, memdir persistence.
 //!
-//! Ported into Atlas from `cersei_agent::session_memory`. The SDK's
+//! Ported into Atlas from the old SDK's session-memory module. The SDK's
 //! `should_extract` / `count_tool_calls_since` are **not** here — they operate on
-//! `cersei_types::Message`, and `crate::extract` already reimplements the same
+//! the old SDK's message type, and `crate::extract` already reimplements the same
 //! gates over its own format-neutral `TranscriptTurn`.
 //!
 //! Two things in this module are on-disk contracts rather than implementation

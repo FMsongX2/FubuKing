@@ -1,0 +1,36 @@
+# Modified by Atlas from upstream OpenAI Codex (Apache-2.0). See CONTEXT.md.
+[package]
+edition.workspace = true
+license.workspace = true
+name = "atlas-engine-guardian-v2"
+version.workspace = true
+
+[lib]
+name = "atlas_engine_guardian_v2"
+path = "src/lib.rs"
+doctest = false
+
+[lints]
+workspace = true
+
+[dependencies]
+atlas-engine-api = { workspace = true }
+atlas-engine-core = { workspace = true }
+atlas-engine-extension-api = { workspace = true }
+atlas-engine-features = { workspace = true }
+atlas-engine-history = { workspace = true }
+atlas-engine-http-client = { workspace = true }
+atlas-engine-login = { workspace = true }
+atlas-engine-model-provider = { workspace = true }
+atlas-engine-protocol = { workspace = true }
+http = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true, features = ["time"] }
+
+[dev-dependencies]
+anyhow = { workspace = true }
+atlas-engine-model-provider-info = { workspace = true }
+core_test_support = { workspace = true }
+pretty_assertions = { workspace = true }
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }

@@ -141,7 +141,7 @@ pub fn notify_settings_changed(app: &AppHandle, settings: &AppSettings, generati
 }
 
 /// The gate for the vendored engine's curated-plugin sync
-/// (`codex-core-plugins`, `start_curated_repo_sync`): a `git fetch` of
+/// (`atlas-engine-core-plugins`, `start_curated_repo_sync`): a `git fetch` of
 /// github.com/openai/plugins at every launch, opt-in from Atlas via
 /// `curatedPluginSync`. The engine runs in this process and reads the
 /// variable itself, so the setting is carried as process environment rather

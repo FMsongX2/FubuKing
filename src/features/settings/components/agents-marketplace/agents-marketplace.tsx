@@ -14,7 +14,7 @@
 import { memo, useCallback, useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { openUrl } from "@tauri-apps/plugin-opener";
-import { Check, Download, Globe, Loader2, RefreshCw, Search, X } from "lucide-react";
+import { ArrowUpCircle, Check, Download, Globe, Loader2, RefreshCw, Search, X } from "lucide-react";
 import { GithubIcon } from "@/components/github-icon";
 import { toast } from "sonner";
 
@@ -31,7 +31,9 @@ import {
   hydrateAgentRegistry,
   refreshAgentRegistry,
   useAgentRegistryStore,
+  type AgentUpdatePhase,
 } from "@/features/agents/stores/agent-registry-store";
+import { updateAgent, updatePhaseLabel } from "@/features/agents/lib/agent-update";
 import type { AgentCatalogEntry } from "@/types/agent-catalog";
 import { useRemoveAgentConfirmStore } from "@/features/agents/lib/remove-agent-confirm";
 import { downloadTrend, fmtDownloads } from "@/features/agents/lib/download-trends";
@@ -82,6 +84,8 @@ function syntheticCard(entry: AgentCatalogEntry): AcpRegistryEntry {
     distributionKind: entry.distributionKind,
     unverified: entry.unverified,
     unsupportedReason: null,
+    installedVersion: null,
+    updateAvailable: false,
   };
 }
 
@@ -162,9 +166,13 @@ export function AgentsMarketplace() {
 
   // Stale-while-revalidate: paint the cache now, confirm it in the background,
   // and only reach for the network when what we hold is actually old.
+  //
+  // The local re-read is unconditional: it is what re-measures each installed
+  // agent's copy on disk against the registry, and an agent that installed
+  // since the last listing (a first chat, a version bump) emits nothing.
   useEffect(() => {
-    const { registryEntries, registryRefreshedAt } = useAgentRegistryStore.getState();
-    if (registryEntries.length === 0) void hydrateAgentRegistry();
+    const { registryRefreshedAt } = useAgentRegistryStore.getState();
+    void hydrateAgentRegistry();
     const age = registryRefreshedAt ? Date.now() - Date.parse(registryRefreshedAt) : Infinity;
     if (!Number.isFinite(age) || age > STALE_AFTER_MS) void refresh();
   }, [refresh]);
@@ -211,6 +219,10 @@ export function AgentsMarketplace() {
     await hydrateAgentRegistry();
   }, []);
 
+  const update = useCallback((entry: AcpRegistryEntry) => {
+    void updateAgent(entry.id, entry.name, entry.version);
+  }, []);
+
   const uninstall = useCallback(async (entry: AcpRegistryEntry) => {
     try {
       await acpRegistry.uninstall(entry.id);
@@ -227,6 +239,7 @@ export function AgentsMarketplace() {
   // system. Subscribes to the primitive signature (Record selectors
   // infinite-loop under useShallow — the store's documented trap).
   const signature = useAgentRegistryStore((s) => s.signature);
+  const updatePhases = useAgentRegistryStore((s) => s.updatePhases);
   const { catalogById, registryEntries } = useAgentRegistryStore.getState();
 
   const entries = useMemo(() => {
@@ -394,8 +407,10 @@ export function AgentsMarketplace() {
                         entry={entry}
                         catalog={catalogById[entry.id]}
                         installing={installingIds.has(entry.id)}
+                        updatePhase={updatePhases[entry.id] ?? null}
                         progress={progressById.get(entry.id) ?? null}
                         onInstall={install}
+                        onUpdate={update}
                         onUninstall={uninstall}
                       />
                     ))}
@@ -419,15 +434,19 @@ const AgentCard = memo(function AgentCard({
   entry,
   catalog,
   installing,
+  updatePhase,
   progress,
   onInstall,
+  onUpdate,
   onUninstall,
 }: {
   entry: AcpRegistryEntry;
   catalog: AgentCatalogEntry | undefined;
   installing: boolean;
+  updatePhase: AgentUpdatePhase | null;
   progress: RegistryInstallProgress | null;
   onInstall: (entry: AcpRegistryEntry, kind: "detected" | "registry") => void;
+  onUpdate: (entry: AcpRegistryEntry) => void;
   onUninstall: (entry: AcpRegistryEntry) => void;
 }) {
   const pct =
@@ -459,6 +478,14 @@ const AgentCard = memo(function AgentCard({
             <span className="text-2xs text-[var(--muted-foreground)] tabular-nums">
               v{entry.version}
             </span>
+            {entry.updateAvailable && entry.installedVersion && (
+              <span
+                className="text-2xs text-warning tabular-nums"
+                title={`v${entry.installedVersion} is installed; the registry lists v${entry.version}.`}
+              >
+                installed v{entry.installedVersion}
+              </span>
+            )}
             {entry.unverified && entry.distributionKind === "binary" && (
               <span
                 className="text-3xs px-1 rounded bg-[var(--atlas-element-hover)] text-[var(--muted-foreground)]"
@@ -479,8 +506,10 @@ const AgentCard = memo(function AgentCard({
           entry={entry}
           catalog={catalog}
           installing={installing}
+          updatePhase={updatePhase}
           pct={pct}
           onInstall={onInstall}
+          onUpdate={onUpdate}
           onUninstall={onUninstall}
         />
       </div>
@@ -534,19 +563,31 @@ function CardAction({
   entry,
   catalog,
   installing,
+  updatePhase,
   pct,
   onInstall,
+  onUpdate,
   onUninstall,
 }: {
   entry: AcpRegistryEntry;
   catalog: AgentCatalogEntry | undefined;
   installing: boolean;
+  updatePhase: AgentUpdatePhase | null;
   pct: number | null;
   onInstall: (entry: AcpRegistryEntry, kind: "detected" | "registry") => void;
+  onUpdate: (entry: AcpRegistryEntry) => void;
   onUninstall: (entry: AcpRegistryEntry) => void;
 }) {
   const state = cardState(entry, catalog);
   const kind = installKind(state);
+  if (updatePhase) {
+    return (
+      <span className="flex items-center gap-1.5 h-6 px-2 rounded-md text-xs font-medium text-[var(--secondary-foreground)] border border-[var(--border)]">
+        <Loader2 size={10} className="animate-spin" />
+        {updatePhaseLabel(updatePhase.phase, updatePhase.version)}
+      </span>
+    );
+  }
   if (installing) {
     return (
       <span className="flex items-center gap-1.5 h-6 px-2 rounded-md text-xs font-medium text-[var(--secondary-foreground)] border border-[var(--border)] tabular-nums">
@@ -556,7 +597,7 @@ function CardAction({
     );
   }
   if (state === "installed") {
-    return (
+    const remove = (
       <button
         onClick={() => {
           // Not `window.confirm`: WebView2 answers it `true` with no dialog,
@@ -572,6 +613,20 @@ function CardAction({
       >
         Remove
       </button>
+    );
+    if (!entry.updateAvailable) return remove;
+    return (
+      <span className="flex items-center gap-1.5">
+        <button
+          onClick={() => onUpdate(entry)}
+          title={`Install v${entry.version}. Waits for any reply in progress to finish; open chats continue on the new version with your next message.`}
+          className="flex items-center gap-1 h-6 px-2.5 rounded-md text-xs font-medium text-[var(--foreground)] border border-[var(--border)] bg-[var(--card,var(--background))] hover:bg-[var(--atlas-element-hover)] transition-colors cursor-pointer"
+        >
+          <ArrowUpCircle size={10} />
+          Update
+        </button>
+        {remove}
+      </span>
     );
   }
   if (state === "detected") {

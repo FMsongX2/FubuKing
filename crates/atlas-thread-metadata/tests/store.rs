@@ -50,7 +50,7 @@ fn draft(agent: &str, paths: &[&str]) -> ThreadMetadata {
 #[test]
 fn a_saved_thread_is_still_there_after_reopening_the_store() {
     let dir = tempfile::tempdir().unwrap();
-    let saved = thread("cersei", &["/tmp/atlas"]);
+    let saved = thread("atlas-agent", &["/tmp/atlas"]);
 
     {
         let store = open(&dir);
@@ -62,7 +62,7 @@ fn a_saved_thread_is_still_there_after_reopening_the_store() {
     let threads = store.threads();
     assert_eq!(threads.len(), 1);
     assert_eq!(threads[0].thread_id, saved.thread_id);
-    assert_eq!(threads[0].agent_id.as_str(), "cersei");
+    assert_eq!(threads[0].agent_id.as_str(), "atlas-agent");
     assert_eq!(
         threads[0].folder_paths().paths(),
         &[PathBuf::from("/tmp/atlas")]
@@ -73,7 +73,7 @@ fn a_saved_thread_is_still_there_after_reopening_the_store() {
 fn a_thread_is_a_draft_until_it_has_a_session_id_and_the_draft_is_never_persisted_with_one() {
     let dir = tempfile::tempdir().unwrap();
     let store = open(&dir);
-    let draft = draft("cersei", &["/tmp/atlas"]);
+    let draft = draft("atlas-agent", &["/tmp/atlas"]);
     assert!(draft.is_draft(), "a new thread starts as a draft");
 
     store.save_one(draft.clone());
@@ -158,7 +158,7 @@ fn live(from: &ThreadMetadata, title: Option<&str>) -> LiveThreadUpdate {
 fn an_untitled_thread_shows_the_default_title() {
     let dir = tempfile::tempdir().unwrap();
     let store = open(&dir);
-    let saved = thread("cersei", &["/tmp/atlas"]);
+    let saved = thread("atlas-agent", &["/tmp/atlas"]);
     store.save_one(saved.clone());
 
     assert_eq!(
@@ -171,9 +171,9 @@ fn an_untitled_thread_shows_the_default_title() {
 fn threads_are_grouped_by_project_across_every_project() {
     let dir = tempfile::tempdir().unwrap();
     let store = open(&dir);
-    let atlas_one = thread("cersei", &["/tmp/atlas"]);
+    let atlas_one = thread("atlas-agent", &["/tmp/atlas"]);
     let atlas_two = thread("claude-code", &["/tmp/atlas"]);
-    let other = thread("cersei", &["/tmp/other"]);
+    let other = thread("atlas-agent", &["/tmp/other"]);
     store.save_all(vec![atlas_one.clone(), atlas_two.clone(), other]);
     store.flush().unwrap();
 
@@ -201,7 +201,7 @@ fn threads_are_grouped_by_project_across_every_project() {
 fn a_project_opened_in_either_order_is_the_same_group() {
     let dir = tempfile::tempdir().unwrap();
     let store = open(&dir);
-    let saved = thread("cersei", &["/tmp/b", "/tmp/a"]);
+    let saved = thread("atlas-agent", &["/tmp/b", "/tmp/a"]);
     store.save_one(saved);
     store.flush().unwrap();
 
@@ -213,7 +213,7 @@ fn a_project_opened_in_either_order_is_the_same_group() {
 fn a_thread_in_a_linked_worktree_is_findable_under_its_main_project() {
     let dir = tempfile::tempdir().unwrap();
     let store = open(&dir);
-    let mut saved = thread("cersei", &["/tmp/atlas-feature"]);
+    let mut saved = thread("atlas-agent", &["/tmp/atlas-feature"]);
     saved.worktree_paths = WorktreePaths::from_path_lists(
         PathList::new(&[PathBuf::from("/tmp/atlas")]),
         PathList::new(&[PathBuf::from("/tmp/atlas-feature")]),
@@ -237,7 +237,7 @@ fn a_thread_in_a_linked_worktree_is_findable_under_its_main_project() {
 fn archiving_takes_a_thread_out_of_the_project_list_but_keeps_it_in_history() {
     let dir = tempfile::tempdir().unwrap();
     let store = open(&dir);
-    let saved = thread("cersei", &["/tmp/atlas"]);
+    let saved = thread("atlas-agent", &["/tmp/atlas"]);
     store.save_one(saved.clone());
     let atlas = PathList::new(&[PathBuf::from("/tmp/atlas")]);
 
@@ -262,7 +262,7 @@ fn a_thread_with_no_project_is_archived_so_it_is_never_lost() {
         thread_id: orphan,
         is_draft: false,
         session_id: Some(acp::SessionId::new("ses-orphan")),
-        agent_id: "cersei".into(),
+        agent_id: "atlas-agent".into(),
         title: None,
         worktree_paths: WorktreePaths::default(),
         remote_connection: None,
@@ -279,7 +279,7 @@ fn a_thread_with_no_project_is_archived_so_it_is_never_lost() {
 fn a_live_update_never_re_archives_a_thread_the_user_unarchived() {
     let dir = tempfile::tempdir().unwrap();
     let store = open(&dir);
-    let saved = thread("cersei", &["/tmp/atlas"]);
+    let saved = thread("atlas-agent", &["/tmp/atlas"]);
     store.save_one(saved.clone());
     store.archive(saved.thread_id);
     store.unarchive(saved.thread_id);
@@ -294,7 +294,7 @@ fn a_live_update_never_re_archives_a_thread_the_user_unarchived() {
 fn a_live_update_keeps_the_paths_an_archived_thread_was_archived_with() {
     let dir = tempfile::tempdir().unwrap();
     let store = open(&dir);
-    let saved = thread("cersei", &["/tmp/atlas"]);
+    let saved = thread("atlas-agent", &["/tmp/atlas"]);
     store.save_one(saved.clone());
     store.archive(saved.thread_id);
 
@@ -316,7 +316,7 @@ fn a_live_update_keeps_the_paths_an_archived_thread_was_archived_with() {
 fn a_live_update_keeps_when_the_thread_was_created() {
     let dir = tempfile::tempdir().unwrap();
     let store = open(&dir);
-    let saved = thread("cersei", &["/tmp/atlas"]);
+    let saved = thread("atlas-agent", &["/tmp/atlas"]);
     store.save_one(saved.clone());
     let created_at = store.thread(saved.thread_id).unwrap().created_at;
 
@@ -333,7 +333,7 @@ fn deleting_a_thread_removes_it_everywhere() {
     let dir = tempfile::tempdir().unwrap();
     let saved = ThreadMetadata {
         session_id: Some(acp::SessionId::new("ses-9")),
-        ..thread("cersei", &["/tmp/atlas"])
+        ..thread("atlas-agent", &["/tmp/atlas"])
     };
     let atlas = PathList::new(&[PathBuf::from("/tmp/atlas")]);
 
@@ -357,7 +357,7 @@ fn deleting_a_thread_removes_it_everywhere() {
 #[test]
 fn rapid_updates_leave_the_newest_value_on_disk() {
     let dir = tempfile::tempdir().unwrap();
-    let saved = thread("cersei", &["/tmp/atlas"]);
+    let saved = thread("atlas-agent", &["/tmp/atlas"]);
     {
         let store = open(&dir);
         store.save_one(saved.clone());
@@ -379,7 +379,7 @@ fn entries_come_back_newest_first() {
     let store = open(&dir);
     let older = ThreadMetadata {
         updated_at: Utc.with_ymd_and_hms(2026, 1, 1, 0, 0, 0).unwrap(),
-        ..thread("cersei", &["/tmp/atlas"])
+        ..thread("atlas-agent", &["/tmp/atlas"])
     };
     let newer = ThreadMetadata {
         updated_at: Utc.with_ymd_and_hms(2026, 8, 22, 0, 0, 0).unwrap(),
@@ -404,7 +404,7 @@ fn entries_come_back_newest_first() {
 #[test]
 fn the_project_grouping_survives_a_reopen() {
     let dir = tempfile::tempdir().unwrap();
-    let mut linked = thread("cersei", &["/tmp/atlas-feature"]);
+    let mut linked = thread("atlas-agent", &["/tmp/atlas-feature"]);
     linked.worktree_paths = WorktreePaths::from_path_lists(
         PathList::new(&[PathBuf::from("/tmp/atlas")]),
         PathList::new(&[PathBuf::from("/tmp/atlas-feature")]),
@@ -412,7 +412,7 @@ fn the_project_grouping_survives_a_reopen() {
     .unwrap();
     {
         let store = open(&dir);
-        store.save_all(vec![thread("cersei", &["/tmp/atlas"]), linked]);
+        store.save_all(vec![thread("atlas-agent", &["/tmp/atlas"]), linked]);
         store.flush().unwrap();
     }
 
@@ -431,7 +431,7 @@ fn every_mutation_announces_itself_so_the_sidebar_can_refresh() {
     let dir = tempfile::tempdir().unwrap();
     let store = open(&dir);
     let mut changes = store.subscribe();
-    let saved = thread("cersei", &["/tmp/atlas"]);
+    let saved = thread("atlas-agent", &["/tmp/atlas"]);
 
     store.save_one(saved.clone());
     assert_eq!(changes.try_recv().unwrap(), ThreadStoreEvent::Changed);
@@ -457,7 +457,7 @@ fn a_store_written_by_a_newer_build_is_refused_rather_than_migrated_blind() {
     let path = dir.path().join("threads.db");
     {
         let store = ThreadMetadataStore::open(&path).unwrap();
-        store.save_one(thread("cersei", &["/tmp/atlas"]));
+        store.save_one(thread("atlas-agent", &["/tmp/atlas"]));
         store.flush().unwrap();
     }
     let conn = rusqlite::Connection::open(&path).unwrap();
@@ -486,7 +486,7 @@ fn a_drafts_session_id_is_never_written_even_when_the_caller_offers_one() {
         thread_id: draft,
         is_draft: true,
         session_id: Some(acp::SessionId::new("ses-draft")),
-        agent_id: "cersei".into(),
+        agent_id: "atlas-agent".into(),
         title: None,
         worktree_paths: WorktreePaths::from_folder_paths(&PathList::new(&[PathBuf::from(
             "/tmp/atlas",
@@ -509,7 +509,7 @@ fn the_history_view_orders_by_when_a_thread_started() {
     let old_but_busy = ThreadMetadata {
         created_at: Some(Utc.with_ymd_and_hms(2026, 1, 1, 0, 0, 0).unwrap()),
         updated_at: Utc.with_ymd_and_hms(2026, 8, 22, 0, 0, 0).unwrap(),
-        ..thread("cersei", &["/tmp/atlas"])
+        ..thread("atlas-agent", &["/tmp/atlas"])
     };
     // Started recently, idle since.
     let new_but_idle = ThreadMetadata {
@@ -556,7 +556,7 @@ fn clearing_a_rename_falls_back_to_the_agents_title() {
 fn interacted_at_records_the_users_last_send_without_moving_created_at() {
     let dir = tempfile::tempdir().unwrap();
     let store = open(&dir);
-    let saved = thread("cersei", &["/tmp/atlas"]);
+    let saved = thread("atlas-agent", &["/tmp/atlas"]);
     store.save_one(saved.clone());
     let sent_at = Utc.with_ymd_and_hms(2026, 8, 22, 12, 0, 0).unwrap();
 
@@ -572,8 +572,8 @@ fn interacted_at_records_the_users_last_send_without_moving_created_at() {
 fn a_project_that_gains_a_worktree_moves_its_threads_but_not_its_archived_ones() {
     let dir = tempfile::tempdir().unwrap();
     let store = open(&dir);
-    let active = thread("cersei", &["/tmp/atlas"]);
-    let shelved = thread("cersei", &["/tmp/atlas"]);
+    let active = thread("atlas-agent", &["/tmp/atlas"]);
+    let shelved = thread("atlas-agent", &["/tmp/atlas"]);
     store.save_all(vec![active.clone(), shelved.clone()]);
     store.archive(shelved.thread_id);
 
@@ -607,7 +607,7 @@ fn a_project_that_gains_a_worktree_moves_its_threads_but_not_its_archived_ones()
 fn working_directories_are_not_rewritten_under_an_archived_thread() {
     let dir = tempfile::tempdir().unwrap();
     let store = open(&dir);
-    let shelved = thread("cersei", &["/tmp/atlas"]);
+    let shelved = thread("atlas-agent", &["/tmp/atlas"]);
     store.save_one(shelved.clone());
     store.archive(shelved.thread_id);
 
@@ -627,7 +627,7 @@ fn working_directories_are_not_rewritten_under_an_archived_thread() {
 fn clearing_the_history_view_deletes_every_thread_it_showed() {
     let dir = tempfile::tempdir().unwrap();
     let store = open(&dir);
-    let one = thread("cersei", &["/tmp/atlas"]);
+    let one = thread("atlas-agent", &["/tmp/atlas"]);
     let two = thread("claude-code", &["/tmp/other"]);
     store.save_all(vec![one, two.clone()]);
     store.archive(two.thread_id);
@@ -644,17 +644,17 @@ fn the_sidebar_sees_every_project_at_once_newest_first() {
     let store = open(&dir);
     let older_project = ThreadMetadata {
         updated_at: Utc.with_ymd_and_hms(2026, 1, 1, 0, 0, 0).unwrap(),
-        ..thread("cersei", &["/tmp/other"])
+        ..thread("atlas-agent", &["/tmp/other"])
     };
     let this_project_old = ThreadMetadata {
         updated_at: Utc.with_ymd_and_hms(2026, 8, 1, 0, 0, 0).unwrap(),
-        ..thread("cersei", &["/tmp/atlas"])
+        ..thread("atlas-agent", &["/tmp/atlas"])
     };
     let this_project_new = ThreadMetadata {
         updated_at: Utc.with_ymd_and_hms(2026, 8, 22, 0, 0, 0).unwrap(),
         ..thread("claude-code", &["/tmp/atlas"])
     };
-    let shelved = thread("cersei", &["/tmp/atlas"]);
+    let shelved = thread("atlas-agent", &["/tmp/atlas"]);
     store.save_all(vec![
         older_project,
         this_project_old.clone(),
@@ -688,13 +688,13 @@ fn the_sidebar_sees_every_project_at_once_newest_first() {
 fn a_linked_worktree_is_listed_under_the_project_it_belongs_to() {
     let dir = tempfile::tempdir().unwrap();
     let store = open(&dir);
-    let mut linked = thread("cersei", &["/tmp/atlas-feature"]);
+    let mut linked = thread("atlas-agent", &["/tmp/atlas-feature"]);
     linked.worktree_paths = WorktreePaths::from_path_lists(
         PathList::new(&[PathBuf::from("/tmp/atlas")]),
         PathList::new(&[PathBuf::from("/tmp/atlas-feature")]),
     )
     .unwrap();
-    store.save_all(vec![thread("cersei", &["/tmp/atlas"]), linked]);
+    store.save_all(vec![thread("atlas-agent", &["/tmp/atlas"]), linked]);
     store.flush().unwrap();
 
     let projects = store.projects();
@@ -707,8 +707,8 @@ fn a_linked_worktree_is_listed_under_the_project_it_belongs_to() {
 fn the_chat_you_are_looking_at_is_not_also_listed_beneath_itself() {
     let dir = tempfile::tempdir().unwrap();
     let store = open(&dir);
-    let sent = thread("cersei", &["/tmp/atlas"]);
-    store.save_all(vec![sent.clone(), draft("cersei", &["/tmp/atlas"])]);
+    let sent = thread("atlas-agent", &["/tmp/atlas"]);
+    store.save_all(vec![sent.clone(), draft("atlas-agent", &["/tmp/atlas"])]);
     store.flush().unwrap();
 
     let projects = store.projects();

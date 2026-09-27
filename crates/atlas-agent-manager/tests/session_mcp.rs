@@ -85,6 +85,14 @@ async fn an_agent_advertising_http_mcp_gets_the_server_with_its_token_on_session
     let asked = offering.asked.lock().unwrap().clone();
     assert_eq!(asked.len(), 1);
     assert!(asked[0].http_mcp, "the host is told the agent advertised HTTP MCP");
+    assert!(
+        !asked[0].ui_control,
+        "an ACP connection never carries UI control (ADR-0012), whatever the agent is",
+    );
+    assert!(
+        !asked[0].org_access,
+        "an ACP connection never carries organisation access (ADR-0014), whatever the agent is",
+    );
     assert_eq!(asked[0].agent_id.as_str(), "fake-agent");
     assert_eq!(asked[0].session_id, None, "a new session has no id until the agent answers");
     assert_eq!(

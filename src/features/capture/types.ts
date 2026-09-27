@@ -87,12 +87,18 @@ export interface ImportPreview {
   isBulkDisclosure: boolean;
 }
 
+/** Who inside the Organisation may read a Project — mirrors `Visibility`. */
+export type Visibility = "org" | "restricted";
+
 /** A Project as the Organisation knows it — mirrors `RemoteWorkspace`. */
 export interface RemoteWorkspace {
   id: string;
   slug: string;
   rootCommitSha: string | null;
   gitUrl: string | null;
+  /** Absent on a Project registered before the server carried a display name. */
+  name: string | null;
+  visibility: Visibility;
 }
 
 /** What Connect offers — mirrors `commands::capture::ConnectOptions`. */
@@ -104,6 +110,19 @@ export interface ConnectOptions {
   preselected: string | null;
   /** Shown, never blocking. */
   warning: string | null;
+}
+
+/**
+ * The answer to a connect attempt — mirrors `commands::capture::ConnectResult`.
+ *
+ * `matched: false` with candidates is the server declining to guess between
+ * Projects that share a root commit. That is a question for the developer, not
+ * a failure.
+ */
+export interface ConnectResult {
+  binding: Binding | null;
+  candidates: RemoteWorkspace[];
+  matched: boolean;
 }
 
 /** What a promotion is about to publish — mirrors `PromotionPreview`. */

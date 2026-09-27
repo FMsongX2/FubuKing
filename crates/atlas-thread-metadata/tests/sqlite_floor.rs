@@ -1,7 +1,7 @@
 //! The bundled SQLite must be new enough for the ported engine's state layer.
 //!
-//! The engine's `codex-state` crate pins bundled SQLite to **≥ 3.51.3** with a
-//! compile-time assert (`vendor/codex/state/src/lib.rs:7`), citing the
+//! The engine's `atlas-engine-state` crate pins bundled SQLite to **≥ 3.51.3** with a
+//! compile-time assert (`vendor/atlas-engine/state/src/lib.rs:7`), citing the
 //! WAL-reset corruption fix. The engine is in-tree now (ADR-0003), so it and
 //! Atlas share **one** `libsqlite3-sys`: `links = "sqlite3"` allows no second
 //! one, and both sides bundle vendored SQLite, so even two copies cargo
@@ -19,13 +19,13 @@
 //! actually be about.
 //!
 //! The engine's own compile-time assert already fails the build of any graph
-//! that includes `codex-state`. This test is the runtime check against the
+//! that includes `atlas-engine-state`. This test is the runtime check against the
 //! linked library, for the Atlas crates, and it cannot be satisfied by a
 //! manifest edit that fails to take effect. `tests/cargo-workspace.test.ts`
 //! guards the resolution side (one `rusqlite` requirement across every
 //! manifest).
 //!
-//! Issue #39, spec `docs/atlas-agent-codex-port-spec.md` D4 / Phase 0,
+//! Issue #39, spec `docs/archive/atlas-agent-codex-port-spec.md` D4 / Phase 0,
 //! open question 6.
 
 /// `3.51.3` in SQLite's `SQLITE_VERSION_NUMBER` encoding: `major*1_000_000 +

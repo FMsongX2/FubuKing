@@ -576,7 +576,7 @@ const ChatRow = memo(function ChatRow({
   /** Takes the chat so the parent can hand every row ONE stable callback. */
   onOpen: (chat: RecentChat) => void;
 }) {
-  // Cersei (the Atlas native agent) gets its own brand mark — falling through
+  // The Atlas native agent gets its own brand mark — falling through
   // to the Claude icon mislabeled Atlas chats in this panel.
   const AgentIcon =
     chat.agentType === "codex"
@@ -598,7 +598,7 @@ const ChatRow = memo(function ChatRow({
     >
       {running ? (
         <AtlasLoader size={12} className="shrink-0 text-[var(--primary)]" />
-      ) : chat.agentType === "cersei" ? (
+      ) : chat.agentType === "atlas-agent" ? (
         <AtlasIcon size={13} className="shrink-0" />
       ) : (
         <AgentIcon className="size-[13px] shrink-0 opacity-80" />

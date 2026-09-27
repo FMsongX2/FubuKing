@@ -21,7 +21,7 @@
 
 use std::sync::Arc;
 
-use atlas_agent_store::{AgentServerSettings, AgentServerStore, RegistryAgent};
+use atlas_agent_store::{AgentServerSettings, RegistryAgent};
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager, State};
 
@@ -45,6 +45,14 @@ pub struct RegistryEntryView {
     pub unverified: bool,
     /// Why `platform_supported` is false.
     pub unsupported_reason: Option<String>,
+    /// The version on disk, for an installed npx agent that has been fetched.
+    /// Not the ACP handshake's: an adapter may report its own build version
+    /// there, which need not match the package it ships in.
+    pub installed_version: Option<String>,
+    /// The copy on disk is older than the registry's `version`. An install is
+    /// lazy and silent, so without this a copy npm left behind never shows;
+    /// with it the card offers an Update (`acp_registry_update`).
+    pub update_available: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -66,9 +74,36 @@ struct InstallProgress {
     total: Option<u64>,
 }
 
-fn entry_view(agent: &RegistryAgent, store: &AgentServerStore) -> RegistryEntryView {
+fn entry_view(
+    agent: &RegistryAgent,
+    host: &AgentHost,
+    registry_dir: &std::path::Path,
+) -> RegistryEntryView {
+    let store = host.store();
     let metadata = agent.metadata();
     let installed = store.entry(agent.id()).is_some();
+    // Only a registry entry runs the registry's copy. An accepted detection
+    // under the same id runs the user's own binary, which we never update.
+    let from_registry = matches!(
+        store.settings().0.get(metadata.id.as_str()),
+        Some(AgentServerSettings::Registry { .. })
+    );
+    let (installed_version, update_available) = match agent {
+        RegistryAgent::Npx(npx) if from_registry => {
+            let on_disk = atlas_agent_store::installed_npx_version(
+                registry_dir,
+                metadata.id.as_str(),
+                &npx.package,
+            );
+            let behind = on_disk.as_deref().is_some_and(|version| {
+                atlas_agent_store::node::installed_below_ceiling(version, &npx.package)
+            });
+            (on_disk, behind)
+        }
+        // A binary install is keyed by version, so it cannot lag: a registry
+        // bump is a new directory, fetched on the next connect.
+        _ => (None, false),
+    };
     let platform_supported = agent.supports_current_platform();
     let (distribution_kind, unverified) = match agent {
         // Unverified = a published binary with no sha256 to check it against.
@@ -97,15 +132,18 @@ fn entry_view(agent: &RegistryAgent, store: &AgentServerStore) -> RegistryEntryV
         unverified,
         unsupported_reason: (!platform_supported)
             .then(|| "no published build for this platform".to_string()),
+        installed_version,
+        update_available,
     }
 }
 
-fn listing(host: &AgentHost) -> RegistryListing {
+fn listing(host: &AgentHost, app: &AppHandle) -> RegistryListing {
+    let registry_dir = atlas_agent_store::registry_dir(&app_data_dir(app));
     let mut entries: Vec<RegistryEntryView> = host
         .registry()
         .agents()
         .iter()
-        .map(|agent| entry_view(agent, host.store()))
+        .map(|agent| entry_view(agent, host, &registry_dir))
         .collect();
     entries.sort_by_key(|entry| entry.name.to_lowercase());
     RegistryListing {
@@ -123,9 +161,11 @@ fn listing(host: &AgentHost) -> RegistryListing {
 }
 
 /// Cached listing — instant, safe to call before any refresh completed.
-#[tauri::command]
-pub fn acp_registry_list(host: State<'_, Arc<AgentHost>>) -> RegistryListing {
-    listing(&host)
+///
+/// Off the main thread: each installed npx card reads its `package.json`.
+#[tauri::command(async)]
+pub fn acp_registry_list(host: State<'_, Arc<AgentHost>>, app: AppHandle) -> RegistryListing {
+    listing(&host, &app)
 }
 
 /// Force a manifest + icon refresh (marketplace open / refresh button).
@@ -135,7 +175,63 @@ pub async fn acp_registry_refresh(app: AppHandle) -> Result<RegistryListing, Str
     host.registry().refresh().await.map_err(|e| e.to_string())?;
     // A refreshed catalogue can move an installed agent's version or command.
     host.store().registry_updated();
-    Ok(listing(&host))
+    Ok(listing(&host, &app))
+}
+
+/// Update an installed agent now, instead of waiting for the background pass.
+///
+/// A registry bump already updates agents on its own: idle ones in the
+/// background, running ones once their reply finishes (`agents.rs`,
+/// `PendingUpdates`). This is for what that cannot see — the copy on disk is
+/// behind while the registry has not moved (npm resolved an older release, or
+/// an earlier install recorded an older copy as the newest available), and
+/// for the impatient.
+///
+/// Same steps as the automatic path, so an open chat recovers the same way:
+/// wait until no reply is running, tell each open chat it is reconnecting,
+/// drop the old process, install. It returns once the install is done, so the
+/// card's "Updating…" covers the download and a failure comes back here. The
+/// agent starts again on the next message rather than here: nothing is using
+/// it at this moment, by construction.
+#[tauri::command]
+pub async fn acp_registry_update(agent_id: String, app: AppHandle) -> Result<(), String> {
+    use super::agents::{emit_agent_update, AgentUpdatePhase};
+
+    let host = app.state::<Arc<AgentHost>>().inner().clone();
+    if !matches!(
+        host.store().settings().0.get(&agent_id),
+        Some(AgentServerSettings::Registry { .. })
+    ) {
+        return Err(format!("{agent_id} is not installed from the registry"));
+    }
+    host.registry().refresh_if_stale().await;
+    host.store().registry_updated();
+    let version = host
+        .registry()
+        .agent(&agent_id)
+        .map(|agent| agent.metadata().version.clone())
+        .unwrap_or_default();
+
+    let registry_dir = atlas_agent_store::registry_dir(&app_data_dir(&app));
+    atlas_agent_store::forget_npx_install_decision(&registry_dir, &agent_id)
+        .await
+        .map_err(|e| format!("{e:#}"))?;
+
+    if host.agent_turn_running(&agent_id) {
+        emit_agent_update(&app, &agent_id, &version, AgentUpdatePhase::Waiting);
+    }
+    while host.agent_turn_running(&agent_id) {
+        tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+    }
+    host.restart_for_update(&agent_id, &version)
+        .map_err(|e| e.to_string())?;
+    emit_agent_update(&app, &agent_id, &version, AgentUpdatePhase::Restarting);
+    emit_agent_update(&app, &agent_id, &version, AgentUpdatePhase::Installing);
+
+    let id = atlas_acp_thread::AgentId::new(agent_id.as_str());
+    let result = host.store().prefetch_update(&id).await;
+    super::catalog::emit_catalog_changed(&app, "update");
+    result.map(|_| ()).map_err(|e| format!("{e:#}"))
 }
 
 /// Install an agent: write its entry in the installed map.
@@ -299,10 +395,12 @@ pub async fn acp_registry_uninstall(
 pub fn acp_registry_metadata(
     agent_id: String,
     host: State<'_, Arc<AgentHost>>,
+    app: AppHandle,
 ) -> Option<RegistryEntryView> {
+    let registry_dir = atlas_agent_store::registry_dir(&app_data_dir(&app));
     host.registry()
         .agent(&agent_id)
-        .map(|agent| entry_view(&agent, host.store()))
+        .map(|agent| entry_view(&agent, &host, &registry_dir))
 }
 
 /// Write the map to disk and push it into the store, in that order.

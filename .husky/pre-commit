@@ -1,7 +1,7 @@
 bun x lint-staged
 bun run typecheck
 # The contract suites in tests/ (repo invariants: IPC/event wiring, the
-# ratchets, CI coverage, the codex quarantine). About a second, and the thing
+# ratchets, CI coverage, the engine quarantine). About a second, and the thing
 # nothing ran before commit when a ratchet went red on HEAD. Not the full
 # `bun run test` — that stays CI's job, to keep this hook fast.
 bun run test:contracts

@@ -31,6 +31,7 @@ import { cn } from "@/lib/utils";
 import { HintGroup, HintItem } from "@/ui/hint-group";
 import { TitlebarDock, type DockItem } from "./titlebar-dock";
 import { invoke, isTauri } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 import { toast } from "sonner";
 import type { Window as TauriWindow } from "@tauri-apps/api/window";
 import { useUpdaterStore } from "@/features/updater/stores/updater-store";
@@ -42,34 +43,34 @@ import { StatusDot } from "@/features/capture/components/capture-status";
 import type { Binding, CaptureHealth } from "@/features/capture/types";
 import { activeProjectId } from "@/features/projects/lib/active-project";
 import { useActiveOrgProjects } from "@/features/projects/lib/org-scope";
+import { useFullscreen } from "@/hooks/use-fullscreen";
 import { isDev } from "@/lib/env";
 import { isLinux, isMac, isWindows } from "@/lib/platform";
 
+/**
+ * A handle on the native window, for dragging and zooming.
+ *
+ * Fullscreen is **not** tracked here: it used to be, with its own copy of the
+ * `onResized` + `await isFullscreen()` dance that `useFullscreen` already had.
+ * Two copies of that logic is how the titlebar and the sidebar came to disagree
+ * about where the traffic lights were, and the race that made it stick is
+ * written up in `use-fullscreen.ts`.
+ */
 function useTauriWindow() {
   const windowRef = useRef<TauriWindow | null>(null);
-  const [isFullscreen, setIsFullscreen] = useState(false);
 
   useEffect(() => {
-    let unlisten: (() => void) | undefined;
-
     (async () => {
       try {
         const { getCurrentWindow } = await import("@tauri-apps/api/window");
-        const win = getCurrentWindow();
-        windowRef.current = win;
-        setIsFullscreen(await win.isFullscreen());
-        unlisten = await win.onResized(async () => {
-          setIsFullscreen(await win.isFullscreen());
-        });
+        windowRef.current = getCurrentWindow();
       } catch {
         // not in Tauri context
       }
     })();
-
-    return () => unlisten?.();
   }, []);
 
-  return { windowRef, isFullscreen };
+  return { windowRef };
 }
 
 export function Titlebar() {
@@ -94,7 +95,10 @@ export function Titlebar() {
     (currentProject ? projects.find((w) => w.path === currentProject.path)?.name : undefined) ??
     currentProject?.name ??
     "Atlas";
-  const { windowRef, isFullscreen } = useTauriWindow();
+  const { windowRef } = useTauriWindow();
+  // The same hook the project sidebar reads, so the two cannot disagree about
+  // whether the traffic lights are on screen.
+  const isFullscreen = useFullscreen();
   // The titlebar reserves 72px for the OS window controls (traffic lights),
   // EXCEPT when the sidebar is DOCKED (pinned + open): the docked column then
   // sits under the lights and carries that gap itself, so the titlebar reclaims
@@ -317,6 +321,18 @@ function ProjectLabel({
   }, [path]);
 
   useEffect(() => readCapture(), [readCapture]);
+
+  // Fresh numbers whenever the popover is looked at. Health was otherwise read
+  // on project switch and after a popover action only — so right after Promote
+  // it captured the instant every row had just been queued, and "93 pending —
+  // sends when online" stayed on screen long after the drain had sent them
+  // all. While open, capture writes (sends included) re-read it too.
+  useEffect(() => {
+    if (!captureOpen || !isTauri()) return;
+    readCapture();
+    const unlisten = listen("atlas:capture-changed", () => readCapture());
+    return () => void unlisten.then((stop) => stop());
+  }, [captureOpen, readCapture]);
 
   // Command palette + ⌘⌥C both open this popover from outside the component
   // tree, since `captureOpen` is local state — see `atlas:open-capture`.

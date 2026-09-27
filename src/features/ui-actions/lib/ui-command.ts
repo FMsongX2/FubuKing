@@ -1,0 +1,41 @@
+/**
+ * `ui_command`: run a global keybinding command by id — the same closure its
+ * chord runs, through the action registry. Focus-scoped commands (terminal
+ * find, knowledge-base save…) only mean something on their surface and are
+ * refused, and so are the few global commands that would slip past a rule
+ * the other tools enforce.
+ */
+
+import { runAction, runnableActionIds } from "@/features/keybindings/lib/action-registry";
+import { readArgs, refuse } from "./args";
+import type { UiActionRequest } from "./types";
+
+/** Global commands an agent may not run this way, and what to do instead. */
+const REFUSED: Record<string, string> = {
+  "workspace.add":
+    "adding a project switches to it, and UI actions never switch projects; ask the user",
+  "tabs.close": "use ui_close, which keeps unsaved work open",
+  "chat.cycleAgent": "use ui_chat switch_agent, which will not switch the agent of your own chat",
+  "chat.cyclePermissionMode": "an agent may not change a chat's permission mode; ask the user",
+};
+
+export function performCommand(request: UiActionRequest): unknown {
+  const id = readArgs("ui_command", request.args).str("id");
+  const refused = REFUSED[id];
+  if (refused) return refuse(`ui_command: "${id}" is not available to agents: ${refused}`);
+  const ran = runAction(id);
+  if (ran.ok) return { id, ran: true };
+  const runnable = runnableActionIds()
+    .filter((a) => !(a in REFUSED))
+    .join(", ");
+  switch (ran.reason) {
+    case "unknown-id":
+      return refuse(`ui_command: unknown id "${id}"; runnable now: ${runnable}`);
+    case "not-global":
+      return refuse(
+        `ui_command: "${id}" needs its surface to have focus and cannot be run from here; runnable now: ${runnable}`,
+      );
+    case "not-registered":
+      return refuse(`ui_command: "${id}" is not available right now; runnable now: ${runnable}`);
+  }
+}

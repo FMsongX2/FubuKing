@@ -161,12 +161,12 @@ describe("CI's Rust jobs", () => {
     // `bun run test:rust` is the local subset of CI; its vendored `-p` list is
     // a copy of the job's, and a copy drifts unless something compares them.
     const packages = (text: string) =>
-      [...text.matchAll(/-p (codex-[a-z0-9-]+)/g)].map((m) => m[1]).sort();
+      [...text.matchAll(/-p (atlas-engine-[a-z0-9-]+)/g)].map((m) => m[1]).sort();
     const job = stepsOf(jobs.get("engine-dialect")!)
       .map((s) => s.run ?? "")
       .join("\n");
     const script = readFileSync(path.join(REPO_ROOT, "scripts", "test-rust.sh"), "utf8");
-    expect(packages(job)).toContain("codex-api");
+    expect(packages(job)).toContain("atlas-engine-api");
     expect(packages(script)).toEqual(packages(job));
   });
 

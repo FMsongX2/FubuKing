@@ -2,6 +2,7 @@ import { create } from "zustand";
 import { immer } from "zustand/middleware/immer";
 import { createSelectors } from "@/lib/create-selectors";
 import { detectLanguage, type EditorLanguage } from "../lib/languages";
+import type { RevealTarget } from "../lib/reveal";
 
 interface Buffer {
   path: string;
@@ -19,9 +20,19 @@ interface Buffer {
   externallyChanged: boolean;
 }
 
+/** A reveal waiting for its path's editor view. The nonce makes a repeated
+ *  reveal of the same line a new value, so the panel applies it again. */
+export interface PendingReveal extends RevealTarget {
+  nonce: number;
+}
+
 interface EditorState {
   buffers: Record<string, Buffer>;
   activeBufferPath: string | null;
+  /** Reveals asked for by path, applied by that path's editor panel once its
+   *  view exists — a new tab, a hidden one and a visible one alike. The
+   *  knowledge store's `pendingOpenId` is the same pattern. */
+  pendingReveals: Record<string, PendingReveal>;
 }
 
 interface EditorActions {
@@ -35,14 +46,21 @@ interface EditorActions {
     markExternallyChanged: (path: string, mtimeMs: number) => void;
     closeBuffer: (path: string) => void;
     setActive: (path: string) => void;
+    /** Ask `path`'s editor to move to `target`. */
+    requestReveal: (path: string, target: RevealTarget) => void;
+    /** The panel applied the reveal carrying `nonce`; a newer one is kept. */
+    consumeReveal: (path: string, nonce: number) => void;
   };
 }
+
+let revealNonce = 0;
 
 export const useEditorStore = createSelectors(
   create<EditorState & EditorActions>()(
     immer((set) => ({
       buffers: {},
       activeBufferPath: null,
+      pendingReveals: {},
       actions: {
         openBuffer: (path, content, mtimeMs = 0) =>
           set((s) => {
@@ -96,6 +114,7 @@ export const useEditorStore = createSelectors(
         closeBuffer: (path) =>
           set((s) => {
             delete s.buffers[path];
+            delete s.pendingReveals[path];
             if (s.activeBufferPath === path) {
               const keys = Object.keys(s.buffers);
               s.activeBufferPath = keys.length > 0 ? keys[keys.length - 1] : null;
@@ -104,6 +123,14 @@ export const useEditorStore = createSelectors(
         setActive: (path) =>
           set((s) => {
             s.activeBufferPath = path;
+          }),
+        requestReveal: (path, target) =>
+          set((s) => {
+            s.pendingReveals[path] = { ...target, nonce: ++revealNonce };
+          }),
+        consumeReveal: (path, nonce) =>
+          set((s) => {
+            if (s.pendingReveals[path]?.nonce === nonce) delete s.pendingReveals[path];
           }),
       },
     })),

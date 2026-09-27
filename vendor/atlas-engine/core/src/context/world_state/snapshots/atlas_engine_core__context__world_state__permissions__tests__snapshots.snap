@@ -1,0 +1,33 @@
+---
+source: vendor/atlas-engine/core/src/context/world_state/permissions_tests.rs
+expression: "render_section_cases(&[(Absent, Absent), (Absent, Known(&read_only)),\n(Known(&read_only), Known(&read_only)),\n(Known(&read_only), Known(&full_access)),\n(Known(&read_only), Known(&never_ask)), (Unknown, Known(&read_only)),])"
+---
+Absent -> Absent
+None
+
+Absent -> {"approved_command_prefixes":[],"instructions":"a8444259d1cfaa5798debb9232eaf066e6ac1d0e"} (role - developer)
+<permissions instructions>
+Read only.
+Ask for approval.
+</permissions instructions>
+
+{"approved_command_prefixes":[],"instructions":"a8444259d1cfaa5798debb9232eaf066e6ac1d0e"} -> {"approved_command_prefixes":[],"instructions":"a8444259d1cfaa5798debb9232eaf066e6ac1d0e"}
+None
+
+{"approved_command_prefixes":[],"instructions":"a8444259d1cfaa5798debb9232eaf066e6ac1d0e"} -> {"approved_command_prefixes":[],"instructions":"9161e86c79560f77d6df42f66a7f7df20dbfe701"} (role - developer)
+<permissions instructions>
+Full access.
+Ask for approval.
+</permissions instructions>
+
+{"approved_command_prefixes":[],"instructions":"a8444259d1cfaa5798debb9232eaf066e6ac1d0e"} -> {"approved_command_prefixes":[],"instructions":"06fac98bfc356a242b33b048905cb33675a2069b"} (role - developer)
+<permissions instructions>
+Read only.
+Approval policy is currently never. Do not provide the `sandbox_permissions` for any reason, commands will be rejected.
+</permissions instructions>
+
+Unknown -> {"approved_command_prefixes":[],"instructions":"a8444259d1cfaa5798debb9232eaf066e6ac1d0e"} (role - developer)
+<permissions instructions>
+Read only.
+Ask for approval.
+</permissions instructions>
