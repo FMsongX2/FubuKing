@@ -62,8 +62,8 @@ pub async fn run(run: Run) -> anyhow::Result<i32> {
     let _interrupts = survive_interrupts();
     let mut launch_args = run.args;
     let mut tried: Vec<(Provider, String)> = Vec::new();
-    // The session a resume launch is meant to continue.
-    let mut resuming: Option<Session> = None;
+    // The session a resume launch is meant to continue, and where its copy went.
+    let mut resuming: Option<(Session, PathBuf)> = None;
     loop {
         tried.push((provider, account.id.clone()));
         let started = SystemTime::now();
@@ -71,11 +71,20 @@ pub async fn run(run: Run) -> anyhow::Result<i32> {
         let code = exit_code(launch(&account, &cwd, &launch_args, watch.then_some(started)).await?);
         let latest = sessions::latest(&account, &cwd, started);
 
-        if let (Some(previous), None) = (resuming.take(), &latest) {
-            // The CLI did not find the copied session: its layout changed.
-            // Start the account over from a brief of the session instead.
-            if code != 0 {
-                eprintln!("quotatlas: {account} could not resume session {}; starting it from a brief instead.", previous.id);
+        if let Some((previous, copy)) = resuming.take() {
+            // A resume that failed and never touched the copy means the CLI
+            // did not find it: its layout changed. Start the account over
+            // from a brief of the session instead.
+            let touched = std::fs::metadata(&copy).and_then(|meta| meta.modified()).is_ok_and(|at| at >= started);
+            // Asked, not assumed: the same exit is what declining Claude's
+            // folder-trust question looks like.
+            if code != 0
+                && !touched
+                && confirm(&format!(
+                    "quotatlas: {account} did not resume session {}. Start a new session there from a brief of it? [Y/n] ",
+                    previous.id
+                ))
+            {
                 let brief = sessions::brief(&previous, &account).context("reading the session for a brief")?;
                 launch_args = fresh_args(provider, first.mode(), &first.options_for(provider), &brief);
                 continue;
@@ -83,7 +92,7 @@ pub async fn run(run: Run) -> anyhow::Result<i32> {
         }
 
         let Some(session) = latest else { return Ok(code) };
-        let Some(message) = sessions::limit_message(&session) else { return Ok(code) };
+        let Some(message) = sessions::limit_message(&session, started) else { return Ok(code) };
         eprintln!("quotatlas: {account} stopped on its usage limit: {message}");
 
         let untried = |list: &[Account], of: Provider| -> Vec<Account> {
@@ -93,11 +102,14 @@ pub async fn run(run: Run) -> anyhow::Result<i32> {
             if !confirm(&format!("quotatlas: resume this session on {next}? [Y/n] ")) {
                 return Ok(code);
             }
-            sessions::copy_to(&session, &next)
+            let copy = sessions::copy_to(&session, &next)
                 .with_context(|| format!("copying session {} to {next}", session.id))?;
+            if provider == Provider::Claude && claude::trusts_folder(&next, &cwd) == Some(false) {
+                eprintln!("quotatlas: {next} has not trusted this folder yet. When Claude asks, choose \"Yes, I trust this folder\".");
+            }
             launch_args = resume_args(provider, first.mode(), &first.options_for(provider), &session.id);
             account = next;
-            resuming = Some(session);
+            resuming = Some((session, copy));
             continue;
         }
 
@@ -171,29 +183,35 @@ impl FirstRun {
         self.options
             .get_or_init(|| {
                 let program = provider.program();
-                let (table, drop): (Options, &[&str]) = match provider {
+                // Codex's options that take many values attach files to one
+                // prompt (`-i`), which the resumed session must not repeat;
+                // they would also swallow the subcommand that follows them.
+                let (table, drop, drop_many): (Options, &[&str], bool) = match provider {
                     Provider::Claude => (
                         Options::of(program, None),
                         &["-r", "--resume", "-c", "--continue", "--session-id", "--fork-session", "--from-pr"],
+                        false,
                     ),
                     Provider::Codex => (
                         Options::of(program, None).merged(Options::of(program, Some("exec"))),
                         &["--last", "--all"],
+                        true,
                     ),
                 };
-                args::options_only(&self.args, &table, drop)
+                args::options_only(&self.args, &table, drop, drop_many)
             })
             .clone()
     }
 }
 
-/// Resume `id` in the same mode, with the first run's options.
+/// Resume `id` in the same mode, with the first run's options. Claude's
+/// options can take every following word, so its prompt comes after `--`.
 fn resume_args(provider: Provider, mode: Mode, options: &[OsString], id: &str) -> Vec<OsString> {
     let mut out: Vec<OsString> = Vec::new();
     match provider {
         Provider::Claude => {
             out.extend_from_slice(options);
-            out.extend(["--resume".into(), id.into(), CONTINUE_PROMPT.into()]);
+            out.extend(["--resume".into(), id.into(), "--".into(), CONTINUE_PROMPT.into()]);
         }
         Provider::Codex => {
             if mode == Mode::Batch {
@@ -215,6 +233,7 @@ fn fresh_args(provider: Provider, mode: Mode, options: &[OsString], brief: &str)
             if mode == Mode::Batch && !options.iter().any(|w| w == "-p" || w == "--print") {
                 out.push("-p".into());
             }
+            out.push("--".into());
         }
         (Provider::Codex, Mode::Batch) => {
             out.push("exec".into());
@@ -298,12 +317,16 @@ async fn launch(
     watch_since: Option<SystemTime>,
 ) -> anyhow::Result<ExitStatus> {
     let program = account.provider.program();
-    let (before, after) = added_args(account, cwd);
+    let (before, after) = added_args(account, cwd, args);
+    // What Quotatlas adds goes ahead of a `--`, after which the CLI would take
+    // it for a prompt.
+    let split = args.iter().position(|word| word == "--").unwrap_or(args.len());
     let saved = watch_since.and_then(|_| terminal::Saved::take());
     let mut child = tokio::process::Command::new(program)
         .args(before)
-        .args(args)
+        .args(&args[..split])
         .args(after)
+        .args(&args[split..])
         .envs(account.env())
         .spawn()
         .with_context(|| format!("starting `{program}`; is it installed and on PATH?"))?;
@@ -323,7 +346,7 @@ async fn launch(
             continue;
         }
         seen = Some(stamp);
-        let limited = sessions::limit_message(&session)
+        let limited = sessions::limit_message(&session, since)
             .is_some_and(|message| sessions::is_account_limit(account.provider, &message));
         if limited {
             let status = terminal::stop(&mut child, STOP_GRACE).await?;
@@ -340,27 +363,27 @@ async fn launch(
 /// Codex takes `-c` overrides ahead of any subcommand. Claude's
 /// `--mcp-config` takes every value up to the next option, so it goes last,
 /// where it cannot swallow a prompt.
-fn added_args(account: &Account, cwd: &Path) -> (Vec<OsString>, Vec<OsString>) {
+fn added_args(account: &Account, cwd: &Path, args: &[OsString]) -> (Vec<OsString>, Vec<OsString>) {
     match account.provider {
         Provider::Codex => {
-            let (command, args) = mcp::server_command("codex");
+            let (server, server_args) = mcp::server_command("codex");
             let toml = |value: serde_json::Value| value.to_string();
             let key = format!("mcp_servers.{}", mcp::SERVER_NAME);
             // Memory tools run without a prompt, as the desktop app runs them:
             // they only read and write the project's own record.
             let before = [
-                format!("{key}.command={}", toml(command.into())),
-                format!("{key}.args={}", toml(args.into())),
+                format!("{key}.command={}", toml(server.into())),
+                format!("{key}.args={}", toml(server_args.into())),
                 format!("{key}.default_tools_approval_mode=\"approve\""),
             ];
             (before.into_iter().flat_map(|value| ["-c".to_string(), value]).map(OsString::from).collect(), Vec::new())
         }
         Provider::Claude => {
-            let (command, args) = mcp::server_command("claude-code");
+            let (server, server_args) = mcp::server_command("claude-code");
             let config = serde_json::json!({
-                "mcpServers": { mcp::SERVER_NAME: { "type": "stdio", "command": command, "args": args } }
+                "mcpServers": { mcp::SERVER_NAME: { "type": "stdio", "command": server, "args": server_args } }
             });
-            let mut after: Vec<OsString> = status_line_args(account, cwd);
+            let mut after: Vec<OsString> = status_line_args(account, cwd, args);
             after.extend([
                 "--allowedTools".into(),
                 format!("mcp__{}", mcp::SERVER_NAME).into(),
@@ -374,17 +397,31 @@ fn added_args(account: &Account, cwd: &Path) -> (Vec<OsString>, Vec<OsString>) {
 
 /// Claude reports quota through its status line. A profile has Quotatlas's
 /// script in its own settings; otherwise the script is passed for this run,
-/// running the user's own status line after it when there is one.
-fn status_line_args(account: &Account, cwd: &Path) -> Vec<OsString> {
+/// running the account's own status line after it when there is one.
+///
+/// Nothing is passed when the user's arguments already decide the settings
+/// (a second `--settings` would replace theirs; `--restricted` and
+/// `--setting-sources` narrow what may run) or when the project sets a status
+/// line, which Claude runs under its own trust rules.
+fn status_line_args(account: &Account, cwd: &Path, args: &[OsString]) -> Vec<OsString> {
     if let Some(home) = &account.home {
         if let Err(e) = claude::install_statusline(home) {
             eprintln!("quotatlas: no quota for {account}: {e}");
         }
     }
+    let theirs_decide = args.iter().take_while(|w| *w != "--").any(|word| {
+        let word = word.to_string_lossy();
+        ["--settings", "--setting-sources", "--restricted"]
+            .iter()
+            .any(|flag| word == *flag || word.starts_with(&format!("{flag}=")))
+    });
+    if theirs_decide || claude::project_sets_status_line(cwd) {
+        return Vec::new();
+    }
     let Some(user_settings) = account.cli_home().map(|home| home.join("settings.json")) else {
         return Vec::new();
     };
-    let theirs = claude::their_status_line(cwd, &user_settings);
+    let theirs = claude::user_status_line(&user_settings);
     if account.home.is_some() && theirs.is_none() {
         return Vec::new();
     }
@@ -462,11 +499,19 @@ mod terminal {
     }
 
     /// Ask the CLI to exit as Ctrl-C would, then insist: SIGINT, SIGTERM,
-    /// SIGKILL, each after `grace`.
+    /// SIGKILL, each after `grace`. Like Ctrl-C, each signal goes to the CLI
+    /// and every descendant in its process group, so a `claude` that is a
+    /// wrapper script does not leave the real CLI running. Quotatlas shares
+    /// that group and is left out.
     pub async fn stop(child: &mut tokio::process::Child, grace: Duration) -> std::io::Result<ExitStatus> {
-        for signal in ["-INT", "-TERM"] {
-            if let Some(pid) = child.id() {
-                let _ = std::process::Command::new("kill").args([signal, &pid.to_string()]).status();
+        let group = child.id().map(foreground_tree).unwrap_or_default();
+        for signal in ["-INT", "-TERM", "-KILL"] {
+            if !group.is_empty() {
+                let _ = std::process::Command::new("kill")
+                    .arg(signal)
+                    .args(group.iter().map(u32::to_string))
+                    .stderr(Stdio::null())
+                    .status();
             }
             if let Ok(status) = tokio::time::timeout(grace, child.wait()).await {
                 return status;
@@ -474,6 +519,42 @@ mod terminal {
         }
         child.kill().await?;
         child.wait().await
+    }
+
+    /// `pid` and its descendants that share its process group.
+    fn foreground_tree(pid: u32) -> Vec<u32> {
+        let rows: Vec<(u32, u32, u32)> = std::process::Command::new("ps")
+            .args(["-A", "-o", "pid=,ppid=,pgid="])
+            .output()
+            .map(|out| {
+                String::from_utf8_lossy(&out.stdout)
+                    .lines()
+                    .filter_map(|line| {
+                        let mut fields = line.split_whitespace().map(|field| field.parse::<u32>().ok());
+                        Some((fields.next()??, fields.next()??, fields.next()??))
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+        let group_of = |p: u32| rows.iter().find(|row| row.0 == p).map(|row| row.2);
+        let group = group_of(pid);
+        descendants(pid, &rows).into_iter().filter(|p| group_of(*p) == group).collect()
+    }
+
+    /// `pid` and every process under it, parents first.
+    pub(super) fn descendants(pid: u32, rows: &[(u32, u32, u32)]) -> Vec<u32> {
+        let mut found = vec![pid];
+        let mut index = 0;
+        while index < found.len() {
+            let parent = found[index];
+            for row in rows {
+                if row.1 == parent && !found.contains(&row.0) {
+                    found.push(row.0);
+                }
+            }
+            index += 1;
+        }
+        found
     }
 }
 
@@ -518,7 +599,7 @@ mod tests {
         let options = words(&["--model", "opus"]);
         assert_eq!(
             resume_args(Provider::Claude, Mode::Interactive, &options, "s1"),
-            words(&["--model", "opus", "--resume", "s1", CONTINUE_PROMPT])
+            words(&["--model", "opus", "--resume", "s1", "--", CONTINUE_PROMPT])
         );
         assert_eq!(
             resume_args(Provider::Codex, Mode::Batch, &words(&["--skip-git-repo-check"]), "t1"),
@@ -530,8 +611,20 @@ mod tests {
     fn a_fresh_start_carries_the_brief_in_the_same_mode() {
         assert_eq!(fresh_args(Provider::Codex, Mode::Interactive, &[], "brief"), words(&["brief"]));
         assert_eq!(fresh_args(Provider::Codex, Mode::Batch, &[], "brief"), words(&["exec", "brief"]));
-        assert_eq!(fresh_args(Provider::Claude, Mode::Batch, &[], "brief"), words(&["-p", "brief"]));
-        assert_eq!(fresh_args(Provider::Claude, Mode::Batch, &words(&["-p"]), "brief"), words(&["-p", "brief"]));
+        assert_eq!(fresh_args(Provider::Claude, Mode::Batch, &[], "brief"), words(&["-p", "--", "brief"]));
+        assert_eq!(
+            fresh_args(Provider::Claude, Mode::Batch, &words(&["-p", "--add-dir", "x"]), "brief"),
+            words(&["-p", "--add-dir", "x", "--", "brief"])
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn the_tree_under_a_process_includes_grandchildren_and_nothing_else() {
+        // (pid, ppid, pgid): 10 is the CLI, 11 a wrapper's child, 12 its
+        // child, 20 unrelated.
+        let rows = [(10, 1, 10), (11, 10, 10), (12, 11, 10), (20, 1, 20)];
+        assert_eq!(terminal::descendants(10, &rows), [10, 11, 12]);
     }
 
     #[test]

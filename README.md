@@ -67,7 +67,7 @@ Codex asks before each tool call of a registered server; `default_tools_approval
 
 Memory. `quotatlas mcp` serves seven tools: `memory_briefing`, `memory_changes`, `memory_search`, `memory_get`, `memory_list`, `memory_remember`, `memory_forget`. Agents record decisions, facts, failures and architecture notes; every later session, of any agent, starts from them. The record is one SQLite database per repository at `.atlas/memory/memory.sqlite`, shared by every worktree, redacted before anything is written, and the same record the desktop app uses.
 
-Handoff. Claude Code and Codex both write a limit hit into the session transcript, and Quotatlas watches it while the CLI runs. When an account runs out, it stops the CLI, asks whether to continue, copies the transcript to the next account's profile and resumes the same session there with `claude --resume` or `codex resume`, keeping the options you started with. The next account is the one with the most room left, read from the CLIs' own status line and app server. When no account of that CLI has room, the other CLI takes over with a brief of the session: what you asked, its last replies, and a pointer to the shared memory.
+Handoff. Claude Code and Codex both write a limit hit into the session transcript, and Quotatlas watches it while the CLI runs. When an account runs out, it stops the CLI, asks whether to continue, copies the transcript to the next account's profile and resumes the same session there with `claude --resume` or `codex resume`, keeping the options you started with. The next account is the one with the most room left, read from the CLIs' own status line and app server. When no account of that CLI has room, the other CLI takes over with a brief of the session: what you asked, its last replies, and a pointer to the shared memory. An account that has not trusted the folder yet asks first, as Claude always does, and Quotatlas tells you before it starts; a newly signed-in account also asks its first-run questions once.
 
 Accounts. Every account other than your default login is a profile directory, a separate `CLAUDE_CONFIG_DIR` or `CODEX_HOME` under the app's config directory. Logins happen in the official CLIs, and the desktop app lists the same accounts.
 
@@ -76,6 +76,7 @@ Limits of the current version:
 - The transcript layouts behind handoff are not documented by either CLI. Checked with Claude Code 2.1.273 and Codex 0.147.0 and 0.157.1. When a CLI cannot find a copied session, Quotatlas starts that account over from a brief; when the limit record itself changes shape, the limit goes unnoticed and the run just ends.
 - A limit on one model, which Claude answers with "switch to another model", leaves the CLI open: the same account can go on with another model. Exit the CLI to hand off anyway.
 - Windows waits for the CLI to exit before handing off.
+- Quotatlas adds no status line when your own arguments decide the settings (`--settings`, `--setting-sources`, `--restricted`) or the project sets a status line; that run's Claude quota goes unread.
 
 ## Principles
 

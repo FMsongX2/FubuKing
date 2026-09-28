@@ -107,17 +107,26 @@ pub fn status_line_settings(script: &Path, theirs: Option<&Value>) -> Value {
     json!({ "statusLine": line })
 }
 
-/// The status line Claude Code would run for `cwd` without Quotatlas: the
-/// first of the local, project and user settings that sets one, unless it is
-/// the script Quotatlas installed in that profile.
-pub fn their_status_line(cwd: &Path, user_settings: &Path) -> Option<Value> {
-    let files = [cwd.join(".claude/settings.local.json"), cwd.join(".claude/settings.json"), user_settings.to_path_buf()];
-    let line = files.iter().find_map(|file| {
-        let raw = std::fs::read_to_string(file).ok()?;
-        serde_json::from_str::<Value>(&raw).ok()?.get("statusLine").cloned()
-    })?;
+/// The status line the account's own settings set, unless it is the script
+/// Quotatlas installed there.
+pub fn user_status_line(user_settings: &Path) -> Option<Value> {
+    let line = settings_status_line(user_settings)?;
     let ours = user_settings.parent().map(|home| shell_quote(&script_path(home)));
     (line.get("command").and_then(Value::as_str) != ours.as_deref()).then_some(line)
+}
+
+/// Whether the project in `cwd` sets a status line of its own. Claude Code
+/// runs that one under its own trust rules; Quotatlas does not lift it into a
+/// flag, where those rules (and `--restricted`) would no longer apply.
+pub fn project_sets_status_line(cwd: &Path) -> bool {
+    [".claude/settings.local.json", ".claude/settings.json"]
+        .iter()
+        .any(|file| settings_status_line(&cwd.join(file)).is_some())
+}
+
+fn settings_status_line(file: &Path) -> Option<Value> {
+    let raw = std::fs::read_to_string(file).ok()?;
+    serde_json::from_str::<Value>(&raw).ok()?.get("statusLine").cloned()
 }
 
 /// Quote a path for the shell that runs the statusLine command. The app
@@ -156,6 +165,20 @@ pub fn install_statusline(profile_home: &Path) -> io::Result<()> {
     settings.insert("statusLine".into(), json!({ "type": "command", "command": command }));
     let body = serde_json::to_string_pretty(&Value::Object(settings)).map_err(io::Error::other)?;
     write_atomic(&settings_path, body.as_bytes())
+}
+
+/// Whether Claude Code has been told to trust `cwd` under `account`: each
+/// login keeps its own answers, in `.claude.json` beside its settings (in the
+/// home directory for the default login). `None` when that file cannot be read.
+pub fn trusts_folder(account: &Account, cwd: &Path) -> Option<bool> {
+    let config = match (&account.home, std::env::var_os("CLAUDE_CONFIG_DIR")) {
+        (Some(home), _) => home.join(".claude.json"),
+        (None, Some(dir)) if !dir.is_empty() => PathBuf::from(dir).join(".claude.json"),
+        (None, _) => dirs::home_dir()?.join(".claude.json"),
+    };
+    let settings: Value = serde_json::from_str(&std::fs::read_to_string(config).ok()?).ok()?;
+    let key = cwd.to_string_lossy();
+    Some(settings.pointer("/projects").and_then(|projects| projects.get(key.as_ref())).and_then(|p| p.get("hasTrustDialogAccepted")) == Some(&Value::Bool(true)))
 }
 
 /// Write via a sibling temp file and a rename.
@@ -295,23 +318,38 @@ mod tests {
     }
 
     #[test]
-    fn a_status_line_of_their_own_is_chained_and_ours_is_not_theirs() {
+    fn the_users_status_line_is_chained_ours_is_not_theirs_and_a_projects_is_left_to_claude() {
         let home = tempfile::tempdir().unwrap();
         let project = tempfile::tempdir().unwrap();
         let user = home.path().join(SETTINGS_FILE);
-        assert_eq!(their_status_line(project.path(), &user), None);
+        assert_eq!(user_status_line(&user), None);
 
         install_statusline(home.path()).unwrap();
-        assert_eq!(their_status_line(project.path(), &user), None);
+        assert_eq!(user_status_line(&user), None);
 
-        std::fs::create_dir_all(project.path().join(".claude")).unwrap();
         let mine = json!({ "type": "command", "command": "~/bin/line", "padding": 0 });
-        std::fs::write(project.path().join(".claude/settings.json"), json!({ "statusLine": mine }).to_string()).unwrap();
-        let theirs = their_status_line(project.path(), &user).unwrap();
+        std::fs::write(&user, json!({ "statusLine": mine }).to_string()).unwrap();
+        let theirs = user_status_line(&user).unwrap();
         let settings = status_line_settings(Path::new("/q/s.sh"), Some(&theirs));
         assert_eq!(settings["statusLine"]["command"], "'/q/s.sh' '~/bin/line'");
         assert_eq!(settings["statusLine"]["padding"], 0);
         assert_eq!(status_line_settings(Path::new("/q/s.sh"), None)["statusLine"]["command"], "'/q/s.sh'");
+
+        assert!(!project_sets_status_line(project.path()));
+        std::fs::create_dir_all(project.path().join(".claude")).unwrap();
+        std::fs::write(project.path().join(".claude/settings.json"), json!({ "statusLine": mine }).to_string()).unwrap();
+        assert!(project_sets_status_line(project.path()));
+    }
+
+    #[test]
+    fn trust_is_read_per_login_from_its_own_config() {
+        let home = tempfile::tempdir().unwrap();
+        let account = Account { id: "claude-acp-p".into(), provider: crate::accounts::Provider::Claude, label: "p".into(), home: Some(home.path().to_path_buf()) };
+        assert_eq!(trusts_folder(&account, Path::new("/w")), None);
+        std::fs::write(home.path().join(".claude.json"), json!({ "projects": { "/w": { "hasTrustDialogAccepted": true }, "/x": {} } }).to_string()).unwrap();
+        assert_eq!(trusts_folder(&account, Path::new("/w")), Some(true));
+        assert_eq!(trusts_folder(&account, Path::new("/x")), Some(false));
+        assert_eq!(trusts_folder(&account, Path::new("/y")), Some(false));
     }
 
     #[cfg(unix)]

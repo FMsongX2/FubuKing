@@ -18,6 +18,9 @@ pub const IDENTIFIER: &str = "io.github.fmsongx2.quotatlas";
 pub const ACCOUNTS_DIR: &str = "accounts";
 /// The label of each CLI's own login.
 pub const DEFAULT_LABEL: &str = "default";
+/// Left in a profile `quotatlas login` made, so the desktop app gives it an
+/// agent entry once. An account removed in the app has none and stays removed.
+pub const ADOPT_MARKER: &str = ".quotatlas-adopt";
 
 /// Which CLI an account belongs to, and therefore which variable selects its
 /// profile.
@@ -232,6 +235,7 @@ fn create_in(dir: &Path, provider: Provider, label: &str) -> io::Result<Account>
     if provider == Provider::Claude {
         crate::quota::claude::install_statusline(&home)?;
     }
+    std::fs::write(home.join(ADOPT_MARKER), "")?;
     Ok(Account { id, provider, label, home: Some(home) })
 }
 
@@ -267,6 +271,7 @@ mod tests {
         assert_eq!((made.id.as_str(), made.label.as_str()), ("codex-acp-client-a", "client-a"));
         let listed = list_in(Some(dir.path()), Provider::Codex);
         assert_eq!(find(&listed, "client-a"), Some(&made));
+        assert!(made.home.as_ref().unwrap().join(ADOPT_MARKER).exists());
         assert!(create_in(dir.path(), Provider::Codex, "Default").is_err());
     }
 

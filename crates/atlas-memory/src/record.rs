@@ -360,6 +360,19 @@ pub fn memory_dir(root: &Path) -> PathBuf {
     root.join(".atlas").join("memory")
 }
 
+/// Keep `.atlas/` out of the user's commits: it holds this machine's
+/// databases and their SQLite sidecars. The checkpoint store writes the same
+/// file; whichever opens first does, and an existing one is left as it is.
+fn ensure_ignored(atlas_dir: &Path) {
+    let marker = atlas_dir.join(".gitignore");
+    if !marker.exists() {
+        let _ = std::fs::write(
+            &marker,
+            "# Per-project state of Quotatlas: machine-specific databases. Never committed.\n*\n",
+        );
+    }
+}
+
 // ── Store ────────────────────────────────────────────────────────────────────
 
 /// The record store for one scope. See the module docs.
@@ -390,6 +403,7 @@ impl RecordStore {
     pub fn open(root: &Path) -> Result<Self> {
         let dir = memory_dir(root);
         std::fs::create_dir_all(&dir).with_context(|| format!("create {}", dir.display()))?;
+        ensure_ignored(&root.join(".atlas"));
         let path = dir.join(DB_FILE);
         let conn = Connection::open(&path).with_context(|| format!("open {}", path.display()))?;
         conn.pragma_update(None, "journal_mode", "WAL")?;
@@ -660,6 +674,13 @@ impl RecordStore {
                 put_vector(&tx, id, model, v)?;
                 Some((model, v))
             }
+            // A replacement from a writer with no embedder (a `quotatlas mcp`
+            // process) must not leave the old wording's vector behind, or
+            // near-duplicate checks match words the entry no longer holds.
+            (None, WriteOutcome::Replaced) => {
+                tx.execute("DELETE FROM entry_vectors WHERE id = ?1", [id])?;
+                None
+            }
             _ => None,
         };
         // A merge stores nothing new, so it logs nothing: the log never shows
@@ -682,6 +703,10 @@ impl RecordStore {
         tx.commit()?;
         if let Some((model, v)) = new_vector {
             self.index_put(id, model, v);
+        } else if vector.is_none() && outcome == WriteOutcome::Replaced {
+            if let Some(index) = self.vectors().as_ref() {
+                let _ = index.hnsw.remove(id as u64);
+            }
         }
         Ok(Remembered { entry, outcome })
     }
@@ -1562,6 +1587,20 @@ fn insert_entry(tx: &Transaction<'_>, e: &NewEntry) -> Result<i64> {
 pub(crate) mod tests {
     use super::*;
 
+    #[test]
+    fn opening_a_record_keeps_atlas_out_of_git_and_leaves_an_existing_ignore_alone() {
+        let root = tempfile::tempdir().unwrap();
+        RecordStore::open(root.path()).unwrap();
+        let ignore = std::fs::read_to_string(root.path().join(".atlas/.gitignore")).unwrap();
+        assert!(ignore.lines().any(|line| line == "*"));
+
+        let other = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(other.path().join(".atlas")).unwrap();
+        std::fs::write(other.path().join(".atlas/.gitignore"), "mine\n").unwrap();
+        RecordStore::open(other.path()).unwrap();
+        assert_eq!(std::fs::read_to_string(other.path().join(".atlas/.gitignore")).unwrap(), "mine\n");
+    }
+
     pub(crate) fn temp_root(label: &str) -> PathBuf {
         let dir = std::env::temp_dir().join(format!("atlas-record-{label}-{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&dir).unwrap();
@@ -1698,6 +1737,23 @@ pub(crate) mod tests {
             ("JWT expiry is fifteen minutes", vec![0.8, 0.6, 0.0]),
             ("Deploys go through Fly", vec![0.0, 0.0, 1.0]),
         ]))
+    }
+
+    #[test]
+    fn a_replacement_without_a_vector_drops_the_old_wordings_vector() {
+        let root = tempfile::tempdir().unwrap();
+        let store = RecordStore::open(root.path()).unwrap();
+        store.set_embedder(Some(table()));
+        let vectors = |store: &RecordStore| {
+            store.conn().query_row("SELECT COUNT(*) FROM entry_vectors", [], |r| r.get::<_, i64>(0)).unwrap()
+        };
+        store.remember(tool_write(EntryKind::Decision, "auth", "JWTs are signed with RS256", 10), 10).unwrap();
+        assert_eq!(vectors(&store), 1);
+        // The table has no vector for this wording, as a writer without a
+        // model would not.
+        let replaced = store.remember(tool_write(EntryKind::Decision, "auth", "Sessions use opaque tokens", 20), 20).unwrap();
+        assert_eq!(replaced.outcome, WriteOutcome::Replaced);
+        assert_eq!(vectors(&store), 0);
     }
 
     fn tool_write(kind: EntryKind, key: &str, content: &str, at: i64) -> NewEntry {

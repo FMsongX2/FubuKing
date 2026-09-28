@@ -12452,6 +12452,7 @@ dependencies = [
  "atlas-agent-transcript",
  "atlas-process",
  "atlas-shared-memory",
+ "chrono",
  "clap",
  "dirs",
  "rmcp",

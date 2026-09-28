@@ -135,19 +135,31 @@ fn same_dir(a: &Path, b: &Path) -> bool {
     a == b || matches!((std::fs::canonicalize(a), std::fs::canonicalize(b)), (Ok(a), Ok(b)) if a == b)
 }
 
-/// The limit message the session stopped on, if it stopped on one.
-pub fn limit_message(session: &Session) -> Option<String> {
+/// The limit message the session stopped on, if it stopped on one at or after
+/// `since`. A limit written before the run started belongs to an earlier run
+/// of that session: the one a resumed copy carries over from the previous
+/// account, or one a later run touched the file after. The CLI stamps entries
+/// from the same clock, so no slack is needed.
+pub fn limit_message(session: &Session, since: SystemTime) -> Option<String> {
     let tail = read_tail(&session.path, TAIL_BYTES).ok()?;
     let lines = tail.lines().filter_map(|line| serde_json::from_str::<Value>(line).ok());
-    match session.provider {
+    let (entry, message) = match session.provider {
         Provider::Claude => claude_limit(lines),
         Provider::Codex => codex_limit(lines),
+    }?;
+    let stamped = entry["timestamp"]
+        .as_str()
+        .and_then(|stamp| chrono::DateTime::parse_from_rfc3339(stamp).ok())
+        .map(SystemTime::from);
+    match stamped {
+        Some(at) if at < since => None,
+        _ => Some(message),
     }
 }
 
 /// The last assistant entry decides: an error entry after a reset and a
 /// successful turn is history, not the current state.
-fn claude_limit(lines: impl Iterator<Item = Value>) -> Option<String> {
+fn claude_limit(lines: impl Iterator<Item = Value>) -> Option<(Value, String)> {
     let last = lines.filter(|line| line["type"] == "assistant").last()?;
     if last["isApiErrorMessage"] != true || last["error"] != "rate_limit" {
         return None;
@@ -155,12 +167,13 @@ fn claude_limit(lines: impl Iterator<Item = Value>) -> Option<String> {
     let text = last
         .pointer("/message/content/0/text")
         .and_then(Value::as_str)
-        .unwrap_or("usage limit reached");
-    Some(text.to_string())
+        .unwrap_or("usage limit reached")
+        .to_string();
+    Some((last, text))
 }
 
 /// The last finished turn decides, as for Claude.
-fn codex_limit(lines: impl Iterator<Item = Value>) -> Option<String> {
+fn codex_limit(lines: impl Iterator<Item = Value>) -> Option<(Value, String)> {
     let last = lines
         .filter(|line| line["type"] == "event_msg" && line["payload"]["type"] == "task_complete")
         .last()?;
@@ -168,7 +181,8 @@ fn codex_limit(lines: impl Iterator<Item = Value>) -> Option<String> {
     if error["codex_error_info"] != "usage_limit_exceeded" {
         return None;
     }
-    Some(error["message"].as_str().unwrap_or("usage limit reached").to_string())
+    let text = error["message"].as_str().unwrap_or("usage limit reached").to_string();
+    Some((last, text))
 }
 
 /// The last `max` bytes of a file, from the first whole line on.
@@ -346,7 +360,9 @@ fn clip(text: &str, max: usize) -> String {
 }
 
 /// Copy the transcript to the same place under `to`'s CLI home, where that
-/// account's CLI looks it up by id. An older copy there is replaced.
+/// account's CLI looks it up by id. An older copy there that this one extends
+/// is replaced; one that went its own way (the session carried on under `to`
+/// meanwhile) is kept beside it as a `.bak` first.
 pub fn copy_to(session: &Session, to: &Account) -> io::Result<PathBuf> {
     let home = to.cli_home().ok_or_else(|| io::Error::other(format!("{to} has no home directory")))?;
     let dest = home.join(&session.relative);
@@ -355,6 +371,12 @@ pub fn copy_to(session: &Session, to: &Account) -> io::Result<PathBuf> {
     }
     if let Some(parent) = dest.parent() {
         std::fs::create_dir_all(parent)?;
+    }
+    if dest.exists() && !std::fs::read(&session.path)?.starts_with(&std::fs::read(&dest)?) {
+        let stamp = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or_default();
+        let mut backup = dest.clone().into_os_string();
+        backup.push(format!(".{stamp}.bak"));
+        std::fs::rename(&dest, backup)?;
     }
     std::fs::copy(&session.path, &dest)?;
     Ok(dest)
@@ -396,7 +418,7 @@ mod tests {
             json!({ "type": "system" }),
         ];
         assert_eq!(
-            claude_limit(lines.into_iter()),
+            claude_limit(lines.into_iter()).map(|(_, text)| text),
             Some("You've hit your session limit · resets 3:10am".into())
         );
     }
@@ -414,7 +436,10 @@ mod tests {
         let hit = codex_turn(Some(json!({
             "message": "You've hit your usage limit.", "codex_error_info": "usage_limit_exceeded"
         })));
-        assert_eq!(codex_limit(vec![codex_turn(None), hit.clone()].into_iter()), Some("You've hit your usage limit.".into()));
+        assert_eq!(
+            codex_limit(vec![codex_turn(None), hit.clone()].into_iter()).map(|(_, text)| text),
+            Some("You've hit your usage limit.".into())
+        );
         assert_eq!(codex_limit(vec![hit, codex_turn(None)].into_iter()), None);
     }
 
@@ -429,7 +454,7 @@ mod tests {
 
         let found = latest(&account(Provider::Claude, from.path()), cwd, since).unwrap();
         assert_eq!(found.id, "0b6f-id");
-        assert_eq!(limit_message(&found), Some("limit".into()));
+        assert_eq!(limit_message(&found, since), Some("limit".into()));
 
         let copy = copy_to(&found, &account(Provider::Claude, to.path())).unwrap();
         assert_eq!(copy, to.path().join("projects/-work-my-repo/0b6f-id.jsonl"));
@@ -451,6 +476,51 @@ mod tests {
         let found = latest(&account(Provider::Codex, home.path()), Path::new("/work/a"), since).unwrap();
         assert_eq!(found.id, id);
         assert_eq!(found.relative, PathBuf::from(format!("sessions/2026/09/27/rollout-2026-09-27T22-01-12-{id}.jsonl")));
+    }
+
+    #[test]
+    fn a_copy_that_went_its_own_way_is_kept_as_a_backup() {
+        let from = tempfile::tempdir().unwrap();
+        let to = tempfile::tempdir().unwrap();
+        let rel = PathBuf::from("projects/-w/s.jsonl");
+        std::fs::create_dir_all(from.path().join("projects/-w")).unwrap();
+        std::fs::create_dir_all(to.path().join("projects/-w")).unwrap();
+        std::fs::write(from.path().join(&rel), "a\nb\n").unwrap();
+        let session = Session { provider: Provider::Claude, id: "s".into(), path: from.path().join(&rel), relative: rel.clone() };
+
+        // A copy the source extends is simply replaced.
+        std::fs::write(to.path().join(&rel), "a\n").unwrap();
+        copy_to(&session, &account(Provider::Claude, to.path())).unwrap();
+        assert_eq!(std::fs::read_dir(to.path().join("projects/-w")).unwrap().count(), 1);
+
+        // One with turns of its own is kept.
+        std::fs::write(to.path().join(&rel), "a\nc\n").unwrap();
+        copy_to(&session, &account(Provider::Claude, to.path())).unwrap();
+        assert_eq!(std::fs::read_to_string(to.path().join(&rel)).unwrap(), "a\nb\n");
+        let kept: Vec<String> = std::fs::read_dir(to.path().join("projects/-w"))
+            .unwrap()
+            .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+            .filter(|name| name.ends_with(".bak"))
+            .collect();
+        assert_eq!(kept.len(), 1);
+        assert_eq!(std::fs::read_to_string(to.path().join("projects/-w").join(&kept[0])).unwrap(), "a\nc\n");
+    }
+
+    #[test]
+    fn a_limit_stamped_before_the_run_is_an_earlier_runs() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("projects/-w/s.jsonl");
+        let mut old = claude_error("rate_limit", "old limit");
+        old["timestamp"] = json!("2026-09-01T10:00:00.000Z");
+        write_lines(&path, &[old]);
+        let session = Session { provider: Provider::Claude, id: "s".into(), path: path.clone(), relative: PathBuf::new() };
+        let started = SystemTime::now();
+        assert_eq!(limit_message(&session, started), None);
+
+        let mut fresh = claude_error("rate_limit", "new limit");
+        fresh["timestamp"] = json!(chrono::Utc::now().to_rfc3339());
+        write_lines(&path, &[fresh]);
+        assert_eq!(limit_message(&session, started), Some("new limit".into()));
     }
 
     #[test]

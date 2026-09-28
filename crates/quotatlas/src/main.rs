@@ -62,7 +62,15 @@ struct AgentArgs {
 
 #[tokio::main]
 async fn main() {
-    let code = match dispatch(Cli::parse().command).await {
+    // `claude` and `codex` hand their arguments to the CLI word for word,
+    // `--` included, which clap would consume; only a leading `--account`
+    // is Quotatlas's.
+    let argv: Vec<OsString> = std::env::args_os().collect();
+    let command = match agent_command(&argv) {
+        Some(command) => command,
+        None => Cli::parse().command,
+    };
+    let code = match dispatch(command).await {
         Ok(code) => code,
         Err(error) => {
             eprintln!("quotatlas: {error:#}");
@@ -70,6 +78,25 @@ async fn main() {
         }
     };
     std::process::exit(code);
+}
+
+/// `quotatlas claude|codex [--account <name>] <args...>`, read without clap.
+/// `None` for anything else, and for `--help`, which clap answers.
+fn agent_command(argv: &[OsString]) -> Option<Command> {
+    let (which, rest) = (argv.get(1)?.to_str()?, argv.get(2..).unwrap_or_default());
+    let make: fn(AgentArgs) -> Command = match which {
+        "claude" => Command::Claude,
+        "codex" => Command::Codex,
+        _ => return None,
+    };
+    let first = rest.first().and_then(|word| word.to_str());
+    let (account, args) = match first {
+        Some("--help" | "-h") => return None,
+        Some("--account") => (Some(rest.get(1)?.to_string_lossy().into_owned()), &rest[2..]),
+        Some(word) if word.starts_with("--account=") => (Some(word["--account=".len()..].to_string()), &rest[1..]),
+        _ => (None, rest),
+    };
+    Some(make(AgentArgs { account, args: args.to_vec() }))
 }
 
 async fn dispatch(command: Command) -> anyhow::Result<i32> {
@@ -97,9 +124,12 @@ async fn dispatch(command: Command) -> anyhow::Result<i32> {
     }
 }
 
-/// One line per account: the room left in its tightest window, then every window.
+/// One line per account: the room left in its tightest window, then every
+/// window. Stops quietly when the reader goes away (`quotatlas quota | head`).
 async fn print_quota() {
+    use std::io::Write;
     let now = quota::now_secs();
+    let mut out = std::io::stdout().lock();
     for provider in Provider::ALL {
         for account in accounts::list(provider) {
             let windows = match windows_of(&account).await {
@@ -112,17 +142,23 @@ async fn print_quota() {
                         Provider::Claude => format!("no reading yet: use it once through `quotatlas claude --account {}`", account.label),
                         Provider::Codex => "no windows reported".to_string(),
                     };
-                    println!("{:<7} {:<16} {hint}", provider.program(), account.label);
+                    if writeln!(out, "{:<7} {:<16} {hint}", provider.program(), account.label).is_err() {
+                        return;
+                    }
                     continue;
                 }
                 Err(reason) => {
-                    println!("{:<7} {:<16} {reason}", provider.program(), account.label);
+                    if writeln!(out, "{:<7} {:<16} {reason}", provider.program(), account.label).is_err() {
+                        return;
+                    }
                     continue;
                 }
             };
             let left = quota::headroom(&windows, now).map_or("?".to_string(), |left| format!("{left:.0}% left"));
             let detail: Vec<String> = windows.iter().map(|window| describe(window, now)).collect();
-            println!("{:<7} {:<16} {left:<9} {}", provider.program(), account.label, detail.join(" · "));
+            if writeln!(out, "{:<7} {:<16} {left:<9} {}", provider.program(), account.label, detail.join(" · ")).is_err() {
+                return;
+            }
         }
     }
 }
@@ -200,6 +236,21 @@ mod tests {
     fn a_folder_in_place_of_a_command_is_opened() {
         let cli = Cli::try_parse_from(["quotatlas", "."]).unwrap();
         assert!(matches!(cli.command, Command::Folder(words) if words == ["."]));
+    }
+
+    #[test]
+    fn agent_arguments_keep_their_double_dash_and_only_a_leading_account_is_ours() {
+        let argv = |list: &[&str]| list.iter().map(OsString::from).collect::<Vec<_>>();
+        let Some(Command::Claude(agent)) = agent_command(&argv(&["quotatlas", "claude", "--", "-x fix"])) else {
+            panic!("not claude")
+        };
+        assert_eq!((agent.account, agent.args), (None, argv(&["--", "-x fix"])));
+        let Some(Command::Codex(agent)) = agent_command(&argv(&["quotatlas", "codex", "--account=side", "exec", "--account"])) else {
+            panic!("not codex")
+        };
+        assert_eq!((agent.account.as_deref(), agent.args), (Some("side"), argv(&["exec", "--account"])));
+        assert!(agent_command(&argv(&["quotatlas", "claude", "--help"])).is_none());
+        assert!(agent_command(&argv(&["quotatlas", "quota"])).is_none());
     }
 
     #[test]

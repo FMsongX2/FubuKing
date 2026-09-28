@@ -76,9 +76,10 @@ impl Options {
 }
 
 /// The options in `args` with their values, in order: positional words
-/// (prompts, subcommands) and the options named in `drop` are left out.
-/// Everything after `--` is positional.
-pub fn options_only(args: &[OsString], options: &Options, drop: &[&str]) -> Vec<OsString> {
+/// (prompts, subcommands) and the options named in `drop` are left out, and
+/// with `drop_many` so are options that take every following word. Everything
+/// after `--` is positional.
+pub fn options_only(args: &[OsString], options: &Options, drop: &[&str], drop_many: bool) -> Vec<OsString> {
     let is_option = |word: &OsString| word.to_string_lossy().starts_with('-') && word != "-";
     let mut kept = Vec::new();
     let mut i = 0;
@@ -95,10 +96,11 @@ pub fn options_only(args: &[OsString], options: &Options, drop: &[&str]) -> Vec<
             Some((name, _)) => (name.to_string(), true),
             None => (word.clone(), false),
         };
+        let takes = options.takes(&name);
         let mut group = vec![args[i].clone()];
         i += 1;
         if !inline {
-            match options.takes(&name) {
+            match takes {
                 Takes::Nothing => {}
                 Takes::One => {
                     if let Some(value) = args.get(i) {
@@ -120,7 +122,7 @@ pub fn options_only(args: &[OsString], options: &Options, drop: &[&str]) -> Vec<
                 }
             }
         }
-        if !drop.contains(&name.as_str()) {
+        if !drop.contains(&name.as_str()) && !(drop_many && takes == Takes::Many) {
             kept.extend(group);
         }
     }
@@ -130,7 +132,7 @@ pub fn options_only(args: &[OsString], options: &Options, drop: &[&str]) -> Vec<
 /// The first positional word: the subcommand, when the CLI has one.
 pub fn first_word(args: &[OsString], options: &Options) -> Option<String> {
     let all: Vec<OsString> = args.iter().take_while(|w| *w != "--").cloned().collect();
-    let flags = options_only(&all, options, &[]);
+    let flags = options_only(&all, options, &[], false);
     let mut flags = flags.iter().peekable();
     for word in &all {
         if flags.peek() == Some(&word) {
@@ -195,11 +197,14 @@ Options:
         let claude = Options::from_help(CLAUDE_HELP);
         let args = words(&["fix the bug", "--model", "opus", "-r", "abc", "--add-dir", "a", "b", "--dangerously-skip-permissions", "-c"]);
         assert_eq!(
-            options_only(&args, &claude, &["-r", "--resume", "-c", "--continue"]),
+            options_only(&args, &claude, &["-r", "--resume", "-c", "--continue"], false),
             words(&["--model", "opus", "--add-dir", "a", "b", "--dangerously-skip-permissions"])
         );
         let inline = words(&["--model=sonnet", "--", "--not-an-option"]);
-        assert_eq!(options_only(&inline, &claude, &[]), words(&["--model=sonnet"]));
+        assert_eq!(options_only(&inline, &claude, &[], false), words(&["--model=sonnet"]));
+        let codex = Options::from_help(CODEX_HELP);
+        let with_image = words(&["-i", "a.png", "b.png", "-m", "gpt", "task"]);
+        assert_eq!(options_only(&with_image, &codex, &[], true), words(&["-m", "gpt"]));
     }
 
     #[test]

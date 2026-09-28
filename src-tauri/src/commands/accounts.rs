@@ -134,10 +134,15 @@ pub async fn accounts_list(app: AppHandle) -> Vec<AccountView> {
     installed_accounts(&host)
 }
 
-/// Give each profile directory that has no entry one, so an account made with
-/// `quotatlas login` is an agent here too. A provider whose base agent the
+/// Give each profile `quotatlas login` made an entry, once, so an account made
+/// in the CLI is an agent here too. Only a profile still carrying the CLI's
+/// adoption marker counts: an account removed here keeps its profile home and
+/// must stay removed. One adoption runs at a time, so the settings list and a
+/// quota refresh cannot both adopt a profile. A provider whose base agent the
 /// registry does not list yet is left for a later call.
 pub(crate) async fn adopt_cli_profiles(app: &AppHandle, host: &Arc<AgentHost>) {
+    static ADOPTING: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+    let _one_at_a_time = ADOPTING.lock().await;
     let Ok(config_dir) = app.path().app_config_dir() else { return };
     let dir = config_dir.join(ACCOUNTS_DIR);
     let known: Vec<String> = installed_accounts(host).into_iter().map(|account| account.profile_home).collect();
@@ -146,16 +151,21 @@ pub(crate) async fn adopt_cli_profiles(app: &AppHandle, host: &Arc<AgentHost>) {
         let base = provider.base();
         for profile in quotatlas::accounts::list_in(Some(&dir), provider) {
             let Some(home) = profile.home else { continue };
-            if known.contains(&home.to_string_lossy().into_owned()) || host.registry().agent(base).is_none() {
+            let marker = home.join(quotatlas::accounts::ADOPT_MARKER);
+            if !marker.exists() || host.registry().agent(base).is_none() {
                 continue;
             }
-            let id = unique_account_id(base, &profile.label, &host.store().settings());
-            let entry = AgentServerSettings::account(base, &profile.label, provider.profile_env(&home));
-            let settings = super::registry::with_entry(host, &id, entry);
-            match super::registry::persist(host, &super::registry::app_data_dir(app), settings).await {
-                Ok(()) => adopted = true,
-                Err(e) => tracing::warn!(target: "quotatlas::accounts", "adopting {}: {e}", home.display()),
+            if !known.contains(&home.to_string_lossy().into_owned()) {
+                let id = unique_account_id(base, &profile.label, &host.store().settings());
+                let entry = AgentServerSettings::account(base, &profile.label, provider.profile_env(&home));
+                let settings = super::registry::with_entry(host, &id, entry);
+                if let Err(e) = super::registry::persist(host, &super::registry::app_data_dir(app), settings).await {
+                    tracing::warn!(target: "quotatlas::accounts", "adopting {}: {e}", home.display());
+                    continue;
+                }
+                adopted = true;
             }
+            let _ = std::fs::remove_file(&marker);
         }
     }
     if adopted {
