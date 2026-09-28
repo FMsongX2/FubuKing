@@ -1,3 +1,4 @@
+// Modified by Quotatlas from upstream Atlas (Apache-2.0).
 //! Shared memory — the first-look extras `memory_briefing` serves beyond the
 //! record (ADR-0010: memory is pulled, never prepended).
 //!
@@ -48,24 +49,8 @@ pub(crate) const HANDOFF_MAX_CHARS: usize = HANDOFF_MAX_TURNS * (TURN_MAX_CHARS 
 
 // ── Curated pack ─────────────────────────────────────────────────────────────
 
-/// One curated memory from a foreign store, as the briefing carries it.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct PackEntry {
-    /// The frontmatter type: `feedback`, `user`, `project` or `reference`.
-    pub kind: String,
-    pub title: String,
-    /// The body, capped at [`ENTRY_MAX_CHARS`].
-    pub text: String,
-}
-
-/// The tail of the previous session, as the briefing carries it.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Handoff {
-    pub text: String,
-    pub turns: usize,
-    /// `raw`, or `summarized by <provider>/<model>`.
-    pub attribution: String,
-}
+// The pack's and the handoff's shapes, as the briefing carries them.
+pub use atlas_shared_memory::tools::{Handoff, PackEntry};
 
 /// Build the curated pack for a project within `max_chars` of body (at most
 /// [`PACK_MAX_CHARS`]). Async because `collect_corpus` is async (it does its

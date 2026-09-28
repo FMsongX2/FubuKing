@@ -1,3 +1,4 @@
+# Modified by Quotatlas from upstream Atlas (Apache-2.0).
 name: CI
 
 on:
@@ -259,10 +260,14 @@ jobs:
             sandbox: true
           - crate: atlas-redact
             clippy: true
+          - crate: atlas-shared-memory
+            clippy: true
           - crate: atlas-terminal
           - crate: atlas-theme
             clippy: true
           - crate: atlas-thread-metadata
+            clippy: true
+          - crate: quotatlas
             clippy: true
     steps:
       - uses: actions/checkout@v5

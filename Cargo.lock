@@ -699,6 +699,7 @@ dependencies = [
  "atlas-memory",
  "atlas-native-agent",
  "atlas-process",
+ "atlas-shared-memory",
  "atlas-terminal",
  "atlas-theme",
  "atlas-thread-metadata",
@@ -719,6 +720,7 @@ dependencies = [
  "parking_lot",
  "posthog-rs",
  "pulldown-cmark 0.13.4",
+ "quotatlas",
  "reqwest 0.12.28",
  "rig-core",
  "rmcp",
@@ -3353,6 +3355,25 @@ version = "0.1.0"
 dependencies = [
  "regex",
  "serde_json",
+]
+
+[[package]]
+name = "atlas-shared-memory"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "atlas-checkpoint",
+ "atlas-memory",
+ "atlas-process",
+ "futures",
+ "parking_lot",
+ "rmcp",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "tokio",
+ "tracing",
+ "uuid",
 ]
 
 [[package]]
@@ -12421,6 +12442,23 @@ dependencies = [
  "socket2",
  "tracing",
  "windows-sys 0.60.2",
+]
+
+[[package]]
+name = "quotatlas"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "atlas-agent-transcript",
+ "atlas-process",
+ "atlas-shared-memory",
+ "clap",
+ "dirs",
+ "rmcp",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "tokio",
 ]
 
 [[package]]

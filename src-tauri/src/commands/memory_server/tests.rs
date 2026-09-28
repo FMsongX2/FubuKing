@@ -1,3 +1,4 @@
+// Modified by Quotatlas from upstream Atlas (Apache-2.0).
 //! The memory tool server, end to end over loopback with an rmcp client, and
 //! the pure ranking behind the briefing.
 
@@ -15,8 +16,8 @@ use rmcp::transport::StreamableHttpClientTransport;
 use rmcp::{RoleClient, ServiceExt};
 use serde_json::{json, Value};
 
-use super::briefing::{rank_index, score, SessionClocks, SessionReads, INDEX_MAX_ENTRIES};
-use super::tools::{tool_names, tools_list, Bootstrap, BootstrapSource, IndexDoc, IndexEvict, IndexSearch, TOOLS_LIST_TTL_MS};
+use atlas_shared_memory::briefing::{rank_index, score, SessionClocks, SessionReads, INDEX_MAX_ENTRIES};
+use atlas_shared_memory::tools::{tool_names, tools_list, Bootstrap, BootstrapSource, IndexDoc, IndexEvict, IndexSearch, TOOLS_LIST_TTL_MS};
 use super::*;
 use crate::commands::agent_host::SessionLifecycle;
 use crate::commands::memory_pack::{Handoff, PackEntry};
@@ -605,17 +606,17 @@ async fn remembering_something_is_not_consulting_memory() {
 #[test]
 fn every_read_tool_is_a_real_tool_and_no_write_is_in_the_list() {
     let names = tool_names();
-    for read in super::tools::READ_TOOLS {
+    for read in atlas_shared_memory::tools::READ_TOOLS {
         assert!(names.contains(&read), "{read} is not a tool the server has");
     }
     for write in ["memory_remember", "memory_forget"] {
         assert!(
-            !super::tools::READ_TOOLS.contains(&write),
+            !atlas_shared_memory::tools::READ_TOOLS.contains(&write),
             "{write} writes; it must not count as reading"
         );
     }
     assert_eq!(
-        super::tools::READ_TOOLS.len() + 2,
+        atlas_shared_memory::tools::READ_TOOLS.len() + 2,
         names.len(),
         "every tool is either a read or one of the two writes"
     );

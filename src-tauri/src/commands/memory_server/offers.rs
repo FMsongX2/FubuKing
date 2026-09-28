@@ -1,3 +1,4 @@
+// Modified by Quotatlas from upstream Atlas (Apache-2.0).
 //! Handing the server to sessions.
 //!
 //! Every agent that can take the server is handed it on each session request
@@ -13,7 +14,8 @@ use std::sync::Arc;
 use agent_client_protocol::schema::v1 as acp;
 use atlas_agent_servers::{AskFirst, SessionMcpOffer, SessionMcpRequest, SessionMcpServers};
 
-use super::host::{MemoryServerHost, SharingGate};
+use super::host::MemoryServerHost;
+use super::SharingGate;
 use super::MEMORY_SERVER_NAME;
 use crate::commands::org_server::{OrgOffer, OrgOfferDecision, EVERY_TIME_TOOLS, ORG_PATH, ORG_SERVER_NAME, OUTWARD_TOOLS};
 use crate::commands::ui_server::{UiOffer, UiOfferDecision, UI_PATH, UI_SERVER_NAME};

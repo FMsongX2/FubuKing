@@ -124,7 +124,7 @@ fn helper_path() -> Option<PathBuf> {
 #[cfg(target_os = "linux")]
 fn is_quotatlas_binary(path: &std::path::Path) -> bool {
     use std::io::Read;
-    if !is_elf_binary(path) {
+    if !is_native_binary(path) {
         return false;
     }
     if let Ok(mut f) = std::fs::File::open(path) {
@@ -182,20 +182,24 @@ fn system_bin_path() -> Option<PathBuf> {
     None
 }
 
+/// Whether `path` is a compiled executable (ELF, or Mach-O thin or
+/// universal) rather than a script: the `quotatlas` CLI itself, which also
+/// opens folders in the app and must not be replaced by the helper.
 #[cfg(unix)]
-fn is_elf_binary(path: &std::path::Path) -> bool {
+fn is_native_binary(path: &std::path::Path) -> bool {
     use std::io::Read;
-    if let Ok(mut f) = std::fs::File::open(path) {
-        let mut magic = [0u8; 4];
-        if f.read_exact(&mut magic).is_ok() {
-            return magic == [0x7f, b'E', b'L', b'F'];
-        }
-    }
-    false
+    const MAGICS: [[u8; 4]; 4] = [
+        [0x7f, b'E', b'L', b'F'],
+        [0xcf, 0xfa, 0xed, 0xfe],
+        [0xce, 0xfa, 0xed, 0xfe],
+        [0xca, 0xfe, 0xba, 0xbe],
+    ];
+    let mut magic = [0u8; 4];
+    std::fs::File::open(path).and_then(|mut f| f.read_exact(&mut magic)).is_ok() && MAGICS.contains(&magic)
 }
 
 #[cfg(not(unix))]
-fn is_elf_binary(_path: &std::path::Path) -> bool {
+fn is_native_binary(_path: &std::path::Path) -> bool {
     false
 }
 
@@ -235,9 +239,9 @@ fn status_blocking() -> CliStatus {
         };
     }
     let path = helper_path();
-    // If ~/.local/bin/quotatlas is a real compiled ELF binary, report it as installed
+    // If ~/.local/bin/quotatlas is a compiled binary, report it as installed
     if let Some(p) = path.as_deref() {
-        if p.exists() && is_elf_binary(p) {
+        if p.exists() && is_native_binary(p) {
             return CliStatus {
                 installed: true,
                 path: Some(p.to_string_lossy().into_owned()),
@@ -312,10 +316,10 @@ pub async fn cli_install_helper() -> Result<CliStatus, String> {
                 });
             }
 
-            // If ~/.local/bin/quotatlas is an ELF binary (e.g. tarball installed to ~/.local),
-            // never overwrite the real binary with a shell script helper!
+            // If ~/.local/bin/quotatlas is a compiled binary (the quotatlas CLI,
+            // or a tarball install), never overwrite it with the shell helper.
             if let Some(helper) = helper_path() {
-                if helper.exists() && is_elf_binary(&helper) {
+                if helper.exists() && is_native_binary(&helper) {
                     return Some(CliStatus {
                         installed: true,
                         path: Some(helper.to_string_lossy().into_owned()),

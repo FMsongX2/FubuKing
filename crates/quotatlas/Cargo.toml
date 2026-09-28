@@ -1,0 +1,33 @@
+[package]
+name = "quotatlas"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+description = "One memory and usage-limit handoff for Claude Code, Codex and any MCP agent"
+publish = false
+
+[lib]
+name = "quotatlas"
+
+[[bin]]
+name = "quotatlas"
+path = "src/main.rs"
+
+[dependencies]
+anyhow = { workspace = true }
+atlas-agent-transcript = { path = "../atlas-agent-transcript" }
+atlas-process = { path = "../atlas-process" }
+atlas-shared-memory = { path = "../atlas-shared-memory" }
+clap = { workspace = true, features = ["derive"] }
+dirs = { workspace = true }
+rmcp = { workspace = true, features = ["server", "transport-io"] }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+tokio = { workspace = true, features = ["rt-multi-thread", "macros", "process", "io-util", "time", "signal"] }
+
+[dev-dependencies]
+tempfile = { workspace = true }
+
+# The workspace lint table is only real for members that opt in.
+[lints]
+workspace = true

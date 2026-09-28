@@ -1,3 +1,4 @@
+// Modified by Quotatlas from upstream Atlas (Apache-2.0).
 //! Consented import of Claude's auto-memory into shared memory.
 //!
 //! Claude Code keeps its own per-project memory: one markdown file per memory
@@ -248,107 +249,106 @@ fn err(e: anyhow::Error) -> String {
     format!("{e:#}")
 }
 
-impl SharedMemoryStore {
-    /// What importing `dirs` into `project_path`'s scope would write. Reads
-    /// only: nothing in the record changes.
-    pub fn claude_import_preview(&self, project_path: &str, dirs: &[PathBuf]) -> Result<ClaudeImportPreview, String> {
-        let store = store_for(project_path)?;
-        let mut lines: Vec<ImportLine> = Vec::new();
-        // Line id → its index in `lines`: one line per id across sources.
-        let mut seen: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
-        let mut all_imported = !dirs.is_empty();
-        for dir in dirs {
-            let imported = store.import_recorded(&source_name(dir)).map_err(err)?;
-            all_imported &= imported;
-            for m in read_dir(dir) {
-                let id = line_id(m.kind, &m.content);
-                let is_new = !imported && !store.holds_content(m.kind, &m.content).map_err(err)?;
-                if let Some(&at) = seen.get(&id) {
-                    // The same memory in two sources: new if either offers it.
-                    lines[at].is_new |= is_new;
-                    continue;
-                }
-                seen.insert(id.clone(), lines.len());
-                lines.push(ImportLine {
-                    id,
-                    kind: m.kind,
-                    content: m.content,
-                    file: m.file,
-                    claude_type: m.claude_type,
-                    is_new,
-                });
-            }
-        }
-        Ok(ClaudeImportPreview {
-            sources: dirs.iter().map(|d| d.to_string_lossy().into_owned()).collect(),
-            already_imported: all_imported,
-            lines,
-        })
-    }
-
-    /// Import the new lines of `dirs` whose preview id is in `ids`: confidence
-    /// 0.7, source `import:claude`, through the record's usual write (redacted,
-    /// hash identity, near-duplicate merge). Records every source read as
-    /// imported — lines the user left unticked are not offered again — and
-    /// announces the change. Returns how many lines were stored anew (a line
-    /// merged into a near-duplicate does not count). Empty `ids` is a no-op.
-    pub fn claude_import_confirm(&self, project_path: &str, dirs: &[PathBuf], ids: &[String]) -> Result<usize, String> {
-        // Nothing kept is not a consent to import: no write, no gate.
-        if ids.is_empty() {
-            return Ok(0);
-        }
-        let preview = self.claude_import_preview(project_path, dirs)?;
-        let store = store_for(project_path)?;
-        let now = self.now();
-        let wanted: HashSet<&str> = ids.iter().map(String::as_str).collect();
-        let mut written = 0;
-        let mut kinds: Vec<&str> = Vec::new();
-        for line in preview.lines.into_iter().filter(|l| l.is_new && wanted.contains(l.id.as_str())) {
-            let kind = line.kind;
-            let outcome = store
-                .upsert_outcome(NewEntry {
-                    kind,
-                    key: String::new(),
-                    content: line.content,
-                    source: CLAUDE_IMPORT_SOURCE.to_string(),
-                    agent: String::new(),
-                    session_id: String::new(),
-                    confidence: CLAUDE_IMPORT_CONFIDENCE,
-                    at: now,
-                })
-                .map_err(err)?
-                .outcome;
-            // A near-duplicate of a stored memory merges into it: nothing new.
-            if outcome == WriteOutcome::Merged {
+/// What importing `dirs` into `project_path`'s scope would write. Reads
+/// only: nothing in the record changes.
+pub fn claude_import_preview(project_path: &str, dirs: &[PathBuf]) -> Result<ClaudeImportPreview, String> {
+    let store = store_for(project_path)?;
+    let mut lines: Vec<ImportLine> = Vec::new();
+    // Line id → its index in `lines`: one line per id across sources.
+    let mut seen: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
+    let mut all_imported = !dirs.is_empty();
+    for dir in dirs {
+        let imported = store.import_recorded(&source_name(dir)).map_err(err)?;
+        all_imported &= imported;
+        for m in read_dir(dir) {
+            let id = line_id(m.kind, &m.content);
+            let is_new = !imported && !store.holds_content(m.kind, &m.content).map_err(err)?;
+            if let Some(&at) = seen.get(&id) {
+                // The same memory in two sources: new if either offers it.
+                lines[at].is_new |= is_new;
                 continue;
             }
-            written += 1;
-            if !kinds.contains(&kind.as_str()) {
-                kinds.push(kind.as_str());
-            }
+            seen.insert(id.clone(), lines.len());
+            lines.push(ImportLine {
+                id,
+                kind: m.kind,
+                content: m.content,
+                file: m.file,
+                claude_type: m.claude_type,
+                is_new,
+            });
         }
-        for dir in dirs {
-            store.mark_imported(&source_name(dir), now).map_err(err)?;
-        }
-        if !kinds.is_empty() {
-            self.announce(&store, &kinds);
-        }
-        Ok(written)
     }
+    Ok(ClaudeImportPreview {
+        sources: dirs.iter().map(|d| d.to_string_lossy().into_owned()).collect(),
+        already_imported: all_imported,
+        lines,
+    })
+}
+
+/// Import the new lines of `dirs` whose preview id is in `ids`: confidence
+/// 0.7, source `import:claude`, through the record's usual write (redacted,
+/// hash identity, near-duplicate merge). Records every source read as
+/// imported — lines the user left unticked are not offered again — and
+/// announces the change. Returns how many lines were stored anew (a line
+/// merged into a near-duplicate does not count). Empty `ids` is a no-op.
+pub fn claude_import_confirm(
+    memory: &SharedMemoryStore,
+    project_path: &str,
+    dirs: &[PathBuf],
+    ids: &[String],
+) -> Result<usize, String> {
+    // Nothing kept is not a consent to import: no write, no gate.
+    if ids.is_empty() {
+        return Ok(0);
+    }
+    let preview = claude_import_preview(project_path, dirs)?;
+    let store = store_for(project_path)?;
+    let now = memory.now();
+    let wanted: HashSet<&str> = ids.iter().map(String::as_str).collect();
+    let mut written = 0;
+    let mut kinds: Vec<&str> = Vec::new();
+    for line in preview.lines.into_iter().filter(|l| l.is_new && wanted.contains(l.id.as_str())) {
+        let kind = line.kind;
+        let outcome = store
+            .upsert_outcome(NewEntry {
+                kind,
+                key: String::new(),
+                content: line.content,
+                source: CLAUDE_IMPORT_SOURCE.to_string(),
+                agent: String::new(),
+                session_id: String::new(),
+                confidence: CLAUDE_IMPORT_CONFIDENCE,
+                at: now,
+            })
+            .map_err(err)?
+            .outcome;
+        // A near-duplicate of a stored memory merges into it: nothing new.
+        if outcome == WriteOutcome::Merged {
+            continue;
+        }
+        written += 1;
+        if !kinds.contains(&kind.as_str()) {
+            kinds.push(kind.as_str());
+        }
+    }
+    for dir in dirs {
+        store.mark_imported(&source_name(dir), now).map_err(err)?;
+    }
+    if !kinds.is_empty() {
+        memory.announce(&store, &kinds);
+    }
+    Ok(written)
 }
 
 // ── Tauri commands ───────────────────────────────────────────────────────────
 
 /// Preview importing the project's Claude auto-memory. Writes nothing.
 #[tauri::command]
-pub async fn memory_claude_import_preview(
-    project_path: String,
-    store: State<'_, SharedMemoryStore>,
-) -> Result<ClaudeImportPreview, String> {
-    let store = store.inner().clone();
+pub async fn memory_claude_import_preview(project_path: String) -> Result<ClaudeImportPreview, String> {
     tauri::async_runtime::spawn_blocking(move || {
         let dirs = claude_memory_dirs(&project_path);
-        store.claude_import_preview(&project_path, &dirs)
+        claude_import_preview(&project_path, &dirs)
     })
     .await
     .map_err(|e| e.to_string())?
@@ -367,7 +367,7 @@ pub async fn memory_claude_import_confirm(
     let cwd = project_path.clone();
     let written = tauri::async_runtime::spawn_blocking(move || {
         let dirs = claude_memory_dirs(&project_path);
-        store.claude_import_confirm(&project_path, &dirs, &ids)
+        claude_import_confirm(&store, &project_path, &dirs, &ids)
     })
     .await
     .map_err(|e| e.to_string())??;
@@ -481,7 +481,7 @@ mod tests {
             Arc::new(move |c: &MemoryChanged| heard.lock().push(c.clone()))
         });
 
-        let preview = store.claude_import_preview(&p, &[dir.clone()]).unwrap();
+        let preview = claude_import_preview(&p, &[dir.clone()]).unwrap();
         assert_eq!(
             kinds(&preview),
             [
@@ -503,7 +503,7 @@ mod tests {
         // Cancel = never confirming: the record is untouched.
         assert!(store.entries(&p).is_empty());
         assert!(heard.lock().is_empty());
-        let again = store.claude_import_preview(&p, &[dir]).unwrap();
+        let again = claude_import_preview(&p, &[dir]).unwrap();
         assert!(again.lines.iter().all(|l| l.is_new), "a preview records no import");
     }
 
@@ -516,11 +516,11 @@ mod tests {
             let heard = heard.clone();
             Arc::new(move |c: &MemoryChanged| heard.lock().push(c.clone()))
         });
-        let preview = store.claude_import_preview(&p, &[dir.clone()]).unwrap();
+        let preview = claude_import_preview(&p, &[dir.clone()]).unwrap();
         // The user unticks the dashboard line.
         let ids: Vec<String> = preview.lines.iter().filter(|l| l.file != "dash.md").map(|l| l.id.clone()).collect();
 
-        assert_eq!(store.claude_import_confirm(&p, &[dir], &ids).unwrap(), 4);
+        assert_eq!(claude_import_confirm(&store, &p, &[dir], &ids).unwrap(), 4);
 
         let entries = store.entries(&p);
         assert_eq!(entries.len(), 4);
@@ -543,15 +543,15 @@ mod tests {
     fn a_second_import_of_the_same_source_is_a_no_op() {
         let (store, p, dir) = (SharedMemoryStore::new(), project(), sample());
         let ids = |pv: &ClaudeImportPreview| pv.lines.iter().map(|l| l.id.clone()).collect::<Vec<_>>();
-        let first = store.claude_import_preview(&p, &[dir.clone()]).unwrap();
-        assert_eq!(store.claude_import_confirm(&p, &[dir.clone()], &ids(&first)).unwrap(), 5);
+        let first = claude_import_preview(&p, &[dir.clone()]).unwrap();
+        assert_eq!(claude_import_confirm(&store, &p, &[dir.clone()], &ids(&first)).unwrap(), 5);
         let forgotten = store.entries(&p)[0].id;
         store.forget_entry(&p, forgotten).unwrap();
 
-        let second = store.claude_import_preview(&p, &[dir.clone()]).unwrap();
+        let second = claude_import_preview(&p, &[dir.clone()]).unwrap();
         assert!(second.already_imported);
         assert!(second.lines.iter().all(|l| !l.is_new), "{:?}", second.lines);
-        assert_eq!(store.claude_import_confirm(&p, &[dir], &ids(&second)).unwrap(), 0);
+        assert_eq!(claude_import_confirm(&store, &p, &[dir], &ids(&second)).unwrap(), 0);
         assert_eq!(store.entries(&p).len(), 4);
     }
 
@@ -559,7 +559,7 @@ mod tests {
     /// line the record already holds is still not new.
     #[test]
     fn a_line_the_record_already_holds_is_not_new() {
-        let (store, p, dir) = (SharedMemoryStore::new(), project(), sample());
+        let (p, dir) = (project(), sample());
         crate::commands::shared_memory::store_for(&p)
             .unwrap()
             .upsert(NewEntry {
@@ -573,7 +573,7 @@ mod tests {
                 at: 1,
             })
             .unwrap();
-        let preview = store.claude_import_preview(&p, &[dir]).unwrap();
+        let preview = claude_import_preview(&p, &[dir]).unwrap();
         let prefs = preview.lines.iter().find(|l| l.file == "prefs.md").unwrap();
         assert!(!prefs.is_new);
         assert_eq!(preview.lines.iter().filter(|l| l.is_new).count(), 4);
@@ -591,12 +591,12 @@ mod tests {
         // with Atlas's envelope still around the prompt.
         let dir = claude_dir(&[("recycled.md", "project", "", &injected)]);
 
-        let preview = store.claude_import_preview(&p, &[dir.clone()]).unwrap();
+        let preview = claude_import_preview(&p, &[dir.clone()]).unwrap();
         assert_eq!(preview.lines.len(), 1);
         let line = &preview.lines[0];
         assert_eq!(line.content, "The team prefers bun over npm.");
         let ids = vec![line.id.clone()];
-        store.claude_import_confirm(&p, &[dir], &ids).unwrap();
+        claude_import_confirm(&store, &p, &[dir], &ids).unwrap();
         for e in store.entries(&p) {
             for leaked in ["<atlas-memory>", "SHARED MEMORY", "Use RS256", "Do not save any of it"] {
                 assert!(!e.content.contains(leaked), "{leaked:?} was imported");
@@ -626,8 +626,8 @@ mod tests {
     #[test]
     fn confirming_nothing_leaves_the_source_importable() {
         let (store, p, dir) = (SharedMemoryStore::new(), project(), sample());
-        assert_eq!(store.claude_import_confirm(&p, &[dir.clone()], &[]).unwrap(), 0);
-        let preview = store.claude_import_preview(&p, &[dir]).unwrap();
+        assert_eq!(claude_import_confirm(&store, &p, &[dir.clone()], &[]).unwrap(), 0);
+        let preview = claude_import_preview(&p, &[dir]).unwrap();
         assert!(!preview.already_imported && preview.lines.iter().all(|l| l.is_new));
     }
 
@@ -637,9 +637,9 @@ mod tests {
     fn a_memory_in_two_sources_is_one_line() {
         let (store, p) = (SharedMemoryStore::new(), project());
         let old = claude_dir(&[("a.md", "user", "Prefers small PRs", "")]);
-        store.claude_import_confirm(&p, &[old.clone()], &["nothing-kept".into()]).unwrap();
+        claude_import_confirm(&store, &p, &[old.clone()], &["nothing-kept".into()]).unwrap();
         let fresh = claude_dir(&[("b.md", "user", "Prefers small PRs", "")]);
-        let preview = store.claude_import_preview(&p, &[old, fresh]).unwrap();
+        let preview = claude_import_preview(&p, &[old, fresh]).unwrap();
         assert_eq!(preview.lines.len(), 1);
         assert!(preview.lines[0].is_new);
     }
@@ -648,8 +648,8 @@ mod tests {
     #[test]
     fn no_source_previews_nothing() {
         let (store, p) = (SharedMemoryStore::new(), project());
-        let preview = store.claude_import_preview(&p, &[]).unwrap();
+        let preview = claude_import_preview(&p, &[]).unwrap();
         assert!(preview.lines.is_empty() && preview.sources.is_empty() && !preview.already_imported);
-        assert_eq!(store.claude_import_confirm(&p, &[], &[]).unwrap(), 0);
+        assert_eq!(claude_import_confirm(&store, &p, &[], &[]).unwrap(), 0);
     }
 }

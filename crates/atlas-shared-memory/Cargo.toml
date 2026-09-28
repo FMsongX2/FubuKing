@@ -1,0 +1,29 @@
+[package]
+name = "atlas-shared-memory"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+description = "Shared cross-agent memory: the record facade and its seven MCP tools, served by the desktop app over HTTP and by `quotatlas mcp` over stdio"
+publish = false
+
+[dependencies]
+anyhow = "1"
+atlas-checkpoint = { path = "../atlas-checkpoint" }
+atlas-memory = { path = "../atlas-memory" }
+futures = "0.3"
+parking_lot = "0.12"
+rmcp = { workspace = true, features = ["server"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.10"
+tokio = { version = "1", features = ["rt"] }
+tracing = "0.1"
+
+[dev-dependencies]
+atlas-process = { path = "../atlas-process" }
+tokio = { version = "1", features = ["rt", "macros"] }
+uuid = { version = "1", features = ["v4"] }
+
+# The workspace lint table is only real for members that opt in.
+[lints]
+workspace = true

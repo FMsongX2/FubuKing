@@ -1,3 +1,4 @@
+<!-- Modified by Quotatlas from upstream Atlas (Apache-2.0). -->
 # Atlas architecture
 
 Deep technical reference for Atlas. The README has the pitch and feature list; this has the file paths and invariants.
@@ -184,7 +185,7 @@ The `SessionDelta` shapes those consumers pattern-match live in **`crates/atlas-
 
 ### Atlas's tool servers
 
-Atlas hands agents three in-process MCP services on one loopback listener, behind one bearer token per session: the **memory tool server** (`memory_server/`, `/mcp`, ADR-0010), offered to every agent that advertises HTTP MCP, the **UI tool server** (`ui_server/`, `/ui`, ADR-0012), offered only to a connection that carries **UI control** — today the in-process native connection — and the **organisation tool server** (below). One offer (`MemorySessionOffers`) decides all three, because the token table holds one token per session. A UI tool call crosses to the window as `atlas:ui-action`; the frontend performs it through the app's own openers (`src/features/ui-actions/`) and answers through `ui_action_respond`, so Rust mirrors no layout or focus state. `tests/ui-actions-contract.test.ts` keeps the tool list and the window's dispatcher in step.
+Atlas hands agents three in-process MCP services on one loopback listener, behind one bearer token per session: the **memory tool server** (`memory_server/`, `/mcp`, ADR-0010; its seven tools live in `crates/atlas-shared-memory`, which `quotatlas mcp` also serves over stdio), offered to every agent that advertises HTTP MCP, the **UI tool server** (`ui_server/`, `/ui`, ADR-0012), offered only to a connection that carries **UI control** — today the in-process native connection — and the **organisation tool server** (below). One offer (`MemorySessionOffers`) decides all three, because the token table holds one token per session. A UI tool call crosses to the window as `atlas:ui-action`; the frontend performs it through the app's own openers (`src/features/ui-actions/`) and answers through `ui_action_respond`, so Rust mirrors no layout or focus state. `tests/ui-actions-contract.test.ts` keeps the tool list and the window's dispatcher in step.
 
 ### The organisation tool server
 
@@ -236,6 +237,8 @@ All wired in as `path` dependencies from `src-tauri/Cargo.toml`, and all members
 | `atlas-memory` | On-device RAG/memory engine: MiniLM → usearch HNSW behind a `MemorySearchFn` seam; the shared-memory record store (`record`: SQLite per repository scope, redact-on-write, one-time legacy migration); and global promotion of Facts seen in two or more repositories to `~/.atlas/memory` (`global`). Read its `README.md` and `MIGRATION.md` before changing on-disk index formats. |
 | `atlas-embed` | On-device text embeddings (BERT-family sentence-transformers) and a small vector store, isolated so `candle`'s heavy dependency tree doesn't slow everything else's incremental builds. Embedding only — on-device generation was removed 2026-08-22. |
 | `atlas-codeindex` | Deterministic codebase scanner: turns live source into structural, embeddable docs via its own tree-sitter code intelligence (Rust/TS/TSX/JS/Python/Go). |
+| `atlas-shared-memory` | Shared memory without a host: the facade over each scope's record (`store`), the session briefing (`briefing`) and the seven MCP tools as an rmcp handler (`tools`). The app serves them over loopback HTTP; `quotatlas mcp` over stdio. Several processes may write one scope, so the record's write transactions begin IMMEDIATE. |
+| `quotatlas` | The `quotatlas` CLI and its library: accounts as profile directories under `<app-config-dir>/accounts/`, the quota readers the app also uses, `quotatlas claude`/`codex` (run under the account with the most room, attach shared memory, resume a session on another account when it stops on a usage limit) and `quotatlas mcp`. |
 | `atlas-kb-server` | Standalone static-server binary produced by the knowledge base's "Export server" action. Embeds the exported HTML/CSS via `include_dir!`, serves on `localhost:4747`. |
 
 ## Persistence
@@ -332,6 +335,8 @@ atlas/
 │   ├── atlas-memory               on-device RAG/memory engine
 │   ├── atlas-embed                on-device embeddings (candle)
 │   ├── atlas-codeindex            tree-sitter codebase scanner
+│   ├── atlas-shared-memory        shared-memory facade + the seven MCP tools
+│   ├── quotatlas                  the quotatlas CLI: accounts, quota, handoff, mcp
 │   └── atlas-kb-server            self-contained KB static-server binary
 │
 ├── vendor/                        vendored source, workspace members

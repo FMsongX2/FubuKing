@@ -14,61 +14,23 @@
 //! is the ordinary `acp_registry_uninstall`; the profile home is kept so a
 //! reinstalled account finds its login again.
 
-use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use atlas_acp_thread::AgentId;
 use atlas_agent_store::{AgentServerSettings, AllAgentServersSettings};
+use quotatlas::accounts::{slug, ACCOUNTS_DIR};
 use serde::Serialize;
 use tauri::{AppHandle, Manager};
 
 use super::agent_host::AgentHost;
 
+/// Which CLI an account belongs to. Shared with the `quotatlas` CLI, which
+/// finds the same accounts by their profile directories.
+pub use quotatlas::accounts::Provider as AccountProvider;
+
 /// Longest label accepted, in characters. Long enough for "client-a staging".
 const MAX_LABEL_CHARS: usize = 40;
-
-/// Directory under the app config dir holding one profile home per account.
-const ACCOUNTS_DIR: &str = "accounts";
-
-/// Which CLI an account's base agent drives, and therefore which variable
-/// selects its profile.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "kebab-case")]
-pub enum AccountProvider {
-    Claude,
-    Codex,
-}
-
-impl AccountProvider {
-    /// The provider for a base agent id, or `None` when accounts are not
-    /// supported for it. Registry ids first, then the ids a detected install
-    /// uses.
-    pub fn for_base(base: &str) -> Option<Self> {
-        match base {
-            "claude-acp" | "claude-code" => Some(Self::Claude),
-            "codex-acp" | "codex" => Some(Self::Codex),
-            _ => None,
-        }
-    }
-
-    /// The environment that points the CLI at `home`.
-    ///
-    /// Claude also gets `ANTHROPIC_API_KEY` blanked, mirroring the upstream
-    /// env quirk for its registry id: with a key present the CLI bills the key
-    /// instead of the subscription the account logged in with, and the quirk
-    /// is keyed by agent id, so it does not reach an account entry by itself.
-    pub fn profile_env(self, home: &Path) -> HashMap<String, String> {
-        let home = home.to_string_lossy().into_owned();
-        match self {
-            Self::Claude => HashMap::from([
-                ("CLAUDE_CONFIG_DIR".to_string(), home),
-                ("ANTHROPIC_API_KEY".to_string(), String::new()),
-            ]),
-            Self::Codex => HashMap::from([("CODEX_HOME".to_string(), home)]),
-        }
-    }
-}
 
 /// One account as the settings UI lists it.
 #[derive(Debug, Clone, Serialize)]
@@ -83,25 +45,6 @@ pub struct AccountView {
     pub profile_home: String,
     /// The name pickers show, when the registry has resolved the base agent.
     pub display_name: Option<String>,
-}
-
-/// Lowercase ASCII letters, digits and single dashes, for the id suffix.
-fn slug(label: &str) -> String {
-    let mut out = String::new();
-    for ch in label.chars().flat_map(char::to_lowercase) {
-        if ch.is_ascii_alphanumeric() {
-            out.push(ch);
-        } else if !out.is_empty() && !out.ends_with('-') {
-            out.push('-');
-        }
-    }
-    let trimmed = out.trim_end_matches('-');
-    let short: String = trimmed.chars().take(32).collect();
-    if short.is_empty() {
-        "account".to_string()
-    } else {
-        short.trim_end_matches('-').to_string()
-    }
 }
 
 /// `base@slug`, with a numeric suffix when that key is already installed.
@@ -232,32 +175,6 @@ pub async fn accounts_create(
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn providers_are_recognised_by_registry_and_detected_ids() {
-        assert_eq!(AccountProvider::for_base("claude-acp"), Some(AccountProvider::Claude));
-        assert_eq!(AccountProvider::for_base("claude-code"), Some(AccountProvider::Claude));
-        assert_eq!(AccountProvider::for_base("codex-acp"), Some(AccountProvider::Codex));
-        assert_eq!(AccountProvider::for_base("gemini"), None);
-    }
-
-    #[test]
-    fn claude_profiles_select_the_config_dir_and_bill_the_subscription() {
-        let env = AccountProvider::Claude.profile_env(Path::new("/p/work"));
-        assert_eq!(env.get("CLAUDE_CONFIG_DIR").map(String::as_str), Some("/p/work"));
-        assert_eq!(env.get("ANTHROPIC_API_KEY").map(String::as_str), Some(""));
-        let env = AccountProvider::Codex.profile_env(Path::new("/p/side"));
-        assert_eq!(env.get("CODEX_HOME").map(String::as_str), Some("/p/side"));
-        assert_eq!(env.len(), 1);
-    }
-
-    #[test]
-    fn slugs_are_short_lowercase_and_dash_separated() {
-        assert_eq!(slug("Client A  Staging!"), "client-a-staging");
-        assert_eq!(slug("  --  "), "account");
-        assert_eq!(slug("\u{4e16}\u{754c}"), "account");
-        assert_eq!(slug(&"x".repeat(80)).len(), 32);
-    }
 
     #[test]
     fn account_ids_never_collide_with_an_installed_entry() {

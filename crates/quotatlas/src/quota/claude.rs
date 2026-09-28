@@ -5,7 +5,9 @@
 //! and `rate_limits.seven_day` carry `used_percentage` and `resets_at`
 //! (code.claude.com/docs/en/statusline.md). A Quotatlas account's profile gets
 //! a statusLine script that saves that JSON next to it, and Quotatlas reads the
-//! saved copy. The account's login is never read. The figures are as fresh as
+//! saved copy. The default login's settings are not edited; `quotatlas claude`
+//! passes the script per run instead, when the user has no status line of
+//! their own. The account's login is never read. The figures are as fresh as
 //! the account's last turn; the saved file's modification time says how fresh.
 
 use std::io;
@@ -14,6 +16,7 @@ use std::path::{Path, PathBuf};
 use serde_json::{json, Map, Value};
 
 use super::QuotaWindow;
+use crate::accounts::{self, Account};
 
 /// Where the status line script saves Claude Code's status JSON.
 pub const RATE_LIMITS_FILE: &str = "quotatlas-rate-limits.json";
@@ -52,6 +55,45 @@ fn script_path(profile_home: &Path) -> PathBuf {
     profile_home.join(SCRIPT_FILE)
 }
 
+/// Where the default login's readings are saved. Not in `~/.claude`: the
+/// default login's files are the user's, so the script lives in Quotatlas's
+/// own data dir and is handed to Claude Code per run (see `status_line_settings`).
+pub fn default_reading_dir() -> Option<PathBuf> {
+    accounts::app_data_dir().map(|dir| dir.join("claude-default"))
+}
+
+/// Where `account`'s readings are saved.
+pub fn reading_dir(account: &Account) -> Option<PathBuf> {
+    account.home.clone().or_else(default_reading_dir)
+}
+
+/// Write the status line script into `dir` and return its path.
+pub fn write_script(dir: &Path) -> io::Result<PathBuf> {
+    std::fs::create_dir_all(dir)?;
+    let script = script_path(dir);
+    write_atomic(&script, SCRIPT.as_bytes())?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o700))?;
+    }
+    Ok(script)
+}
+
+/// A settings object pointing the status line at `script`, for Claude Code's
+/// `--settings` flag.
+pub fn status_line_settings(script: &Path) -> Value {
+    json!({ "statusLine": { "type": "command", "command": shell_quote(script) } })
+}
+
+/// Whether a settings file sets a status line.
+pub fn sets_status_line(settings_file: &Path) -> bool {
+    std::fs::read_to_string(settings_file)
+        .ok()
+        .and_then(|raw| serde_json::from_str::<Value>(&raw).ok())
+        .is_some_and(|settings| settings.get("statusLine").is_some())
+}
+
 /// Quote a path for the shell that runs the statusLine command. The app
 /// config dir is under "Application Support", so the space is the common case.
 fn shell_quote(path: &Path) -> String {
@@ -63,13 +105,7 @@ fn shell_quote(path: &Path) -> String {
 /// configured themselves in this profile is left alone, and quota for the
 /// account then stays unknown.
 pub fn install_statusline(profile_home: &Path) -> io::Result<()> {
-    let script = script_path(profile_home);
-    write_atomic(&script, SCRIPT.as_bytes())?;
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o700))?;
-    }
+    let script = write_script(profile_home)?;
 
     let settings_path = profile_home.join(SETTINGS_FILE);
     let mut settings = match std::fs::read_to_string(&settings_path) {

@@ -1,3 +1,4 @@
+# Modified by Quotatlas from upstream Atlas (Apache-2.0).
 [package]
 name = "atlas"
 version = "0.3.3"
@@ -117,6 +118,8 @@ atlas-agent-transcript = { path = "../crates/atlas-agent-transcript" }
 atlas-native-agent = { path = "../crates/atlas-native-agent" }
 # Atlas's session history — the only source for the sidebar (ADR-0001).
 atlas-thread-metadata = { path = "../crates/atlas-thread-metadata" }
+# The CLI's library: accounts and the quota readers, shared with the app.
+quotatlas = { path = "../crates/quotatlas" }
 atlas-bus = { path = "../crates/atlas-bus" }
 atlas-artifacts = { path = "../crates/atlas-artifacts" }
 atlas-comms = { path = "../crates/atlas-comms" }
@@ -133,6 +136,7 @@ atlas-embed = { path = "../crates/atlas-embed" }
 # layer owns the per-project engine registry + background indexer
 # (`commands::memory_indexer`); the crate itself stays Tauri-free.
 atlas-memory = { path = "../crates/atlas-memory" }
+atlas-shared-memory = { path = "../crates/atlas-shared-memory" }
 # Deterministic codebase scanner (tree-sitter). Feeds the Memory-Chat RAG
 # with up-to-date source structure. Drives `commands::codebase_index`.
 atlas-codeindex = { path = "../crates/atlas-codeindex" }

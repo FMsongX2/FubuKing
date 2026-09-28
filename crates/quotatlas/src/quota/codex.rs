@@ -383,7 +383,7 @@ mod tests {
 
     /// Against the real Codex CLI and its default login. Ignored by default:
     /// it needs `codex` on PATH and a signed-in account. Run with
-    /// `cargo test --lib quota::codex -- --ignored --nocapture`.
+    /// `cargo test -p quotatlas --lib quota::codex -- --ignored --nocapture`.
     #[tokio::test]
     #[ignore = "needs a signed-in Codex CLI"]
     async fn reads_the_default_login_live() {

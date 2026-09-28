@@ -1,3 +1,4 @@
+// Modified by Quotatlas from upstream Atlas (Apache-2.0).
 //! The running server, and the app-level host that owns it.
 
 use std::net::SocketAddr;
@@ -8,30 +9,13 @@ use rmcp::transport::streamable_http_server::session::local::LocalSessionManager
 use rmcp::transport::{StreamableHttpServerConfig, StreamableHttpService};
 use tokio::sync::oneshot;
 
-use super::briefing::{SessionClocks, SessionReads};
-use super::tokens::{require_token, MemoryTokens};
-use super::tools::{BootstrapSource, IndexEvict, IndexSearch, MemoryTools};
+use atlas_shared_memory::briefing::{SessionClocks, SessionReads};
+use atlas_shared_memory::tools::{Caller, CallerOf, MemoryTools, SharingGate, Sources};
+use rmcp::service::{RequestContext, RoleServer};
+
+use super::tokens::{require_token, Grant, MemoryTokens};
 use super::MCP_PATH;
 use crate::commands::shared_memory::SharedMemoryStore;
-
-/// Whether shared memory is switched on for a launch directory (the Memory
-/// panel's sharing toggle). Checked on every tool call, so flipping it off
-/// mid-session takes effect at once.
-pub type SharingGate = Arc<dyn Fn(&str) -> bool + Send + Sync>;
-
-/// What the tools answer from beyond the record: the project's indexed
-/// documents (`memory_search`) and the first-look extras (`memory_briefing`:
-/// the curated pack read from foreign stores, and the recent-session
-/// handoff). Both are seams into the app; a server without them answers from
-/// the record alone.
-#[derive(Clone, Default)]
-pub struct Sources {
-    pub index: Option<IndexSearch>,
-    pub bootstrap: Option<BootstrapSource>,
-    /// Drop one document from the index now (`memory_forget`). Without it a
-    /// forgotten entry's text stays retrievable until the next corpus pass.
-    pub evict: Option<IndexEvict>,
-}
 
 /// The running server. Dropping it (or [`shutdown`](Self::shutdown)) stops it.
 pub struct MemoryServer {
@@ -70,7 +54,7 @@ impl MemoryServer {
     ) -> std::io::Result<Self> {
         let listener = tokio::net::TcpListener::bind(("127.0.0.1", 0)).await?;
         let addr = listener.local_addr()?;
-        let tools = MemoryTools::new(memory, gate, clocks, reads, sources);
+        let tools = MemoryTools::new(memory, gate, clocks, reads, sources, token_caller());
         let service = StreamableHttpService::new(
             move || Ok(tools.clone()),
             Arc::new(LocalSessionManager::default()),
@@ -201,4 +185,14 @@ impl MemoryServerHost {
     pub(crate) fn adopt(&self, server: MemoryServer) {
         let _ = self.server.set(server);
     }
+}
+
+/// The caller behind an HTTP request: the session its bearer token was
+/// minted for, which `require_token` put on the request.
+fn token_caller() -> CallerOf {
+    Arc::new(|context: &RequestContext<RoleServer>| {
+        let parts = context.extensions.get::<axum::http::request::Parts>()?;
+        let grant = parts.extensions.get::<Grant>()?;
+        Some(Caller { session_id: grant.session_id.clone(), agent: grant.agent.clone(), cwd: grant.cwd.clone() })
+    })
 }

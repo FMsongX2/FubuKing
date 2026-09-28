@@ -1,3 +1,4 @@
+// Modified by Quotatlas from upstream Atlas (Apache-2.0).
 //! The shared-memory **record store**: one SQLite database per scope.
 //!
 //! Every agent on a repository — native and ACP — writes into this one record,
@@ -24,10 +25,13 @@
 //! Every write passes through `atlas_redact` before it lands, whoever wrote it.
 //!
 //! **Concurrency.** One connection per scope per process, behind a mutex:
-//! [`open_scope`] hands every caller the same `Arc<RecordStore>` for a root, so
-//! the single-writer invariant is a lock, never cross-process coordination.
-//! Every method is synchronous and may touch disk; async callers run it on the
-//! blocking pool.
+//! [`open_scope`] hands every caller the same `Arc<RecordStore>` for a root.
+//! Other processes may write the same database (the desktop app and each
+//! `quotatlas mcp` server), so every write transaction begins IMMEDIATE: it
+//! takes SQLite's write lock before reading what it will change, and a
+//! concurrent writer waits out the busy timeout instead of failing on a stale
+//! snapshot. Every method is synchronous and may touch disk; async callers run
+//! it on the blocking pool.
 //!
 //! Entry ids are `INTEGER AUTOINCREMENT` and never reused, so a vector index
 //! can key embeddings by entry id; a replaced entry keeps its id.
@@ -49,7 +53,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, MutexGuard, OnceLock, RwLock};
 
 use anyhow::{Context, Result};
-use rusqlite::{params, Connection, OptionalExtension, Transaction};
+use rusqlite::{params, Connection, OptionalExtension, Transaction, TransactionBehavior};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
@@ -457,7 +461,7 @@ impl RecordStore {
             .and_then(|t| self.embed(t));
 
         let mut conn = self.conn();
-        let tx = conn.transaction()?;
+        let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
         let seq = last_seq_tx(&tx)? + 1;
         let row = EventRow {
             seq,
@@ -638,7 +642,7 @@ impl RecordStore {
         let vector = if e.kind.is_durable() { self.embed(&e.content) } else { None };
 
         let mut conn = self.conn();
-        let tx = conn.transaction()?;
+        let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
         let (id, outcome) = match find_identity(&tx, &e)? {
             Some(found) => write_identity(&tx, &e, found)?,
             None => match vector.as_ref().map(|(m, v)| self.near_duplicate(&tx, &e, m, v)).transpose()?.flatten() {
@@ -743,7 +747,7 @@ impl RecordStore {
         let vector = if kind.is_durable() { self.embed(&content) } else { None };
 
         let mut conn = self.conn();
-        let tx = conn.transaction()?;
+        let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
         let Some(old) = tx.query_row("SELECT * FROM entries WHERE id = ?1", [id], entry_from_row).optional()? else {
             return Ok(None);
         };
@@ -797,7 +801,7 @@ impl RecordStore {
     /// surfaces nowhere. Nothing new is logged.
     pub fn forget(&self, id: i64) -> Result<Option<Entry>> {
         let mut conn = self.conn();
-        let tx = conn.transaction()?;
+        let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
         let entry = tx.query_row("SELECT * FROM entries WHERE id = ?1", [id], entry_from_row).optional()?;
         if let Some(e) = &entry {
             tx.execute("DELETE FROM entries WHERE id = ?1", [id])?;
@@ -926,7 +930,7 @@ impl RecordStore {
             return Ok(());
         }
         let mut conn = self.conn();
-        let tx = conn.transaction()?;
+        let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
         for e in entries {
             tx.execute("UPDATE entries SET last_used_at = ?2 WHERE id = ?1", params![e.id, now])?;
         }
@@ -989,7 +993,7 @@ impl RecordStore {
     /// is not refilled from legacy files.
     pub fn clear(&self) -> Result<()> {
         let mut conn = self.conn();
-        let tx = conn.transaction()?;
+        let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
         tx.execute_batch(
             "DELETE FROM events; DELETE FROM entries; DELETE FROM sessions; DELETE FROM entry_vectors; \
              DELETE FROM retracted_events;",

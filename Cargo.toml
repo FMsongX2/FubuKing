@@ -1,3 +1,4 @@
+# Modified by Quotatlas from upstream Atlas (Apache-2.0).
 # Atlas's root cargo workspace.
 #
 # The repo had no `[workspace]` until now, and the reason was real: the old ACP
@@ -43,9 +44,11 @@ members = [
   "crates/atlas-native-agent",
   "crates/atlas-process",
   "crates/atlas-redact",
+  "crates/atlas-shared-memory",
   "crates/atlas-terminal",
   "crates/atlas-theme",
   "crates/atlas-thread-metadata",
+  "crates/quotatlas",
   "src-tauri",
 
   # The vendored engine — see the block below.
@@ -794,11 +797,15 @@ opt-level = 1
 opt-level = 1
 [profile.dev.package.atlas-redact]
 opt-level = 1
+[profile.dev.package.atlas-shared-memory]
+opt-level = 1
 [profile.dev.package.atlas-terminal]
 opt-level = 1
 [profile.dev.package.atlas-theme]
 opt-level = 1
 [profile.dev.package.atlas-thread-metadata]
+opt-level = 1
+[profile.dev.package.quotatlas]
 opt-level = 1
 
 # The vendored engine's members, same reasoning as the stanzas above (#65).

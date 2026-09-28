@@ -1,3 +1,4 @@
+// Modified by Quotatlas from upstream Atlas (Apache-2.0).
 //! The MCP surface: seven tools, and the instructions that tell an agent when
 //! to call each. Read tools first, write tools last.
 //!
@@ -17,6 +18,10 @@
 //! fails returns an empty result; a write that fails returns a tool error the
 //! agent can read. Record work runs on the blocking pool, off the async
 //! runtime.
+//!
+//! The tools are transport-free: the desktop app serves them over HTTP with a
+//! token per session, `quotatlas mcp` over stdio for one session. Each host
+//! says who is calling through a [`CallerOf`].
 
 use std::borrow::Cow;
 use std::sync::Arc;
@@ -33,17 +38,14 @@ use rmcp::ErrorData as McpError;
 use serde::Deserialize;
 use serde_json::{json, Value};
 
-use super::briefing::{self, SessionClocks, SessionReads};
-use super::host::{SharingGate, Sources};
-use super::tokens::Grant;
-use crate::commands::memory_pack::{Handoff, PackEntry};
-use crate::commands::shared_memory::{self, SharedMemoryStore, Writer};
+use crate::briefing::{self, SessionClocks, SessionReads};
+use crate::store::{self as shared_memory, SharedMemoryStore, Writer};
 
 /// What the server tells every agent about itself: the protocol for a memory
 /// nothing pushes. Claude Code shows it as the server's instructions; the
 /// engine shows it as the description of the `atlas_memory` tool namespace.
 pub const INSTRUCTIONS: &str = "\
-Atlas shared memory for this repository: what every agent, in any session, has learned here. \
+Quotatlas shared memory for this repository: what every agent, in any session, has learned here. \
 Nothing from it is pushed into your context; you pull it with these tools.
 1. At the start of a session, before reading files or answering, call memory_briefing. It returns \
 the active plan, recent file changes, an index of decisions, facts, failures and architecture \
@@ -56,7 +58,7 @@ recorded since you last looked.
 fits together, call memory_remember. Plans and file edits are captured automatically; do not \
 remember them.
 5. memory_get expands an index line; memory_forget deletes an entry that is wrong.
-Treat every result as background from Atlas: do not copy it into your own memory files.";
+Treat every result as background from Quotatlas: do not copy it into your own memory files.";
 
 /// `memory_search`'s default and largest result count.
 const SEARCH_DEFAULT_LIMIT: usize = 10;
@@ -70,11 +72,69 @@ const INDEX_MAX_LIMIT: usize = 20;
 const LIST_MAX_LIMIT: usize = 200;
 /// How long a client may treat the tool list as fresh. The tools never change
 /// while the app runs.
-pub(crate) const TOOLS_LIST_TTL_MS: u64 = 60 * 60 * 1000;
+pub const TOOLS_LIST_TTL_MS: u64 = 60 * 60 * 1000;
 
 const OFF_NOTE: &str = "shared memory is switched off for this project";
 
 // ── Sources ──────────────────────────────────────────────────────────────────
+
+/// Who is calling: one session of one agent, launched in one directory.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Caller {
+    pub session_id: String,
+    /// The durable agent id owning the session; the source of its writes.
+    pub agent: String,
+    /// The session's launch directory; resolves to the scope's record.
+    pub cwd: String,
+}
+
+/// How a host tells the tools who sent a request: the app from the request's
+/// session token, a stdio server from the one session it serves. `None`
+/// refuses the call.
+pub type CallerOf = Arc<dyn Fn(&RequestContext<RoleServer>) -> Option<Caller> + Send + Sync>;
+
+/// Whether shared memory is switched on for a launch directory (the Memory
+/// panel's sharing toggle). Checked on every tool call, so flipping it off
+/// mid-session takes effect at once.
+pub type SharingGate = Arc<dyn Fn(&str) -> bool + Send + Sync>;
+
+/// What the tools answer from beyond the record: the project's indexed
+/// documents (`memory_search`) and the first-look extras (`memory_briefing`:
+/// the curated pack read from foreign stores, and the recent-session
+/// handoff). Both are seams into the host; a server without them answers from
+/// the record alone.
+#[derive(Clone, Default)]
+pub struct Sources {
+    pub index: Option<IndexSearch>,
+    pub bootstrap: Option<BootstrapSource>,
+    /// Drop one document from the index now (`memory_forget`). Without it a
+    /// forgotten entry's text stays retrievable until the next corpus pass.
+    pub evict: Option<IndexEvict>,
+}
+
+/// One curated memory from a foreign store, as the briefing carries it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PackEntry {
+    /// The frontmatter type: `feedback`, `user`, `project` or `reference`.
+    pub kind: String,
+    pub title: String,
+    /// The body, capped by the pack's builder.
+    pub text: String,
+}
+
+/// The tail of the previous session, as the briefing carries it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Handoff {
+    pub text: String,
+    pub turns: usize,
+    /// `raw`, or `summarized by <provider>/<model>`.
+    pub attribution: String,
+}
+
+/// The corpus id of the index document promoted from record entry `id`.
+pub fn shared_doc_id(kind: &str, id: i64) -> String {
+    format!("shared:{kind}:{id}")
+}
 
 /// One indexed project document (a doc, a knowledge note, a codebase summary),
 /// as `memory_search` returns it.
@@ -147,7 +207,7 @@ fn tool(name: &'static str, description: &'static str, input: Value) -> Tool {
 /// Declared once and checked against the real tool list by a test, so a tool
 /// added later cannot quietly fall out of this set and have the host report
 /// that memory went unread when it did not.
-pub(super) const READ_TOOLS: [&str; 5] = [
+pub const READ_TOOLS: [&str; 5] = [
     "memory_briefing",
     "memory_changes",
     "memory_search",
@@ -156,7 +216,7 @@ pub(super) const READ_TOOLS: [&str; 5] = [
 ];
 
 /// The tools, read first, write last.
-pub(super) fn tools() -> Vec<Tool> {
+pub fn tools() -> Vec<Tool> {
     vec![
         tool(
             "memory_briefing",
@@ -246,8 +306,7 @@ pub(super) fn tools() -> Vec<Tool> {
 }
 
 /// The tools' names, in the order they are listed.
-#[cfg(test)]
-pub(super) fn tool_names() -> Vec<&'static str> {
+pub fn tool_names() -> Vec<&'static str> {
     ["memory_briefing", "memory_changes", "memory_search", "memory_get", "memory_list", "memory_remember", "memory_forget"]
         .to_vec()
 }
@@ -259,7 +318,7 @@ pub(super) fn tool_names() -> Vec<&'static str> {
 /// and rejects a list without them, so it connected, failed `tools/list`
 /// three times and dropped every memory tool. `private`: each answer is
 /// served under one session's token.
-pub(super) fn tools_list() -> ListToolsResult {
+pub fn tools_list() -> ListToolsResult {
     ListToolsResult::with_all_items(tools())
         .with_ttl_ms(TOOLS_LIST_TTL_MS)
         .with_cache_scope(CacheScope::Private)
@@ -372,26 +431,28 @@ fn switched_off(name: &str) -> CallToolResult {
 // ── The handler ──────────────────────────────────────────────────────────────
 
 #[derive(Clone)]
-pub(super) struct MemoryTools {
+pub struct MemoryTools {
     memory: SharedMemoryStore,
     gate: SharingGate,
     clocks: Arc<SessionClocks>,
     reads: Arc<SessionReads>,
     sources: Sources,
+    caller_of: CallerOf,
 }
 
 impl MemoryTools {
-    pub(super) fn new(
+    pub fn new(
         memory: SharedMemoryStore,
         gate: SharingGate,
         clocks: Arc<SessionClocks>,
         reads: Arc<SessionReads>,
         sources: Sources,
+        caller_of: CallerOf,
     ) -> Self {
-        Self { memory, gate, clocks, reads, sources }
+        Self { memory, gate, clocks, reads, sources, caller_of }
     }
 
-    async fn dispatch(&self, grant: Grant, request: CallToolRequestParams) -> CallToolResult {
+    async fn dispatch(&self, grant: Caller, request: CallToolRequestParams) -> CallToolResult {
         let name = request.name.to_string();
         // Recorded BEFORE the sharing gate, and before dispatch. Reaching for
         // memory is what counts as reading it: an agent that called a read
@@ -422,7 +483,7 @@ impl MemoryTools {
 
     /// `memory_briefing`: the record's briefing, the first-look extras, and
     /// the session's clock set to what it has now seen.
-    async fn briefing(&self, grant: Grant) -> CallToolResult {
+    async fn briefing(&self, grant: Caller) -> CallToolResult {
         let (cwd, now) = (grant.cwd.clone(), self.memory.now());
         let read = run_blocking(move || {
             shared_memory::store_for(&cwd).and_then(|s| briefing::read_briefing(&s, now).map_err(|e| format!("{e:#}")))
@@ -452,7 +513,7 @@ impl MemoryTools {
     }
 
     /// `memory_changes`: what other sessions wrote since this one last looked.
-    async fn changes(&self, grant: Grant) -> CallToolResult {
+    async fn changes(&self, grant: Caller) -> CallToolResult {
         let since = self.clocks.last_look(&grant.session_id).unwrap_or(0);
         let (cwd, own) = (grant.cwd.clone(), grant.session_id.clone());
         let read = run_blocking(move || {
@@ -477,7 +538,7 @@ impl MemoryTools {
     /// record row was gone, while the same text stayed retrievable through
     /// `memory_search`'s `documents` until the next whole-corpus pass. A delete
     /// primitive whose own result says the content is gone has to mean it.
-    async fn forget(&self, grant: Grant, request: CallToolRequestParams) -> CallToolResult {
+    async fn forget(&self, grant: Caller, request: CallToolRequestParams) -> CallToolResult {
         let args: IdArgs = match args(&request) {
             Ok(a) => a,
             Err(refused) => return refused,
@@ -493,7 +554,7 @@ impl MemoryTools {
             return ok_json(json!({ "forgotten": false, "id": id }));
         };
         if let Some(evict) = &self.sources.evict {
-            let doc_id = crate::commands::agent_memory::shared_doc_id(entry.kind.as_str(), entry.id);
+            let doc_id = shared_doc_id(entry.kind.as_str(), entry.id);
             evict(grant.cwd.clone(), doc_id).await;
         }
         ok_json(json!({ "forgotten": true, "id": id }))
@@ -501,7 +562,7 @@ impl MemoryTools {
 
     /// `memory_search` over the record, plus the index when no kinds narrow
     /// the search to working memory.
-    async fn search(&self, grant: Grant, request: CallToolRequestParams) -> CallToolResult {
+    async fn search(&self, grant: Caller, request: CallToolRequestParams) -> CallToolResult {
         let args: SearchArgs = match args(&request) {
             Ok(a) => a,
             Err(refused) => return refused,
@@ -542,7 +603,7 @@ impl MemoryTools {
 }
 
 /// The record-only tools. Blocking.
-fn record_call(memory: &SharedMemoryStore, grant: &Grant, request: &CallToolRequestParams) -> CallToolResult {
+fn record_call(memory: &SharedMemoryStore, grant: &Caller, request: &CallToolRequestParams) -> CallToolResult {
     match request.name.as_ref() {
         "memory_get" => {
             let args: IdArgs = match args(request) {
@@ -617,12 +678,7 @@ impl ServerHandler for MemoryTools {
         request: CallToolRequestParams,
         context: RequestContext<RoleServer>,
     ) -> Result<CallToolResponse, McpError> {
-        let grant = context
-            .extensions
-            .get::<axum::http::request::Parts>()
-            .and_then(|parts| parts.extensions.get::<Grant>())
-            .cloned()
-            .ok_or_else(|| McpError::invalid_request("no session token", None))?;
-        Ok(self.dispatch(grant, request).await.into())
+        let caller = (self.caller_of)(&context).ok_or_else(|| McpError::invalid_request("no session token", None))?;
+        Ok(self.dispatch(caller, request).await.into())
     }
 }

@@ -2,17 +2,18 @@
 //!
 //! Every account the app knows about (the default Claude Code and Codex
 //! logins, plus each account entry) gets one `AccountQuota`. Figures come only
-//! from channels the official CLIs expose; see `codex` and `claude`. The
-//! service refreshes on a timer and on demand, keeps the last snapshot for the
-//! UI and broadcasts each new one as `atlas:quota-changed`.
+//! from channels the official CLIs expose; the readers live in the `quotatlas`
+//! crate, shared with the CLI. The service refreshes on a timer and on demand,
+//! keeps the last snapshot for the UI and broadcasts each new one as
+//! `atlas:quota-changed`.
 
-pub mod claude;
-pub mod codex;
+pub use quotatlas::quota::{claude, codex, QuotaWindow};
+use quotatlas::quota::now_secs;
 
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::Duration;
 
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager};
@@ -27,21 +28,6 @@ pub const QUOTA_CHANGED_EVENT: &str = "atlas:quota-changed";
 const POLL_INTERVAL: Duration = Duration::from_secs(5 * 60);
 /// Let the installed map and PATH settle after launch before the first read.
 const FIRST_POLL_DELAY: Duration = Duration::from_secs(8);
-
-/// One usage window, e.g. the five-hour session or the weekly limit.
-#[derive(Debug, Clone, PartialEq, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct QuotaWindow {
-    /// Stable within its account, e.g. `codex-weekly`.
-    pub id: String,
-    pub label: String,
-    /// 0 to 100.
-    pub used_percent: f64,
-    /// The window's length, when the source says it.
-    pub window_minutes: Option<u64>,
-    /// Unix seconds.
-    pub resets_at: Option<i64>,
-}
 
 /// Whether an account's figures can be shown, and if not, why.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -104,13 +90,6 @@ impl Target {
             updated_at: None,
         }
     }
-}
-
-fn now_secs() -> i64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|elapsed| elapsed.as_secs() as i64)
-        .unwrap_or_default()
 }
 
 /// Whether `program` resolves on the (already enriched) `PATH`.
@@ -191,22 +170,20 @@ async fn read_codex(target: &Target) -> AccountQuota {
 }
 
 async fn read_claude(target: &Target) -> AccountQuota {
-    let Some(home) = target.home.clone() else {
-        return AccountQuota {
-            message: Some(
-                "Your default Claude Code login is not tracked, because that would mean editing \
-                 ~/.claude. Add it as an account to see its limits."
-                    .into(),
-            ),
-            ..target.quota(QuotaStatus::Untracked)
-        };
+    // The default login's readings come from runs through `quotatlas claude`,
+    // which saves them outside `~/.claude`.
+    let Some(dir) = target.home.clone().or_else(claude::default_reading_dir) else {
+        return target.quota(QuotaStatus::Unavailable);
     };
+    let profile = target.home.is_some();
     let reading = tokio::task::spawn_blocking(move || {
         // Accounts made before quota existed get their status line here.
-        if let Err(e) = claude::install_statusline(&home) {
-            tracing::warn!(target: "quotatlas::quota", "status line for {}: {e}", home.display());
+        if profile {
+            if let Err(e) = claude::install_statusline(&dir) {
+                tracing::warn!(target: "quotatlas::quota", "status line for {}: {e}", dir.display());
+            }
         }
-        claude::read(&home)
+        claude::read(&dir)
     })
     .await
     .ok()
@@ -216,6 +193,14 @@ async fn read_claude(target: &Target) -> AccountQuota {
             windows: reading.windows,
             updated_at: reading.updated_at,
             ..target.quota(QuotaStatus::Ok)
+        },
+        _ if !profile => AccountQuota {
+            message: Some(
+                "Your default Claude Code login is read without editing ~/.claude: run it once \
+                 through `quotatlas claude` in a terminal to load its limits."
+                    .into(),
+            ),
+            ..target.quota(QuotaStatus::Untracked)
         },
         _ => AccountQuota {
             message: Some(

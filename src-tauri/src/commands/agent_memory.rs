@@ -1,3 +1,4 @@
+// Modified by Quotatlas from upstream Atlas (Apache-2.0).
 //! Agent memory on disk — what each ACP agent persists for the
 //! current project, read-only.
 //!
@@ -432,9 +433,7 @@ fn read_shared_memory_docs(project_path: &str) -> Vec<MemoryDoc> {
 }
 
 /// The corpus id of a record entry's document: `shared:<kind>:<entry id>`.
-pub fn shared_doc_id(kind: &str, id: i64) -> String {
-    format!("shared:{kind}:{id}")
-}
+pub use atlas_shared_memory::tools::shared_doc_id;
 
 /// Build one promoted shared-memory [`MemoryDoc`]. `None` for empty text.
 fn shared_doc(id: u64, agent: &str, kind: &str, text: &str, ts: i64) -> Option<MemoryDoc> {
