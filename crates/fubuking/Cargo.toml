@@ -1,5 +1,5 @@
 [package]
-name = "fubumem"
+name = "fubuking"
 version = "0.1.0"
 edition = "2021"
 license = "Apache-2.0"
@@ -7,10 +7,10 @@ description = "One memory and usage-limit handoff for Claude Code, Codex and any
 publish = false
 
 [lib]
-name = "fubumem"
+name = "fubuking"
 
 [[bin]]
-name = "fubumem"
+name = "fubuking"
 path = "src/main.rs"
 
 [dependencies]

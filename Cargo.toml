@@ -1,4 +1,4 @@
-# Modified by FubuMem from upstream Atlas (Apache-2.0).
+# Modified by FubuKing from upstream Atlas (Apache-2.0).
 # Atlas's root cargo workspace.
 #
 # The repo had no `[workspace]` until now, and the reason was real: the old ACP
@@ -48,7 +48,7 @@ members = [
   "crates/atlas-terminal",
   "crates/atlas-theme",
   "crates/atlas-thread-metadata",
-  "crates/fubumem",
+  "crates/fubuking",
   "src-tauri",
 
   # The vendored engine — see the block below.
@@ -805,7 +805,7 @@ opt-level = 1
 opt-level = 1
 [profile.dev.package.atlas-thread-metadata]
 opt-level = 1
-[profile.dev.package.fubumem]
+[profile.dev.package.fubuking]
 opt-level = 1
 
 # The vendored engine's members, same reasoning as the stanzas above (#65).

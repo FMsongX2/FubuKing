@@ -1,4 +1,4 @@
-// Modified by FubuMem from upstream Atlas (Apache-2.0).
+// Modified by FubuKing from upstream Atlas (Apache-2.0).
 //! Global tracing subscriber installer.
 //!
 //! Routes `tracing::info!` / `warn!` / `error!` calls from anywhere in the
@@ -30,8 +30,8 @@ use tracing_subscriber::EnvFilter;
 
 /// Must match `identifier` in `tauri.conf.json`; the subscriber is installed
 /// before a Tauri handle exists, so the path is derived rather than resolved.
-const BUNDLE_ID: &str = "io.github.fmsongx2.fubumem";
-const LOG_FILE_PREFIX: &str = "fubumem";
+const BUNDLE_ID: &str = "io.github.fmsongx2.fubuking";
+const LOG_FILE_PREFIX: &str = "fubuking";
 const MAX_LOG_FILES: usize = 7;
 
 static LOG_DIR: OnceLock<Option<PathBuf>> = OnceLock::new();

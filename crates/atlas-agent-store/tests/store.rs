@@ -1,4 +1,4 @@
-// Modified by FubuMem from upstream Atlas (Apache-2.0).
+// Modified by FubuKing from upstream Atlas (Apache-2.0).
 //! The store's contract: an agent exists because it is in the installed map,
 //! and for no other reason.
 //!
@@ -615,7 +615,7 @@ async fn a_version_change_with_no_watcher_is_harmless() {
     );
 }
 
-// ------------------------------------------------------- FubuMem: accounts
+// ------------------------------------------------------- FubuKing: accounts
 
 /// An account entry is a second key for one registry agent: it resolves
 /// through `base`, reads with its label, and layers its own environment on

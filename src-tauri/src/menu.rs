@@ -1,4 +1,4 @@
-// Modified by FubuMem from upstream Atlas (Apache-2.0).
+// Modified by FubuKing from upstream Atlas (Apache-2.0).
 //! Native macOS application menu.
 //!
 //! Atlas previously shipped no menu, so Tauri installed its *default* menu —
@@ -29,7 +29,7 @@ pub fn build(app: &tauri::AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
     // App menu (first submenu → becomes the macOS application menu).
     let app_menu = Submenu::with_items(
         app,
-        "FubuMem",
+        "FubuKing",
         true,
         &[
             &PredefinedMenuItem::about(
@@ -37,7 +37,7 @@ pub fn build(app: &tauri::AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
                 None,
                 Some(AboutMetadata {
                     copyright: Some(
-                        "FubuMem contributors. Based on Atlas by Adib Mohsin (Apache-2.0)."
+                        "FubuKing contributors. Based on Atlas by Adib Mohsin (Apache-2.0)."
                             .into(),
                     ),
                     ..AboutMetadata::default()

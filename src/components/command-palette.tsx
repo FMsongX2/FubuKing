@@ -1,4 +1,4 @@
-// Modified by FubuMem from upstream Atlas (Apache-2.0).
+// Modified by FubuKing from upstream Atlas (Apache-2.0).
 import { useState, useMemo, useRef, useEffect, useLayoutEffect, Fragment } from "react";
 import { ActionKbd } from "@/features/keybindings/components/action-kbd";
 import type { ActionId } from "@/features/keybindings/lib/actions";

@@ -3,7 +3,7 @@
   "app": {
     "windows": [
       {
-        "title": "FubuMem",
+        "title": "FubuKing",
         "width": 1280,
         "height": 800,
         "minWidth": 960,
@@ -42,7 +42,7 @@
           "libglib2.0-0"
         ],
         "provides": [
-          "fubumem"
+          "fubuking"
         ]
       },
       "rpm": {
@@ -54,7 +54,7 @@
           "glib2"
         ],
         "provides": [
-          "fubumem"
+          "fubuking"
         ]
       },
       "appimage": {

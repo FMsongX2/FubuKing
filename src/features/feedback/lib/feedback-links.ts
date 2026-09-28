@@ -1,12 +1,12 @@
-// Modified by FubuMem from upstream Atlas (Apache-2.0).
+// Modified by FubuKing from upstream Atlas (Apache-2.0).
 // External destinations from the feedback panel footer.
 
 import { openUrl } from "@tauri-apps/plugin-opener";
 import type { FeedbackCategory } from "./feedback-api";
-import { FUBUMEM_DISCUSSIONS_URL, FUBUMEM_ISSUES_URL } from "@/lib/fubumem";
+import { FUBUKING_DISCUSSIONS_URL, FUBUKING_ISSUES_URL } from "@/lib/fubuking";
 
-export const DISCORD_URL = FUBUMEM_DISCUSSIONS_URL;
-const ISSUE_BASE = `${FUBUMEM_ISSUES_URL}/new`;
+export const DISCORD_URL = FUBUKING_DISCUSSIONS_URL;
+const ISSUE_BASE = `${FUBUKING_ISSUES_URL}/new`;
 
 const PREFIX: Record<FeedbackCategory, string> = {
   issue: "[Bug]",
@@ -39,7 +39,7 @@ export function issueUrl(category: FeedbackCategory, message: string): string {
   const title = `${PREFIX[category]} ${first}`;
   const description =
     `${text.slice(0, MAX_BODY)}\n\n---\n` +
-    `_Filed from FubuMem → Send feedback._\n` +
+    `_Filed from FubuKing → Send feedback._\n` +
     `_Attached a screenshot? Drag it in here — a link can't carry it._`;
   const params = new URLSearchParams({
     template: TEMPLATE[category],

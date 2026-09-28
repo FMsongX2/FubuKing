@@ -1,4 +1,4 @@
-// Modified by FubuMem from upstream Atlas (Apache-2.0).
+// Modified by FubuKing from upstream Atlas (Apache-2.0).
 import { useEffect, useMemo, useState } from "react";
 import { Download, Loader2, Search, Trash2, X } from "lucide-react";
 import { toast } from "sonner";
@@ -91,7 +91,7 @@ export function IconThemesSettings() {
                   </div>
                   <div className="mt-2 flex items-center gap-1 text-3xs uppercase tracking-wide text-muted-foreground">
                     {theme.id === MINIMAL_ICON_THEME_ID ? (
-                      <span>FubuMem defaults</span>
+                      <span>FubuKing defaults</span>
                     ) : theme.builtIn ? (
                       <span>Bundled</span>
                     ) : (

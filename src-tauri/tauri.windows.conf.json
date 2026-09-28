@@ -3,7 +3,7 @@
   "app": {
     "windows": [
       {
-        "title": "FubuMem",
+        "title": "FubuKing",
         "width": 1280,
         "height": 800,
         "minWidth": 960,
@@ -24,8 +24,8 @@
     "targets": [
       "msi"
     ],
-    "publisher": "FubuMem contributors",
-    "homepage": "https://github.com/FMsongX2/FubuMem",
+    "publisher": "FubuKing contributors",
+    "homepage": "https://github.com/FMsongX2/FubuKing",
     "windows": {
       "webviewInstallMode": {
         "type": "downloadBootstrapper",

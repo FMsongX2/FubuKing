@@ -74,7 +74,7 @@ export function AccountsSettings() {
         <p className="mt-0.5 text-2xs text-muted-foreground">
           Run Claude Code or Codex under more than one login. Each account is its own agent in the
           picker, with its own settings and sign-in kept in a private folder. Your existing login
-          stays the default. FubuMem never reads the credentials.
+          stays the default. FubuKing never reads the credentials.
         </p>
       </div>
 

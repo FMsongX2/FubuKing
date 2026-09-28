@@ -1,4 +1,4 @@
-// Modified by FubuMem from upstream Atlas (Apache-2.0).
+// Modified by FubuKing from upstream Atlas (Apache-2.0).
 // Which coding agent a BRAND-NEW chat starts on.
 //
 // The native agent, unconditionally. It is in-process, so it needs no install,
@@ -16,17 +16,17 @@
 // it like any other agent. Nothing here decides that for them.
 
 import { NATIVE_AGENT_ID, type SwitchableAgent } from "@/types/agent";
-import { HOSTED_SERVICES_ENABLED } from "@/lib/fubumem";
+import { HOSTED_SERVICES_ENABLED } from "@/lib/fubuking";
 import { useAgentRegistryStore } from "@/features/agents/stores/agent-registry-store";
 
-/** FubuMem: agents a new chat prefers over the native one, in order. An
+/** FubuKing: agents a new chat prefers over the native one, in order. An
  *  account entry (`claude-acp@work`) counts for its base agent. */
 const PREFERRED_AGENTS = ["claude-acp", "claude-code", "codex-acp", "codex"];
 
 /** The agent a new chat starts on. Synchronous and total: there is nothing to
  *  probe, so there is no "not decided yet".
  *
- *  FubuMem: the native agent runs on Atlas's hosted gateway, which FubuMem
+ *  FubuKing: the native agent runs on Atlas's hosted gateway, which FubuKing
  *  does not use, so a new chat starts on an INSTALLED Claude Code or Codex
  *  agent when there is one. Installed is the whole test — the concern above
  *  was naming an agent the user does not have, and this never does. With

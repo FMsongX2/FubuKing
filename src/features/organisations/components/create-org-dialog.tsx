@@ -1,4 +1,4 @@
-// Modified by FubuMem from upstream Atlas (Apache-2.0).
+// Modified by FubuKing from upstream Atlas (Apache-2.0).
 import { useEffect, useRef, useState } from "react";
 import { Dialog } from "@base-ui/react/dialog";
 import { Building2, Check, Loader2, X } from "lucide-react";
@@ -9,10 +9,10 @@ import { auth } from "@/features/auth/lib/auth-api";
 import { useAuthStore } from "@/features/auth/stores/auth-store";
 import { useOrgStore } from "../stores/org-store";
 import { switchOrg } from "../lib/org-switch";
-import { HOSTED_SERVICES_ENABLED } from "@/lib/fubumem";
+import { HOSTED_SERVICES_ENABLED } from "@/lib/fubuking";
 
 /** The web origin an org handle lives under — shown as the static prefix. */
-// FubuMem: a local handle never becomes a URL on Atlas's servers.
+// FubuKing: a local handle never becomes a URL on Atlas's servers.
 const HANDLE_PREFIX = HOSTED_SERVICES_ENABLED ? "app.tryatlas.cc/" : "@";
 
 /** Don't probe the server until the handle is at least this long. Keeps the
@@ -260,7 +260,7 @@ export function CreateOrgDialog({
 
               {/* Cloud vs local. Signed out there is nothing to sync to, so
                   cloud is unavailable rather than merely unselected.
-                  FubuMem: every organisation is local, so there is no choice. */}
+                  FubuKing: every organisation is local, so there is no choice. */}
               {HOSTED_SERVICES_ENABLED && (
                 <div>
                   <span className="text-xs font-medium text-[var(--secondary-foreground)]">

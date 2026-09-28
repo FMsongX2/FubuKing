@@ -1,4 +1,4 @@
-// Modified by FubuMem from upstream Atlas (Apache-2.0).
+// Modified by FubuKing from upstream Atlas (Apache-2.0).
 //! The store: the installed map, turned into agents.
 //!
 //! Ported from `AgentServerStore` (`agent_server_store.rs:176-489`), and in
@@ -377,7 +377,7 @@ impl AgentServerStore {
                         }
                     }
                     AgentServerSettings::Registry { env, base, label, .. } => {
-                        // FubuMem: an account entry runs its base agent.
+                        // FubuKing: an account entry runs its base agent.
                         let registry_id = base.as_deref().unwrap_or(name.as_str());
                         let Some(agent) = registry_agents.get(registry_id) else {
                             // Installed, but the catalogue has not loaded or no

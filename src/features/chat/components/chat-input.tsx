@@ -1,4 +1,4 @@
-// Modified by FubuMem from upstream Atlas (Apache-2.0).
+// Modified by FubuKing from upstream Atlas (Apache-2.0).
 // CodeMirror 6 composer for the chat input. Replaces what used to be a
 // `<textarea>` in `message-input.tsx`.
 //
@@ -116,7 +116,7 @@ interface ChatInputProps {
 export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function ChatInput(
   {
     initialValue = "",
-    placeholder = "Message FubuMem... (@ to mention, / for commands)",
+    placeholder = "Message FubuKing... (@ to mention, / for commands)",
     onChange,
     onSubmit,
     enterToSend = true,

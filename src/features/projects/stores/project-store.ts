@@ -1,4 +1,4 @@
-// Modified by FubuMem from upstream Atlas (Apache-2.0).
+// Modified by FubuKing from upstream Atlas (Apache-2.0).
 import { create } from "zustand";
 import { invoke } from "@tauri-apps/api/core";
 import { createSelectors } from "@/lib/create-selectors";
@@ -44,7 +44,7 @@ const requireActiveOrgId = (): string | undefined => {
  *  so on screen: the state is not recoverable from inside the app, since the
  *  org switcher hides itself with no active org. */
 const NO_ORG_MESSAGE =
-  "FubuMem couldn't find an organisation to own this. Restart FubuMem and try again.";
+  "FubuKing couldn't find an organisation to own this. Restart FubuKing and try again.";
 
 const refuseWithoutOrg = (summary: string, payload?: Record<string, unknown>): null => {
   logEvent({ source: "project", kind: "project-add-refused", summary, payload });

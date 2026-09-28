@@ -1,4 +1,4 @@
-// Modified by FubuMem from upstream Atlas (Apache-2.0).
+// Modified by FubuKing from upstream Atlas (Apache-2.0).
 import { Dialog } from "@base-ui/react/dialog";
 import { Loader2, AlertTriangle } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -68,7 +68,7 @@ export function UpdateAvailableModal() {
               (error ?? "Something went wrong while installing the update.")
             ) : (
               <>
-                FubuMem{version ? ` ${version}` : ""} has been downloaded. Restart to finish
+                FubuKing{version ? ` ${version}` : ""} has been downloaded. Restart to finish
                 updating.
               </>
             )}
@@ -108,7 +108,7 @@ export function UpdateAvailableModal() {
 
           {!applying && !isError && (
             <p className="mt-3 text-2xs text-muted-foreground leading-relaxed px-1">
-              "Later" installs the update automatically the next time you quit FubuMem.
+              "Later" installs the update automatically the next time you quit FubuKing.
               {isWindows && " Windows will ask for permission to install it."}
             </p>
           )}

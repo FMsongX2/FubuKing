@@ -37,7 +37,7 @@ skills-lock.json
 # pointed at.
 *.md
 !README.md
-!FUBUMEM-CHANGES.md
+!FUBUKING-CHANGES.md
 !TELEMETRY.md
 !CONTRIBUTING.md
 !ARCHITECTURE.md

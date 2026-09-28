@@ -1,20 +1,20 @@
-// Modified by FubuMem from upstream Atlas (Apache-2.0).
-//! FubuMem CLI helper — `~/.local/bin/fubumem`.
+// Modified by FubuKing from upstream Atlas (Apache-2.0).
+//! FubuKing CLI helper — `~/.local/bin/fubuking`.
 //!
 //! Same pattern as `code` (VS Code) or `zed` (Zed): a tiny shell
 //! wrapper the user runs from any terminal to open the current
-//! folder (or any path) as a FubuMem project.
+//! folder (or any path) as a FubuKing project.
 //!
 //! Usage:
-//!   fubumem             open the current directory
-//!   fubumem ./some-dir  open the named directory
-//!   fubumem --version   print the app version
+//!   fubuking             open the current directory
+//!   fubuking ./some-dir  open the named directory
+//!   fubuking --version   print the app version
 //!
 //! The name is distinct from upstream Atlas's `atlas` helper on purpose:
 //! both apps refresh their helper on every launch, so a shared name would
 //! make them overwrite each other.
 //!
-//! Install location is `~/.local/bin/fubumem` because:
+//! Install location is `~/.local/bin/fubuking` because:
 //!   1. macOS GUI launches have a minimal PATH, and the agent spawn path
 //!      already prepends `~/.local/bin` when enriching a child's PATH — so
 //!      anything installed there is reachable from spawned processes too.
@@ -36,7 +36,7 @@ use tauri::State;
 const HELPER_TEMPLATE: &str = include_str!("../../bin/atlas-cli.sh");
 
 /// Per-process state holding a path the CLI helper passed on argv at
-/// launch (e.g. `fubumem ~/Desktop/foo` → `~/Desktop/foo`). Consumed
+/// launch (e.g. `fubuking ~/Desktop/foo` → `~/Desktop/foo`). Consumed
 /// exactly once by `cli_take_initial_project_path` — after that the
 /// frontend's normal hydration path takes over so a window reload
 /// doesn't re-trigger the open.
@@ -75,7 +75,7 @@ pub fn parse_initial_project() -> Option<String> {
 /// there's exactly one positional, it isn't a flag, and it's an existing dir.
 pub fn parse_project_path(args: &[String]) -> Option<String> {
     if args.len() != 1 {
-        // Zero (plain `fubumem`, cwd handled by the shell helper passing `.`)
+        // Zero (plain `fubuking`, cwd handled by the shell helper passing `.`)
         // or multiple args — refuse rather than guess.
         return None;
     }
@@ -100,11 +100,11 @@ pub fn cli_take_initial_project_path(state: State<'_, CliLaunchState>) -> Option
 #[serde(rename_all = "camelCase")]
 pub struct CliStatus {
     pub installed: bool,
-    /// Absolute path of the installed helper (`~/.local/bin/fubumem`).
+    /// Absolute path of the installed helper (`~/.local/bin/fubuking`).
     /// Always Some — points at where it would go if not installed.
     pub path: Option<String>,
     /// Version string read from the installed script's first line
-    /// `# fubumem-cli-version: <version>` marker. None if the file
+    /// `# fubuking-cli-version: <version>` marker. None if the file
     /// exists but the marker is missing (e.g. user-edited or a much
     /// older helper). Used by the Settings UI to show whether the
     /// installed copy matches the current IDE version.
@@ -114,22 +114,22 @@ pub struct CliStatus {
 }
 
 /// File name of the helper and of a system-wide install. One name on every
-/// platform: unlike `atlas`, `fubumem` collides with no distro package.
-const HELPER_NAME: &str = "fubumem";
+/// platform: unlike `atlas`, `fubuking` collides with no distro package.
+const HELPER_NAME: &str = "fubuking";
 
 fn helper_path() -> Option<PathBuf> {
     dirs::home_dir().map(|h| h.join(".local").join("bin").join(HELPER_NAME))
 }
 
 #[cfg(target_os = "linux")]
-fn is_fubumem_binary(path: &std::path::Path) -> bool {
+fn is_fubuking_binary(path: &std::path::Path) -> bool {
     use std::io::Read;
     if !is_native_binary(path) {
         return false;
     }
     if let Ok(mut f) = std::fs::File::open(path) {
         // Must match `identifier` in `tauri.conf.json`.
-        const NEEDLE: &[u8] = b"io.github.fmsongx2.fubumem";
+        const NEEDLE: &[u8] = b"io.github.fmsongx2.fubuking";
         const CHUNK_SIZE: usize = 64 * 1024;
         const MAX_SCAN: usize = 32 * 1024 * 1024;
 
@@ -162,15 +162,15 @@ fn system_bin_path() -> Option<PathBuf> {
     {
         use std::os::unix::fs::PermissionsExt;
         for candidate in [
-            "/usr/bin/fubumem",
-            "/usr/local/bin/fubumem",
-            "/opt/fubumem/bin/fubumem",
+            "/usr/bin/fubuking",
+            "/usr/local/bin/fubuking",
+            "/opt/fubuking/bin/fubuking",
         ] {
             let p = PathBuf::from(candidate);
             if p.is_file() {
                 if let Ok(meta) = p.metadata() {
                     if meta.permissions().mode() & 0o111 != 0 {
-                        if !is_fubumem_binary(&p) {
+                        if !is_fubuking_binary(&p) {
                             continue;
                         }
                         return Some(p);
@@ -183,7 +183,7 @@ fn system_bin_path() -> Option<PathBuf> {
 }
 
 /// Whether `path` is a compiled executable (ELF, or Mach-O thin or
-/// universal) rather than a script: the `fubumem` CLI itself, which also
+/// universal) rather than a script: the `fubuking` CLI itself, which also
 /// opens folders in the app and must not be replaced by the helper.
 #[cfg(unix)]
 fn is_native_binary(path: &std::path::Path) -> bool {
@@ -206,20 +206,20 @@ fn is_native_binary(_path: &std::path::Path) -> bool {
 fn read_installed_version(path: &std::path::Path) -> Option<String> {
     let raw = std::fs::read_to_string(path).ok()?;
     raw.lines()
-        .find_map(|l| l.strip_prefix("# fubumem-cli-version: ").map(|v| v.trim().to_string()))
+        .find_map(|l| l.strip_prefix("# fubuking-cli-version: ").map(|v| v.trim().to_string()))
 }
 
 fn read_installed_appimage(path: &std::path::Path) -> Option<String> {
     let raw = std::fs::read_to_string(path).ok()?;
     raw.lines().find_map(|l| {
-        l.strip_prefix("# fubumem-appimage-path: ")
+        l.strip_prefix("# fubuking-appimage-path: ")
             .map(|v| v.trim().to_string())
             .filter(|v| !v.is_empty())
     })
 }
 
 /// `cli_status` reads files (and on Linux may scan up to 32 MiB of a system
-/// binary in `is_fubumem_binary`), so it runs on the blocking pool rather than
+/// binary in `is_fubuking_binary`), so it runs on the blocking pool rather than
 /// the thread a sync command would occupy.
 #[tauri::command]
 pub async fn cli_status() -> Result<CliStatus, String> {
@@ -239,7 +239,7 @@ fn status_blocking() -> CliStatus {
         };
     }
     let path = helper_path();
-    // If ~/.local/bin/fubumem is a compiled binary, report it as installed
+    // If ~/.local/bin/fubuking is a compiled binary, report it as installed
     if let Some(p) = path.as_deref() {
         if p.exists() && is_native_binary(p) {
             return CliStatus {
@@ -273,7 +273,7 @@ fn status_blocking() -> CliStatus {
     }
 }
 
-/// Write `~/.local/bin/fubumem` with the bundled shell helper, bake
+/// Write `~/.local/bin/fubuking` with the bundled shell helper, bake
 /// the current IDE version in, set the executable bit. Idempotent:
 /// if the file already exists we overwrite, since the whole point of
 /// this command is "make sure the latest helper is installed."
@@ -282,10 +282,10 @@ fn status_blocking() -> CliStatus {
 /// confirmation without a second IPC round-trip.
 #[tauri::command]
 pub async fn cli_install_helper() -> Result<CliStatus, String> {
-    // The helper is a bash script that relaunches FubuMem with `open -n`;
+    // The helper is a bash script that relaunches FubuKing with `open -n`;
     // neither exists on Windows, where it would only shadow the name in Git Bash.
     if cfg!(windows) {
-        return Err("the fubumem CLI helper is not available on Windows yet".to_string());
+        return Err("the fubuking CLI helper is not available on Windows yet".to_string());
     }
     let version = env!("CARGO_PKG_VERSION").to_string();
 
@@ -294,15 +294,15 @@ pub async fn cli_install_helper() -> Result<CliStatus, String> {
     if let Some(status) = tokio::task::spawn_blocking({
         let version = version.clone();
         move || -> Option<CliStatus> {
-            // If FubuMem is already installed system-wide (e.g. /usr/bin/fubumem
+            // If FubuKing is already installed system-wide (e.g. /usr/bin/fubuking
             // on Linux), prevent the user helper from shadowing it, and clean up
-            // an old helper. Only FubuMem's own helper path is ever touched;
+            // an old helper. Only FubuKing's own helper path is ever touched;
             // upstream Atlas's `atlas`/`atl` files are left alone.
             if let Some(sys) = system_bin_path() {
                 if let Some(helper) = helper_path() {
                     if helper.exists() {
                         if let Ok(content) = std::fs::read_to_string(&helper) {
-                            if content.contains("fubumem-cli-version") {
+                            if content.contains("fubuking-cli-version") {
                                 let _ = std::fs::remove_file(&helper);
                             }
                         }
@@ -316,7 +316,7 @@ pub async fn cli_install_helper() -> Result<CliStatus, String> {
                 });
             }
 
-            // If ~/.local/bin/fubumem is a compiled binary (the fubumem CLI,
+            // If ~/.local/bin/fubuking is a compiled binary (the fubuking CLI,
             // or a tarball install), never overwrite it with the shell helper.
             if let Some(helper) = helper_path() {
                 if helper.exists() && is_native_binary(&helper) {
@@ -376,7 +376,7 @@ pub async fn cli_install_helper() -> Result<CliStatus, String> {
 
     tracing::info!(
         target: "atlas::cli",
-        "installed fubumem CLI helper at {} (version {version})",
+        "installed fubuking CLI helper at {} (version {version})",
         path.display()
     );
     cli_status().await

@@ -1,4 +1,4 @@
-# Modified by FubuMem from upstream Atlas (Apache-2.0).
+# Modified by FubuKing from upstream Atlas (Apache-2.0).
 # Kept enabled on purpose. It gives anything that fits neither form somewhere
 # to go, and it keeps a /issues/new?title=…&body=… link that names no
 # `template=` working: with blank issues disabled, GitHub redirects such a link
@@ -7,9 +7,9 @@
 # does not depend on this.
 blank_issues_enabled: true
 contact_links:
-  - name: Question about FubuMem
-    url: https://github.com/FMsongX2/FubuMem/discussions
+  - name: Question about FubuKing
+    url: https://github.com/FMsongX2/FubuKing/discussions
     about: Ask in GitHub Discussions rather than opening an issue.
   - name: Report a security vulnerability
-    url: https://github.com/FMsongX2/FubuMem/security/policy
+    url: https://github.com/FMsongX2/FubuKing/security/policy
     about: Don't open a public issue for a vulnerability. See SECURITY.md for how to report it privately.

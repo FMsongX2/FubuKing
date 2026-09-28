@@ -1,12 +1,12 @@
-//! FubuMem accounts: extra logins of a supported agent, each installed as an
+//! FubuKing accounts: extra logins of a supported agent, each installed as an
 //! agent entry of its own (ADR Q-0002).
 //!
 //! An account is a registry entry with a `base` (the agent it runs), a `label`
 //! and an environment that points the agent's CLI at a private profile home.
-//! The CLI keeps its own settings and credentials there; FubuMem creates the
+//! The CLI keeps its own settings and credentials there; FubuKing creates the
 //! directory and never reads what the CLI writes into it.
 //!
-//! This module is where FubuMem branches on agent identity, because the
+//! This module is where FubuKing branches on agent identity, because the
 //! profile variable is a property of each CLI: Claude Code reads
 //! `CLAUDE_CONFIG_DIR`, the Codex CLI reads `CODEX_HOME`. A Claude profile
 //! also gets the status line script the quota service reads limits through
@@ -19,15 +19,15 @@ use std::sync::Arc;
 
 use atlas_acp_thread::AgentId;
 use atlas_agent_store::{AgentServerSettings, AllAgentServersSettings};
-use fubumem::accounts::{slug, ACCOUNTS_DIR};
+use fubuking::accounts::{slug, ACCOUNTS_DIR};
 use serde::Serialize;
 use tauri::{AppHandle, Manager};
 
 use super::agent_host::AgentHost;
 
-/// Which CLI an account belongs to. Shared with the `fubumem` CLI, which
+/// Which CLI an account belongs to. Shared with the `fubuking` CLI, which
 /// finds the same accounts by their profile directories.
-pub use fubumem::accounts::Provider as AccountProvider;
+pub use fubuking::accounts::Provider as AccountProvider;
 
 /// Longest label accepted, in characters. Long enough for "client-a staging".
 const MAX_LABEL_CHARS: usize = 40;
@@ -126,7 +126,7 @@ pub(crate) fn installed_accounts(host: &AgentHost) -> Vec<AccountView> {
 }
 
 /// Every account entry in the installed map, after adopting the profiles
-/// `fubumem login` made.
+/// `fubuking login` made.
 #[tauri::command]
 pub async fn accounts_list(app: AppHandle) -> Vec<AccountView> {
     let host = app.state::<Arc<AgentHost>>().inner().clone();
@@ -134,7 +134,7 @@ pub async fn accounts_list(app: AppHandle) -> Vec<AccountView> {
     installed_accounts(&host)
 }
 
-/// Give each profile `fubumem login` made an entry, once, so an account made
+/// Give each profile `fubuking login` made an entry, once, so an account made
 /// in the CLI is an agent here too. Only a profile still carrying the CLI's
 /// adoption marker counts: an account removed here keeps its profile home and
 /// must stay removed. One adoption runs at a time, so the settings list and a
@@ -161,9 +161,9 @@ pub(crate) async fn adopt_cli_profiles(app: &AppHandle, host: &Arc<AgentHost>) {
     let mut adopted = false;
     for provider in AccountProvider::ALL {
         let base = provider.base();
-        for profile in fubumem::accounts::list_in(Some(&dir), provider) {
+        for profile in fubuking::accounts::list_in(Some(&dir), provider) {
             let Some(home) = profile.home else { continue };
-            let marker = home.join(fubumem::accounts::ADOPT_MARKER);
+            let marker = home.join(fubuking::accounts::ADOPT_MARKER);
             if !marker.exists() || host.registry().agent(base).is_none() {
                 continue;
             }
@@ -172,7 +172,7 @@ pub(crate) async fn adopt_cli_profiles(app: &AppHandle, host: &Arc<AgentHost>) {
                 let entry = AgentServerSettings::account(base, &profile.label, provider.profile_env(&home));
                 let settings = super::registry::with_entry(host, &id, entry);
                 if let Err(e) = super::registry::persist(host, &super::registry::app_data_dir(app), settings).await {
-                    tracing::warn!(target: "fubumem::accounts", "adopting {}: {e}", home.display());
+                    tracing::warn!(target: "fubuking::accounts", "adopting {}: {e}", home.display());
                     continue;
                 }
                 adopted = true;

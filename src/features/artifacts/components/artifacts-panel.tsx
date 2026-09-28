@@ -1,4 +1,4 @@
-// Modified by FubuMem from upstream Atlas (Apache-2.0).
+// Modified by FubuKing from upstream Atlas (Apache-2.0).
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { RailGlyph } from "@/ui/animated-icon";
 import { Popover } from "@base-ui/react/popover";
@@ -1304,7 +1304,7 @@ function NotEnabled() {
     <div className="flex h-full flex-col items-center justify-center px-8 text-center">
       <h2 className="text-md font-medium text-[var(--foreground)]">Nothing captured yet</h2>
       <p className="mt-1.5 max-w-[420px] text-sm leading-relaxed text-[var(--muted-foreground)]">
-        Turn capture on for a project and FubuMem records what you asked, what the agent did, and
+        Turn capture on for a project and FubuKing records what you asked, what the agent did, and
         which commits came out of it — stored on this machine, with secrets scrubbed before anything
         is written.
       </p>

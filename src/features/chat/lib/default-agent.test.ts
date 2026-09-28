@@ -14,7 +14,7 @@ function withCatalog(entries: Array<{ id: string; installed: boolean }>) {
 
 afterEach(() => useAgentRegistryStore.setState({ catalog: initial }));
 
-describe("the agent a new chat starts on (FubuMem)", () => {
+describe("the agent a new chat starts on (FubuKing)", () => {
   it("falls back to the native agent when nothing is installed", () => {
     withCatalog([{ id: "claude-acp", installed: false }]);
     expect(defaultAgentForNewSession()).toBe(NATIVE_AGENT_ID);

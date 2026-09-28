@@ -1,7 +1,7 @@
-// Modified by FubuMem from upstream Atlas (Apache-2.0).
-//! Global, cross-repository memory under `~/.fubumem/memory/`.
+// Modified by FubuKing from upstream Atlas (Apache-2.0).
+//! Global, cross-repository memory under `~/.fubuking/memory/`.
 //!
-//! FubuMem keeps this apart from upstream Atlas's `~/.atlas/memory/` so the
+//! FubuKing keeps this apart from upstream Atlas's `~/.atlas/memory/` so the
 //! two apps never write one index concurrently.
 //!
 //! A store that outlives any single repository. It is populated by a
@@ -26,7 +26,7 @@
 //! is what remembers every repository a content hash was seen in, so the second
 //! repository to record a Fact is the one that promotes it.
 //!
-//! ## Layout (`~/.fubumem/memory/`)
+//! ## Layout (`~/.fubuking/memory/`)
 //!
 //! - `MEMORY.md` — the human-readable promoted list, kept **< 200 lines**,
 //!   newest-first: `- **[fact]** <content> *(confidence: NN%)*`.
@@ -47,7 +47,7 @@
 //!
 //! We avoid pulling a new `home`/`dirs` dependency: the dir is resolved from the
 //! `ATLAS_GLOBAL_MEMORY_DIR` env override first (used by tests so the real
-//! `~/.fubumem` is never touched), otherwise `$HOME/.fubumem/memory`. All public
+//! `~/.fubuking` is never touched), otherwise `$HOME/.fubuking/memory`. All public
 //! functions have an explicit-`dir` `*_in` sibling so tests can inject a temp dir
 //! without racing on the process-global env var.
 //!
@@ -108,8 +108,8 @@ pub struct Candidate {
 }
 
 /// Resolve the global memory dir: `ATLAS_GLOBAL_MEMORY_DIR` if set, else
-/// `$HOME/.fubumem/memory` (`%USERPROFILE%` on Windows, where `HOME` is normally
-/// unset; falling back to `./.fubumem/memory` if neither is set).
+/// `$HOME/.fubuking/memory` (`%USERPROFILE%` on Windows, where `HOME` is normally
+/// unset; falling back to `./.fubuking/memory` if neither is set).
 pub fn global_dir() -> PathBuf {
     if let Ok(d) = std::env::var(GLOBAL_DIR_ENV) {
         if !d.is_empty() {
@@ -119,7 +119,7 @@ pub fn global_dir() -> PathBuf {
     let home = std::env::var("HOME")
         .or_else(|_| std::env::var("USERPROFILE"))
         .unwrap_or_else(|_| ".".to_string());
-    PathBuf::from(home).join(".fubumem").join("memory")
+    PathBuf::from(home).join(".fubuking").join("memory")
 }
 
 fn ledger_path(dir: &Path) -> PathBuf {

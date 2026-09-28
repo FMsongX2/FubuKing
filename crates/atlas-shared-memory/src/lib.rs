@@ -5,7 +5,7 @@
 //! - [`tools`]: the seven MCP tools and their instructions, as an rmcp
 //!   handler any transport can serve.
 //!
-//! The desktop app serves the tools over loopback HTTP; `fubumem mcp` serves
+//! The desktop app serves the tools over loopback HTTP; `fubuking mcp` serves
 //! them over stdio. Both write the same record, so every agent on a
 //! repository shares one memory whichever way it was started.
 

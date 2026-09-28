@@ -1,4 +1,4 @@
-// Modified by FubuMem from upstream Atlas (Apache-2.0).
+// Modified by FubuKing from upstream Atlas (Apache-2.0).
 //! What a session pulls from the record: the session-start briefing
 //! (`memory_briefing`) and what other sessions recorded since it last looked
 //! (`memory_changes`).

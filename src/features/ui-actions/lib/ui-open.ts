@@ -1,4 +1,4 @@
-// Modified by FubuMem from upstream Atlas (Apache-2.0).
+// Modified by FubuKing from upstream Atlas (Apache-2.0).
 /**
  * `ui_open`: open something and make it the active tab, through the opener
  * the app already uses for it. There is deliberately no project target —

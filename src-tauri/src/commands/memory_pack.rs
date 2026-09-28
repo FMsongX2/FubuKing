@@ -1,4 +1,4 @@
-// Modified by FubuMem from upstream Atlas (Apache-2.0).
+// Modified by FubuKing from upstream Atlas (Apache-2.0).
 //! Shared memory — the first-look extras `memory_briefing` serves beyond the
 //! record (ADR-0010: memory is pulled, never prepended).
 //!

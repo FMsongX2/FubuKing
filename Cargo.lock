@@ -710,7 +710,7 @@ dependencies = [
  "dirs",
  "dotenvy",
  "dunce",
- "fubumem",
+ "fubuking",
  "futures",
  "ignore",
  "mimalloc",
@@ -6801,7 +6801,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "fubumem"
+name = "fubuking"
 version = "0.1.0"
 dependencies = [
  "anyhow",

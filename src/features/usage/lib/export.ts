@@ -1,4 +1,4 @@
-// Modified by FubuMem from upstream Atlas (Apache-2.0).
+// Modified by FubuKing from upstream Atlas (Apache-2.0).
 import { invoke } from "@tauri-apps/api/core";
 import { fmtCost, fmtNum, fmtPct, fmtTokens } from "@/features/monitor/lib/usage-format";
 import { copyText } from "@/lib/clipboard";
@@ -156,7 +156,7 @@ function rankedTable(view: UsageView, g: GroupBy, heading: string): string[] {
 export function buildMarkdown(view: UsageView): string {
   const { totals, eff, sessionCount, resolved } = view;
   const lines: string[] = [];
-  lines.push(`# FubuMem — Usage report`);
+  lines.push(`# FubuKing — Usage report`);
   lines.push("");
   const facetsLine = facetLine(view);
   lines.push(`_${fmtRange(resolved)}${facetsLine ? ` · ${facetsLine}` : ""}_`);

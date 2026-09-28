@@ -1,17 +1,17 @@
 #!/usr/bin/env bash
-# Modified by FubuMem from upstream Atlas (Apache-2.0).
-# fubumem-cli-version: {{VERSION}}
-# fubumem-appimage-path: {{APPIMAGE_PATH}}
+# Modified by FubuKing from upstream Atlas (Apache-2.0).
+# fubuking-cli-version: {{VERSION}}
+# fubuking-appimage-path: {{APPIMAGE_PATH}}
 # {{VERSION}} is substituted at install time from CARGO_PKG_VERSION
 # (src-tauri/Cargo.toml), not tauri.conf.json's `version` field —
 # the two can drift.
 #
-# FubuMem CLI helper. Installed (and refreshed on every launch) by
-# FubuMem at `~/.local/bin/fubumem`. Mirrors the `code` (VS Code) and
-# `zed` (Zed) CLIs: run `fubumem` in a terminal to open the current
-# folder, or `fubumem <path>` to open any directory.
+# FubuKing CLI helper. Installed (and refreshed on every launch) by
+# FubuKing at `~/.local/bin/fubuking`. Mirrors the `code` (VS Code) and
+# `zed` (Zed) CLIs: run `fubuking` in a terminal to open the current
+# folder, or `fubuking <path>` to open any directory.
 #
-# Re-installing FubuMem overwrites this file in place — never hand-edit;
+# Re-installing FubuKing overwrites this file in place — never hand-edit;
 # changes won't survive a launch.
 
 set -e
@@ -20,18 +20,18 @@ cmd="${1:-}"
 
 case "$cmd" in
   --version|-v)
-    echo "fubumem {{VERSION}}"
+    echo "fubuking {{VERSION}}"
     exit 0
     ;;
   --help|-h)
     cat <<'USAGE'
 Usage:
-  fubumem              open the current directory in FubuMem
-  fubumem <path>       open <path> in FubuMem
-  fubumem --version    print the app version
-  fubumem --help       this message
+  fubuking              open the current directory in FubuKing
+  fubuking <path>       open <path> in FubuKing
+  fubuking --version    print the app version
+  fubuking --help       this message
 
-FubuMem opens each invocation as its own window so you can have many
+FubuKing opens each invocation as its own window so you can have many
 projects in flight at once. The folder you pass must exist and be
 readable.
 USAGE
@@ -45,7 +45,7 @@ target="${1:-.}"
 # than `realpath` because realpath isn't on every macOS by default and
 # this is portable.
 if [ ! -d "$target" ]; then
-  echo "fubumem: not a directory: $target" >&2
+  echo "fubuking: not a directory: $target" >&2
   exit 1
 fi
 abs="$(cd "$target" && pwd)"
@@ -72,7 +72,7 @@ is_helper() {
   if [ "$magic" = $'\x7fELF' ] || [ "$magic" = $'\xcf\xfa\xed\xfe' ] || [ "$magic" = $'\xce\xfa\xed\xfe' ] || [ "$magic" = $'\xca\xfe\xba\xbe' ]; then
     return 1
   fi
-  if grep -q "fubumem-cli-version" "$target" 2>/dev/null; then
+  if grep -q "fubuking-cli-version" "$target" 2>/dev/null; then
     return 0
   fi
   if head -n 1 "$target" 2>/dev/null | grep -q '^#!.*sh'; then
@@ -81,15 +81,15 @@ is_helper() {
   return 1
 }
 
-# Find FubuMem.app. macOS first looks in /Applications, then
+# Find FubuKing.app. macOS first looks in /Applications, then
 # ~/Applications, then PATH-y locations via `mdfind`. The latter
 # covers DMG drag-installs to unusual locations.
-# "FubuMem.app" (below and in the LaunchServices fallback) must match
+# "FubuKing.app" (below and in the LaunchServices fallback) must match
 # `productName` in src-tauri/tauri.conf.json.
 app=""
 for candidate in \
-  "/Applications/FubuMem.app" \
-  "$HOME/Applications/FubuMem.app"; do
+  "/Applications/FubuKing.app" \
+  "$HOME/Applications/FubuKing.app"; do
   if [ -d "$candidate" ]; then
     app="$candidate"
     break
@@ -97,7 +97,7 @@ for candidate in \
 done
 if [ -z "$app" ] && command -v mdfind >/dev/null 2>&1; then
   # Identifier must match `identifier` in src-tauri/tauri.conf.json.
-  app="$(mdfind "kMDItemCFBundleIdentifier == 'io.github.fmsongx2.fubumem'" 2>/dev/null | head -n 1)"
+  app="$(mdfind "kMDItemCFBundleIdentifier == 'io.github.fmsongx2.fubuking'" 2>/dev/null | head -n 1)"
 fi
 if [ -z "$app" ] && [ -n "{{APPIMAGE_PATH}}" ] && [ -x "{{APPIMAGE_PATH}}" ]; then
   app="{{APPIMAGE_PATH}}"
@@ -106,8 +106,8 @@ if [ -z "$app" ] && [ -n "${APPIMAGE:-}" ] && [ -x "${APPIMAGE:-}" ]; then
   app="${APPIMAGE}"
 fi
 if [ -z "$app" ]; then
-  for dir in "/usr/bin" "/usr/local/bin" "/opt/fubumem/bin"; do
-    for name in "fubumem"; do
+  for dir in "/usr/bin" "/usr/local/bin" "/opt/fubuking/bin"; do
+    for name in "fubuking"; do
       cand="$dir/$name"
       if [ -x "$cand" ] && ! is_helper "$cand"; then
         app="$cand"
@@ -117,16 +117,16 @@ if [ -z "$app" ]; then
   done
 fi
 if [ -z "$app" ] && [ "$(uname -s)" = "Darwin" ]; then
-  app="FubuMem.app"  # let `open` resolve via LaunchServices as a fallback
+  app="FubuKing.app"  # let `open` resolve via LaunchServices as a fallback
 fi
 
 # On macOS, `-n` forces a fresh process so argv is actually delivered;
-# single-instance intercepts it if FubuMem is already running.
+# single-instance intercepts it if FubuKing is already running.
 # On Linux, exec the binary directly.
 if [ "$(uname -s)" = "Darwin" ]; then
   exec open -na "$app" --args "$abs"
 else
-  # Ensure we never recursively invoke this script itself when installed as ~/.local/bin/fubumem
+  # Ensure we never recursively invoke this script itself when installed as ~/.local/bin/fubuking
   if [ -z "$app" ]; then
     this_script="$(resolve_path "$0")"
     while IFS= read -r candidate; do
@@ -140,11 +140,11 @@ else
       fi
       app="$candidate"
       break
-    done < <(type -ap fubumem 2>/dev/null || true)
+    done < <(type -ap fubuking 2>/dev/null || true)
   fi
 
   if [ -z "$app" ]; then
-    echo "fubumem: could not find a FubuMem installation (searched /usr/bin, /usr/local/bin, /opt/fubumem/bin, and PATH)" >&2
+    echo "fubuking: could not find a FubuKing installation (searched /usr/bin, /usr/local/bin, /opt/fubuking/bin, and PATH)" >&2
     exit 1
   fi
   exec "$app" "$abs"

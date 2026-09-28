@@ -1,4 +1,4 @@
-//! `fubumem mcp`: the shared-memory tools over stdio, for one session of any
+//! `fubuking mcp`: the shared-memory tools over stdio, for one session of any
 //! MCP agent. The tools and the record are the desktop app's own
 //! (`atlas_shared_memory`), so an agent started from a terminal, from Orca or
 //! from the app reads and writes one memory per repository.
@@ -13,7 +13,7 @@ use atlas_shared_memory::tools::{Caller, MemoryTools, Sources};
 use rmcp::ServiceExt;
 
 /// The name the server goes by in each agent's MCP configuration.
-pub const SERVER_NAME: &str = "fubumem";
+pub const SERVER_NAME: &str = "fubuking";
 
 /// Serve until the agent closes stdin. `agent` is recorded as the writer of
 /// everything this session remembers.
@@ -56,7 +56,7 @@ fn sharing_enabled(cwd: &str) -> bool {
 pub fn server_command(agent: &str) -> (String, Vec<String>) {
     let program = std::env::current_exe()
         .map(|exe| exe.to_string_lossy().into_owned())
-        .unwrap_or_else(|_| "fubumem".to_string());
+        .unwrap_or_else(|_| "fubuking".to_string());
     (program, vec!["mcp".into(), "--agent".into(), agent.into()])
 }
 

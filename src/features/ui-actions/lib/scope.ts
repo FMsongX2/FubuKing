@@ -1,4 +1,4 @@
-// Modified by FubuMem from upstream Atlas (Apache-2.0).
+// Modified by FubuKing from upstream Atlas (Apache-2.0).
 /**
  * **Project-scoped** (CONTEXT.md): a UI action acts on the active project's
  * view and never switches projects. A tab another project owns is refused,
@@ -30,7 +30,7 @@ export function tabInScope(tabId: string): Tab {
 
 /** The active project, or a refusal when none is open. */
 export function activeProject(): { name: string; path: string } {
-  return useAppStore.getState().currentProject ?? refuse("no project is open in FubuMem");
+  return useAppStore.getState().currentProject ?? refuse("no project is open in FubuKing");
 }
 
 const join = (base: string, rel: string) =>

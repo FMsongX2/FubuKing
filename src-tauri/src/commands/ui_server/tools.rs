@@ -1,4 +1,4 @@
-// Modified by FubuMem from upstream Atlas (Apache-2.0).
+// Modified by FubuKing from upstream Atlas (Apache-2.0).
 //! The MCP surface of the UI tool server: the tools, their instructions, and
 //! the handler that turns each call into one UI action.
 //!

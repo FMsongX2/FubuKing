@@ -1,9 +1,9 @@
 //! Codex quota, read through the Codex CLI's own app server (ADR Q-0002).
 //!
-//! FubuMem starts `codex app-server --stdio` with the account's
+//! FubuKing starts `codex app-server --stdio` with the account's
 //! `CODEX_HOME` and asks it over line-delimited JSON-RPC for `account/read`
 //! (the plan) and `account/rateLimits/read` (the windows). The CLI answers
-//! from its own login; FubuMem only ever sees the answers. The request
+//! from its own login; FubuKing only ever sees the answers. The request
 //! sequence is the app-server protocol, the same one Quotio's Codex provider
 //! (MIT) uses.
 
@@ -80,7 +80,7 @@ where
         1,
         "initialize",
         json!({
-            "clientInfo": { "name": "fubumem", "version": env!("CARGO_PKG_VERSION") },
+            "clientInfo": { "name": "fubuking", "version": env!("CARGO_PKG_VERSION") },
             "capabilities": { "experimentalApi": false },
         }),
     )
@@ -168,7 +168,7 @@ struct RawAccount {
 }
 
 /// The plan, from `account/read`. No account means no login. Only the plan
-/// is kept: the reply also carries the account's email, which FubuMem has no
+/// is kept: the reply also carries the account's email, which FubuKing has no
 /// use for and drops.
 fn plan_from_account(result: &Value) -> Result<Option<String>, CodexError> {
     let account = result.get("account").filter(|a| !a.is_null()).ok_or(CodexError::SignedOut)?;
@@ -383,7 +383,7 @@ mod tests {
 
     /// Against the real Codex CLI and its default login. Ignored by default:
     /// it needs `codex` on PATH and a signed-in account. Run with
-    /// `cargo test -p fubumem --lib quota::codex -- --ignored --nocapture`.
+    /// `cargo test -p fubuking --lib quota::codex -- --ignored --nocapture`.
     #[tokio::test]
     #[ignore = "needs a signed-in Codex CLI"]
     async fn reads_the_default_login_live() {

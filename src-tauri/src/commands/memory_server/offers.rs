@@ -1,4 +1,4 @@
-// Modified by FubuMem from upstream Atlas (Apache-2.0).
+// Modified by FubuKing from upstream Atlas (Apache-2.0).
 //! Handing the server to sessions.
 //!
 //! Every agent that can take the server is handed it on each session request

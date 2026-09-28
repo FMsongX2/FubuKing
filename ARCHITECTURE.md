@@ -1,4 +1,4 @@
-<!-- Modified by FubuMem from upstream Atlas (Apache-2.0). -->
+<!-- Modified by FubuKing from upstream Atlas (Apache-2.0). -->
 # Atlas architecture
 
 Deep technical reference for Atlas. The README has the pitch and feature list; this has the file paths and invariants.
@@ -185,7 +185,7 @@ The `SessionDelta` shapes those consumers pattern-match live in **`crates/atlas-
 
 ### Atlas's tool servers
 
-Atlas hands agents three in-process MCP services on one loopback listener, behind one bearer token per session: the **memory tool server** (`memory_server/`, `/mcp`, ADR-0010; its seven tools live in `crates/atlas-shared-memory`, which `fubumem mcp` also serves over stdio), offered to every agent that advertises HTTP MCP, the **UI tool server** (`ui_server/`, `/ui`, ADR-0012), offered only to a connection that carries **UI control** — today the in-process native connection — and the **organisation tool server** (below). One offer (`MemorySessionOffers`) decides all three, because the token table holds one token per session. A UI tool call crosses to the window as `atlas:ui-action`; the frontend performs it through the app's own openers (`src/features/ui-actions/`) and answers through `ui_action_respond`, so Rust mirrors no layout or focus state. `tests/ui-actions-contract.test.ts` keeps the tool list and the window's dispatcher in step.
+Atlas hands agents three in-process MCP services on one loopback listener, behind one bearer token per session: the **memory tool server** (`memory_server/`, `/mcp`, ADR-0010; its seven tools live in `crates/atlas-shared-memory`, which `fubuking mcp` also serves over stdio), offered to every agent that advertises HTTP MCP, the **UI tool server** (`ui_server/`, `/ui`, ADR-0012), offered only to a connection that carries **UI control** — today the in-process native connection — and the **organisation tool server** (below). One offer (`MemorySessionOffers`) decides all three, because the token table holds one token per session. A UI tool call crosses to the window as `atlas:ui-action`; the frontend performs it through the app's own openers (`src/features/ui-actions/`) and answers through `ui_action_respond`, so Rust mirrors no layout or focus state. `tests/ui-actions-contract.test.ts` keeps the tool list and the window's dispatcher in step.
 
 ### The organisation tool server
 
@@ -234,11 +234,11 @@ All wired in as `path` dependencies from `src-tauri/Cargo.toml`, and all members
 | `atlas-git` | Git execution layer: one spawn chokepoint over the real `git` binary (so hooks run), a typed stderr→error taxonomy with friendly messages (ported from GitHub Desktop/dugite), porcelain-v2 status parsing, streaming output for long operations. |
 | `atlas-gitdiff` | Structured side-by-side diff engine: parses unified diffs, computes word-level intra-line change spans (word-diff vendored from `dandavison/delta`, MIT). |
 | `atlas-terminal` | Wraps `portable-pty`, manages `TerminalSession`s, bridges PTY bytes to Tauri events. |
-| `atlas-memory` | On-device RAG/memory engine: MiniLM → usearch HNSW behind a `MemorySearchFn` seam; the shared-memory record store (`record`: SQLite per repository scope, redact-on-write, one-time legacy migration); and global promotion of Facts seen in two or more repositories to `~/.fubumem/memory` (`global`). Read its `README.md` and `MIGRATION.md` before changing on-disk index formats. |
+| `atlas-memory` | On-device RAG/memory engine: MiniLM → usearch HNSW behind a `MemorySearchFn` seam; the shared-memory record store (`record`: SQLite per repository scope, redact-on-write, one-time legacy migration); and global promotion of Facts seen in two or more repositories to `~/.fubuking/memory` (`global`). Read its `README.md` and `MIGRATION.md` before changing on-disk index formats. |
 | `atlas-embed` | On-device text embeddings (BERT-family sentence-transformers) and a small vector store, isolated so `candle`'s heavy dependency tree doesn't slow everything else's incremental builds. Embedding only — on-device generation was removed 2026-08-22. |
 | `atlas-codeindex` | Deterministic codebase scanner: turns live source into structural, embeddable docs via its own tree-sitter code intelligence (Rust/TS/TSX/JS/Python/Go). |
-| `atlas-shared-memory` | Shared memory without a host: the facade over each scope's record (`store`), the session briefing (`briefing`) and the seven MCP tools as an rmcp handler (`tools`). The app serves them over loopback HTTP; `fubumem mcp` over stdio. Several processes may write one scope, so the record's write transactions begin IMMEDIATE. |
-| `fubumem` | The `fubumem` CLI and its library: accounts as profile directories under `<app-config-dir>/accounts/`, the quota readers the app also uses, `fubumem claude`/`codex` (run under the account with the most room, attach shared memory, stop a CLI whose account runs out, resume the session on the next account with the first run's options, or brief the other CLI when none has room) and `fubumem mcp`. |
+| `atlas-shared-memory` | Shared memory without a host: the facade over each scope's record (`store`), the session briefing (`briefing`) and the seven MCP tools as an rmcp handler (`tools`). The app serves them over loopback HTTP; `fubuking mcp` over stdio. Several processes may write one scope, so the record's write transactions begin IMMEDIATE. |
+| `fubuking` | The `fubuking` CLI and its library: accounts as profile directories under `<app-config-dir>/accounts/`, the quota readers the app also uses, `fubuking claude`/`codex` (run under the account with the most room, attach shared memory, stop a CLI whose account runs out, resume the session on the next account with the first run's options, or brief the other CLI when none has room) and `fubuking mcp`. |
 | `atlas-kb-server` | Standalone static-server binary produced by the knowledge base's "Export server" action. Embeds the exported HTML/CSS via `include_dir!`, serves on `localhost:4747`. |
 
 ## Persistence
@@ -251,7 +251,7 @@ Most app state is plain files, by design — but **three subsystems are SQLite**
 | Session record / Timeline (checkpoints) | `<project-root>/.atlas/sessions.db` + blob sidecar | `atlas-checkpoint` |
 | Shared memory record (events, entries, sessions) | `<scope-root>/.atlas/memory/memory.sqlite` | `atlas-memory` (`record`) |
 
-`<app-config-dir>` is Tauri's `app_config_dir()` — `~/Library/Application Support/io.github.fmsongx2.fubumem/` on macOS. History is global because threads are grouped *across* projects; the checkpoint record is per-project because a Timeline is about one worktree. Shared memory is per *repository*: its scope root is the main worktree (found through the git common dir), or the launch directory outside git, so every worktree of a repository shares one record.
+`<app-config-dir>` is Tauri's `app_config_dir()` — `~/Library/Application Support/io.github.fmsongx2.fubuking/` on macOS. History is global because threads are grouped *across* projects; the checkpoint record is per-project because a Timeline is about one worktree. Shared memory is per *repository*: its scope root is the main worktree (found through the git common dir), or the launch directory outside git, so every worktree of a repository shares one record.
 
 **Atlas does not read another program's storage to build session history.** The per-agent scrape readers are deleted (ADR-0001). Two deliberate reads of CLI directories remain and are not history: the checkpoint importer, under its own preserved contract, and the memory/skills surfaces, which read instruction files (`CLAUDE.md`, `AGENTS.md`, skills) as documents. `CONTEXT.md` records one flagged exception — the Memory panel's Codex thread list.
 
@@ -336,7 +336,7 @@ atlas/
 │   ├── atlas-embed                on-device embeddings (candle)
 │   ├── atlas-codeindex            tree-sitter codebase scanner
 │   ├── atlas-shared-memory        shared-memory facade + the seven MCP tools
-│   ├── fubumem                  the fubumem CLI: accounts, quota, handoff, mcp
+│   ├── fubuking                  the fubuking CLI: accounts, quota, handoff, mcp
 │   └── atlas-kb-server            self-contained KB static-server binary
 │
 ├── vendor/                        vendored source, workspace members

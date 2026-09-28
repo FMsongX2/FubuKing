@@ -1,4 +1,4 @@
-// Modified by FubuMem from upstream Atlas (Apache-2.0).
+// Modified by FubuKing from upstream Atlas (Apache-2.0).
 //! ACP Marketplace — list/refresh/install/uninstall of external agents.
 //!
 //! Rebuilt on the ported store at Stage 3 of the Zed port. The command names,

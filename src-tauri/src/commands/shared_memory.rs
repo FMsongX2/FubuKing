@@ -1,8 +1,8 @@
-// Modified by FubuMem from upstream Atlas (Apache-2.0).
+// Modified by FubuKing from upstream Atlas (Apache-2.0).
 //! Shared memory's Tauri face: the Shared-tab commands and the session
 //! lifecycle hook. The facade itself, and everything the rest of the app
 //! reaches through this module, is `atlas_shared_memory::store`, which
-//! `fubumem mcp` serves too.
+//! `fubuking mcp` serves too.
 
 use std::sync::Arc;
 

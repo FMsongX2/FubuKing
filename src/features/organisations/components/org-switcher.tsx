@@ -1,4 +1,4 @@
-// Modified by FubuMem from upstream Atlas (Apache-2.0).
+// Modified by FubuKing from upstream Atlas (Apache-2.0).
 import { useMemo, useState } from "react";
 import { Menu as DropdownMenu } from "@base-ui/react/menu";
 import { Dialog } from "@base-ui/react/dialog";
@@ -30,7 +30,7 @@ import { useActionShortcut } from "@/features/keybindings/lib/use-action-shortcu
 import { CreateOrgDialog } from "./create-org-dialog";
 import { MembersModal } from "./members-modal";
 import { isSyncedOrg, type Organisation } from "../types";
-import { HOSTED_SERVICES_ENABLED } from "@/lib/fubumem";
+import { HOSTED_SERVICES_ENABLED } from "@/lib/fubuking";
 
 /** Two-letter avatar seed from an org name. */
 function initials(name: string): string {
@@ -502,7 +502,7 @@ export function OrgSwitcher() {
                 </div>
               )}
 
-              {/* FubuMem: sync needs Atlas's hosted services, so the footer
+              {/* FubuKing: sync needs Atlas's hosted services, so the footer
                *  and its separator go with them. */}
               {HOSTED_SERVICES_ENABLED && (
                 <DropdownMenu.Separator className="h-px shrink-0 bg-border-subtle" />

@@ -1,4 +1,4 @@
-// Modified by FubuMem from upstream Atlas (Apache-2.0).
+// Modified by FubuKing from upstream Atlas (Apache-2.0).
 import type { ReactElement } from "react";
 import { Menu as DropdownMenu } from "@base-ui/react/menu";
 import { Keyboard, LayoutTemplate, LogIn, LogOut, Palette, Settings, Zap } from "lucide-react";
@@ -10,7 +10,7 @@ import type { SettingsSection } from "@/features/settings/stores/settings-nav-st
 import { type AccountUser, type SignedIn, type SignedOut } from "../lib/auth-api";
 import { useAuthStore } from "../stores/auth-store";
 import { AccountAvatar } from "./account-avatar";
-import { HOSTED_SERVICES_ENABLED } from "@/lib/fubumem";
+import { HOSTED_SERVICES_ENABLED } from "@/lib/fubuking";
 
 /**
  * The account menu's destinations.
