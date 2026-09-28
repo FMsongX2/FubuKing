@@ -1,17 +1,17 @@
-<!-- Modified by Quotatlas from upstream Atlas (Apache-2.0). -->
-# Contributing to Quotatlas
+<!-- Modified by FubuMem from upstream Atlas (Apache-2.0). -->
+# Contributing to FubuMem
 
-Quotatlas is a fork of [Atlas](https://github.com/pacifio/atlas) by Adib Mohsin and the Atlas contributors, used under the Apache License 2.0. It is building multi-account quota tracking for Claude Code and Codex on top of Atlas; nearly everything else is Atlas's work. The rules below keep the fork easy to merge with upstream and clear about what it changed.
+FubuMem is a fork of [Atlas](https://github.com/pacifio/atlas) by Adib Mohsin and the Atlas contributors, used under the Apache License 2.0. It is building multi-account quota tracking for Claude Code and Codex on top of Atlas; nearly everything else is Atlas's work. The rules below keep the fork easy to merge with upstream and clear about what it changed.
 
-Ask questions in [GitHub Discussions](https://github.com/FMsongX2/Quotatlas/discussions). Report bugs with the feedback button in the app or the [issue forms](https://github.com/FMsongX2/Quotatlas/issues/new/choose). Report vulnerabilities privately as described in [SECURITY.md](SECURITY.md), never in a public issue.
+Ask questions in [GitHub Discussions](https://github.com/FMsongX2/FubuMem/discussions). Report bugs with the feedback button in the app or the [issue forms](https://github.com/FMsongX2/FubuMem/issues/new/choose). Report vulnerabilities privately as described in [SECURITY.md](SECURITY.md), never in a public issue.
 
 ## Build from source
 
 You need [Bun](https://bun.sh/), [Rust](https://rustup.rs/) stable, and Xcode Command Line Tools on macOS or the MSVC build tools on Windows. Optionally, `mise install` picks up the Bun version pinned in `mise.toml`. To run Claude Code or Codex agents, install the `claude` or `codex` CLI. No API keys, `.env` file or account are needed.
 
 ```bash
-git clone https://github.com/FMsongX2/Quotatlas
-cd Quotatlas
+git clone https://github.com/FMsongX2/FubuMem
+cd FubuMem
 bun install
 bun run dev:app   # the desktop app
 bun run dev       # the frontend alone, in a browser, on a mock backend
@@ -38,12 +38,12 @@ The pre-commit hook runs lint-staged, `bun run typecheck` and `bun run test:cont
 
 ## Fork rules
 
-- Keep internal names. The `atlas-*` crates, the `.atlas/` project directory and the `atlas-agent` storage key stay as they are. Renaming them gains users nothing and makes every upstream merge conflict. Only user-facing surfaces carry the Quotatlas name.
-- Mark every upstream file you modify. Its first line, after a shebang or doctype if it has one, is `Modified by Quotatlas from upstream Atlas (Apache-2.0).` in the file's comment syntax: `// ...` in Rust and TypeScript, `# ...` in YAML and shell, `<!-- ... -->` in Markdown and HTML. A file that cannot hold a comment, such as JSON, is listed in [QUOTATLAS-CHANGES.md](QUOTATLAS-CHANGES.md) instead. Files Quotatlas adds need no notice. This is the change notice Apache-2.0 §4(b) requires; `tests/quotatlas-notices.test.ts` enforces it against the fork base.
-- Put new features in new files, and touch upstream files only where something has to be registered ([Q-0001](docs/adr/q0001-quotatlas-fork-scope.md)).
+- Keep internal names. The `atlas-*` crates, the `.atlas/` project directory and the `atlas-agent` storage key stay as they are. Renaming them gains users nothing and makes every upstream merge conflict. Only user-facing surfaces carry the FubuMem name.
+- Mark every upstream file you modify. Its first line, after a shebang or doctype if it has one, is `Modified by FubuMem from upstream Atlas (Apache-2.0).` in the file's comment syntax: `// ...` in Rust and TypeScript, `# ...` in YAML and shell, `<!-- ... -->` in Markdown and HTML. A file that cannot hold a comment, such as JSON, is listed in [FUBUMEM-CHANGES.md](FUBUMEM-CHANGES.md) instead. Files FubuMem adds need no notice. This is the change notice Apache-2.0 §4(b) requires; `tests/fubumem-notices.test.ts` enforces it against the fork base.
+- Put new features in new files, and touch upstream files only where something has to be registered ([Q-0001](docs/adr/q0001-fubumem-fork-scope.md)).
 - Write code comments in English only.
-- Record decisions as ADRs in `docs/adr/`. Quotatlas ADRs are Q-numbered (`q0001-...`, `q0002-...`; the next is `q0003-...`). Plain-numbered ADRs come from Atlas and keep their numbers.
-- Quotatlas sends no telemetry and uses no hosted services ([TELEMETRY.md](TELEMETRY.md)). A change that adds a network request lists it there.
+- Record decisions as ADRs in `docs/adr/`. FubuMem ADRs are Q-numbered (`q0001-...`, `q0002-...`; the next is `q0003-...`). Plain-numbered ADRs come from Atlas and keep their numbers.
+- FubuMem sends no telemetry and uses no hosted services ([TELEMETRY.md](TELEMETRY.md)). A change that adds a network request lists it there.
 
 Otherwise, follow the patterns already in the codebase: a feature folder under `src/features/<feature>/`, Zustand stores wrapped in `createSelectors`, Tailwind composed through `cn()`, and IPC verbs grouped into one `commands/<domain>.rs`. [ARCHITECTURE.md](ARCHITECTURE.md) describes how the layers fit together.
 
@@ -55,7 +55,7 @@ Fork the repository, branch from `main`, and open the PR against `main`. The [PR
 
 ## Merging upstream Atlas releases
 
-Atlas tags its releases `alpha-X.Y.Z`, and Quotatlas takes them by merging the tag. Dependency updates arrive the same way; Quotatlas runs no Dependabot, because its bump PRs would conflict with these merges.
+Atlas tags its releases `alpha-X.Y.Z`, and FubuMem takes them by merging the tag. Dependency updates arrive the same way; FubuMem runs no Dependabot, because its bump PRs would conflict with these merges.
 
 ```bash
 git remote add upstream https://github.com/pacifio/atlas   # once
@@ -64,10 +64,10 @@ git checkout -b atlas-X.Y.Z main
 git merge alpha-X.Y.Z
 ```
 
-Resolve conflicts so that every file Quotatlas changed keeps its change and its notice. In the same merge, set `FORK_BASE` in `tests/quotatlas-notices.test.ts` to the tag's commit (`git rev-parse 'alpha-X.Y.Z^{commit}'`); otherwise every file upstream changed reads as a Quotatlas modification. Then run `bun run test:contracts`, which reports modified files without a notice and `QUOTATLAS-CHANGES.md` entries that no longer differ from upstream.
+Resolve conflicts so that every file FubuMem changed keeps its change and its notice. In the same merge, set `FORK_BASE` in `tests/fubumem-notices.test.ts` to the tag's commit (`git rev-parse 'alpha-X.Y.Z^{commit}'`); otherwise every file upstream changed reads as a FubuMem modification. Then run `bun run test:contracts`, which reports modified files without a notice and `FUBUMEM-CHANGES.md` entries that no longer differ from upstream.
 
 Land the merge on `main` as a merge commit, not a squash or rebase, so the tag's commit stays in `main`'s history. The notice test diffs against it.
 
 ## Credits
 
-Quotatlas is built on Atlas by Adib Mohsin and the Atlas contributors. See [NOTICE](NOTICE). Participation is covered by the [Code of Conduct](CODE_OF_CONDUCT.md).
+FubuMem is built on Atlas by Adib Mohsin and the Atlas contributors. See [NOTICE](NOTICE). Participation is covered by the [Code of Conduct](CODE_OF_CONDUCT.md).

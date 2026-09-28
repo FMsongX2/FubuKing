@@ -1,4 +1,4 @@
-// Modified by Quotatlas from upstream Atlas (Apache-2.0).
+// Modified by FubuMem from upstream Atlas (Apache-2.0).
 // Answers every scenario gets: the commands Atlas calls just to start up.
 // A scenario overrides any of these by naming the same command.
 //

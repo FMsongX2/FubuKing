@@ -1,4 +1,4 @@
-// Modified by Quotatlas from upstream Atlas (Apache-2.0).
+// Modified by FubuMem from upstream Atlas (Apache-2.0).
 //! Tauri adapters over [`crate::auth::AuthCore`].
 //!
 //! Thin by design: translate arguments, spawn the poll task, emit events. Every

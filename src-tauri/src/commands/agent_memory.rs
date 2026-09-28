@@ -1,4 +1,4 @@
-// Modified by Quotatlas from upstream Atlas (Apache-2.0).
+// Modified by FubuMem from upstream Atlas (Apache-2.0).
 //! Agent memory on disk — what each ACP agent persists for the
 //! current project, read-only.
 //!

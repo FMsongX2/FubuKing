@@ -1,4 +1,4 @@
-// Modified by Quotatlas from upstream Atlas (Apache-2.0).
+// Modified by FubuMem from upstream Atlas (Apache-2.0).
 /**
  * Top-level React error boundary. Wraps `<App/>` in `main.tsx` so a render
  * crash reports to telemetry (gated on consent) and shows a minimal recover
@@ -53,7 +53,7 @@ export class TelemetryErrorBoundary extends React.Component<Props, State> {
       >
         <div style={{ maxWidth: 420, textAlign: "center", padding: 24 }}>
           <h1 style={{ fontSize: 15, fontWeight: 600, margin: "0 0 8px" }}>
-            Quotatlas hit an unexpected error
+            FubuMem hit an unexpected error
           </h1>
           <p
             style={{
@@ -81,7 +81,7 @@ export class TelemetryErrorBoundary extends React.Component<Props, State> {
               cursor: "pointer",
             }}
           >
-            Reload Quotatlas
+            Reload FubuMem
           </button>
         </div>
       </div>

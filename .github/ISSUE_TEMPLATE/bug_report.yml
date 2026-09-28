@@ -1,4 +1,4 @@
-# Modified by Quotatlas from upstream Atlas (Apache-2.0).
+# Modified by FubuMem from upstream Atlas (Apache-2.0).
 name: Bug Report
 description: Something is broken, or behaves in a way it shouldn't
 labels: ["bug"]
@@ -19,7 +19,7 @@ body:
         single sentence to a full investigation. If you have them, useful things to
         include: what you expected instead, how to see it in the app, screenshots or
         a screen recording, relevant log lines, what you've already checked or ruled
-        out, and your Quotatlas version / OS + version / which agent was active if it's
+        out, and your FubuMem version / OS + version / which agent was active if it's
         relevant.
       placeholder: |
         Terminal tab loses scrollback when I switch away and back.

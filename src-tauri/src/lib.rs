@@ -1,4 +1,4 @@
-// Modified by Quotatlas from upstream Atlas (Apache-2.0).
+// Modified by FubuMem from upstream Atlas (Apache-2.0).
 mod app_icon;
 mod auth;
 mod commands;

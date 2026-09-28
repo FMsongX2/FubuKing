@@ -1,4 +1,4 @@
-// Modified by Quotatlas from upstream Atlas (Apache-2.0).
+// Modified by FubuMem from upstream Atlas (Apache-2.0).
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useProjectGitStore, type GitSummary } from "../stores/project-git-store";
 import { useVirtualizer } from "@tanstack/react-virtual";
@@ -44,12 +44,12 @@ import { getVersion } from "@tauri-apps/api/app";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { GithubIcon } from "@/components/github-icon";
 import {
-  QUOTATLAS_DISCUSSIONS_URL,
-  QUOTATLAS_DOCS_URL,
-  QUOTATLAS_RELEASES_URL,
-  QUOTATLAS_REPO_URL,
+  FUBUMEM_DISCUSSIONS_URL,
+  FUBUMEM_DOCS_URL,
+  FUBUMEM_RELEASES_URL,
+  FUBUMEM_REPO_URL,
   UPSTREAM_ATLAS_URL,
-} from "@/lib/quotatlas";
+} from "@/lib/fubumem";
 import { useFeedbackStore } from "@/features/feedback/stores/feedback-store";
 import { openSettingsSection } from "@/features/settings/lib/open-settings";
 import { useProjectStore, type Project, type ProjectGroup } from "../stores/project-store";
@@ -1492,7 +1492,7 @@ function HelpMenu() {
             <HelpItem
               icon={<BookOpen size={12} />}
               label="Docs"
-              onSelect={() => void openUrl(QUOTATLAS_DOCS_URL)}
+              onSelect={() => void openUrl(FUBUMEM_DOCS_URL)}
             />
             <HelpItem
               icon={<MessageCircleQuestion size={12} />}
@@ -1512,12 +1512,12 @@ function HelpMenu() {
             <HelpItem
               icon={<GithubIcon className="size-3" />}
               label="GitHub repo"
-              onSelect={() => void openUrl(QUOTATLAS_REPO_URL)}
+              onSelect={() => void openUrl(FUBUMEM_REPO_URL)}
             />
             <HelpItem
               icon={<MessageCircle size={12} />}
               label="Discussions"
-              onSelect={() => void openUrl(QUOTATLAS_DISCUSSIONS_URL)}
+              onSelect={() => void openUrl(FUBUMEM_DISCUSSIONS_URL)}
             />
             <HelpItem
               icon={<GithubIcon className="size-3" />}
@@ -1535,7 +1535,7 @@ function HelpMenu() {
             <HelpItem
               icon={<Globe size={12} />}
               label="Releases"
-              onSelect={() => void openUrl(QUOTATLAS_RELEASES_URL)}
+              onSelect={() => void openUrl(FUBUMEM_RELEASES_URL)}
             />
           </DropdownMenu.Popup>
         </DropdownMenu.Positioner>

@@ -1,4 +1,4 @@
-// Modified by Quotatlas from upstream Atlas (Apache-2.0).
+// Modified by FubuMem from upstream Atlas (Apache-2.0).
 import { create } from "zustand";
 import { createSelectors } from "@/lib/create-selectors";
 import { applyUiScale } from "@/features/settings/lib/ui-scale";
@@ -134,8 +134,8 @@ const SETTINGS_WRITE_ATTEMPTS = 3;
 function configErrorFrom(status: ConfigStatus | undefined): string | null {
   if (!status || status.status === "ok") return null;
   return status.status === "usingDefaults"
-    ? `config.toml could not be loaded, so Quotatlas is running on default settings — your saved preferences are not applied. ${status.error}`
-    : `config.toml is currently invalid; Quotatlas is running on the last settings that loaded cleanly. ${status.error}`;
+    ? `config.toml could not be loaded, so FubuMem is running on default settings — your saved preferences are not applied. ${status.error}`
+    : `config.toml is currently invalid; FubuMem is running on the last settings that loaded cleanly. ${status.error}`;
 }
 
 export const useSettingsStore = createSelectors(

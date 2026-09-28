@@ -1,9 +1,9 @@
-// Modified by Quotatlas from upstream Atlas (Apache-2.0).
+// Modified by FubuMem from upstream Atlas (Apache-2.0).
 //! The **memory tool server**: shared memory as MCP tools, served by the
 //! Tauri backend itself over streamable HTTP on loopback. It is the only way
 //! memory reaches an agent — nothing is prepended to a prompt (ADR-0010).
 //! The tools themselves live in `atlas_shared_memory::tools`, which
-//! `quotatlas mcp` serves over stdio to agents the app did not start.
+//! `fubumem mcp` serves over stdio to agents the app did not start.
 //!
 //! - **One server per app**, bound to `127.0.0.1` on a port the OS picks. The
 //!   app starts it at setup on the async runtime, so the main thread never

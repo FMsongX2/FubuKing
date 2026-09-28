@@ -1,4 +1,4 @@
-// Modified by Quotatlas from upstream Atlas (Apache-2.0).
+// Modified by FubuMem from upstream Atlas (Apache-2.0).
 //! The installed map — the only source of external agents.
 //!
 //! Ported from Zed's `AllAgentServersSettings` / `CustomAgentServerSettings`
@@ -58,13 +58,13 @@ pub enum AgentServerSettings {
         default_config_options: HashMap<String, serde_json::Value>,
         #[serde(default, skip_serializing_if = "HashMap::is_empty")]
         favorite_config_option_values: HashMap<String, Vec<String>>,
-        /// Quotatlas: the registry id this entry runs, when it differs from
+        /// FubuMem: the registry id this entry runs, when it differs from
         /// the entry's key. `None` for every plain install. An account entry
         /// (`claude-acp@work`) sets it so two keys can run one registry agent
         /// with different environments, sharing one downloaded payload.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         base: Option<String>,
-        /// Quotatlas: appended to the registry agent's display name, so an
+        /// FubuMem: appended to the registry agent's display name, so an
         /// account entry reads "Claude Agent · work" in every picker.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         label: Option<String>,
@@ -85,7 +85,7 @@ impl AgentServerSettings {
         }
     }
 
-    /// Quotatlas: a second entry for registry agent `base`, labelled and run
+    /// FubuMem: a second entry for registry agent `base`, labelled and run
     /// with its own environment (the account's profile home).
     pub fn account(
         base: impl Into<String>,
@@ -102,7 +102,7 @@ impl AgentServerSettings {
         }
     }
 
-    /// Quotatlas: the registry id an entry stored under `key` resolves
+    /// FubuMem: the registry id an entry stored under `key` resolves
     /// through. `None` for a `Custom` entry, which has no registry id.
     pub fn registry_id<'a>(&'a self, key: &'a str) -> Option<&'a str> {
         match self {
@@ -111,7 +111,7 @@ impl AgentServerSettings {
         }
     }
 
-    /// Quotatlas: the account label, when this entry is an account of
+    /// FubuMem: the account label, when this entry is an account of
     /// another registry agent.
     pub fn label(&self) -> Option<&str> {
         match self {

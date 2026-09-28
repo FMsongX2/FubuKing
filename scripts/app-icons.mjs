@@ -1,7 +1,7 @@
 #!/usr/bin/env node
-// Modified by Quotatlas from upstream Atlas (Apache-2.0).
+// Modified by FubuMem from upstream Atlas (Apache-2.0).
 /**
- * Renders Quotatlas's app icons from their SVG sources.
+ * Renders FubuMem's app icons from their SVG sources.
  *
  *   node scripts/app-icons.mjs            re-render everything
  *   node scripts/app-icons.mjs --check    fail if a committed output is stale
@@ -21,7 +21,7 @@
  *                               re-rendered one.
  *
  * Upstream Atlas compiled Icon Composer sources with Xcode 26's actool into an
- * `Assets.car`. Quotatlas draws its icons as SVG and renders them with the
+ * `Assets.car`. FubuMem draws its icons as SVG and renders them with the
  * Tauri CLI (resvg), so no Xcode install is needed to change an icon.
  */
 import { createHash } from "node:crypto";
@@ -130,7 +130,7 @@ function render() {
   const ids = manifest.icons.map((i) => i.id);
   if (!ids.includes(manifest.default))
     throw new Error(`default "${manifest.default}" is not in icons`);
-  const tmp = mkdtempSync(path.join(tmpdir(), "quotatlas-app-icons-"));
+  const tmp = mkdtempSync(path.join(tmpdir(), "fubumem-app-icons-"));
   try {
     renderDefault(manifest.default);
     console.log(`app-icons: src-tauri/icons ← sources/${manifest.default}.svg`);

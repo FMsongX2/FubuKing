@@ -1,4 +1,4 @@
-# Modified by Quotatlas from upstream Atlas (Apache-2.0).
+# Modified by FubuMem from upstream Atlas (Apache-2.0).
 [package]
 name = "atlas"
 version = "0.3.3"
@@ -119,7 +119,7 @@ atlas-native-agent = { path = "../crates/atlas-native-agent" }
 # Atlas's session history — the only source for the sidebar (ADR-0001).
 atlas-thread-metadata = { path = "../crates/atlas-thread-metadata" }
 # The CLI's library: accounts and the quota readers, shared with the app.
-quotatlas = { path = "../crates/quotatlas" }
+fubumem = { path = "../crates/fubumem" }
 atlas-bus = { path = "../crates/atlas-bus" }
 atlas-artifacts = { path = "../crates/atlas-artifacts" }
 atlas-comms = { path = "../crates/atlas-comms" }

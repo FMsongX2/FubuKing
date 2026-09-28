@@ -1,4 +1,4 @@
-// Modified by Quotatlas from upstream Atlas (Apache-2.0).
+// Modified by FubuMem from upstream Atlas (Apache-2.0).
 //! Source-level audit: every `Command::new(` in Windows-reachable code must
 //! opt out of a console window, or be listed below as a known gap.
 //!
@@ -40,10 +40,10 @@ const KNOWN_GAPS: &[&str] = &[
     // Runs inside the sandbox `command_runner` binary, itself a console
     // process, so its `cmd.exe` child inherits that console: no new window.
     "vendor/atlas-engine/windows-sandbox-rs/src/bin/command_runner/win/cwd_junction.rs",
-    // The `quotatlas` CLI is itself a console process, and the agent CLI it
+    // The `fubumem` CLI is itself a console process, and the agent CLI it
     // runs is a TUI that must draw in that console: CREATE_NO_WINDOW would
     // leave it none. The same reasoning as the entry above.
-    "crates/quotatlas/src/run.rs",
+    "crates/fubumem/src/run.rs",
 ];
 
 /// Files that only ever run off Windows, or only in tests/tooling.

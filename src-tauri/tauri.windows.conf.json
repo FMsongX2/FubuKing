@@ -3,7 +3,7 @@
   "app": {
     "windows": [
       {
-        "title": "Quotatlas",
+        "title": "FubuMem",
         "width": 1280,
         "height": 800,
         "minWidth": 960,
@@ -24,8 +24,8 @@
     "targets": [
       "msi"
     ],
-    "publisher": "Quotatlas contributors",
-    "homepage": "https://github.com/FMsongX2/Quotatlas",
+    "publisher": "FubuMem contributors",
+    "homepage": "https://github.com/FMsongX2/FubuMem",
     "windows": {
       "webviewInstallMode": {
         "type": "downloadBootstrapper",

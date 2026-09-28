@@ -1,4 +1,4 @@
-// Modified by Quotatlas from upstream Atlas (Apache-2.0).
+// Modified by FubuMem from upstream Atlas (Apache-2.0).
 import { describe, expect, it } from "vitest";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
@@ -8,7 +8,7 @@ import { ICONS_DIR, readManifest, staleOutputs } from "../scripts/app-icons.mjs"
 /**
  * Guards the selectable macOS app icons (`src-tauri/icons/app-icons/`).
  *
- * Quotatlas draws its icons as SVG sources and renders them with the Tauri CLI
+ * FubuMem draws its icons as SVG sources and renders them with the Tauri CLI
  * (`scripts/app-icons.mjs`); the default becomes Tauri's standard icon set. Edit
  * a source, forget `bun run icons:render`, and every build ships the old icon
  * without a word. Likewise an id in the manifest with no rendered `.icns` shows up in

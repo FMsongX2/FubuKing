@@ -1,4 +1,4 @@
-// Modified by Quotatlas from upstream Atlas (Apache-2.0).
+// Modified by FubuMem from upstream Atlas (Apache-2.0).
 //! Shared cross-agent memory: the facade every host serves the record through.
 //!
 //! Every agent on a repository (Claude, Codex, the native agent, …) is a
@@ -16,7 +16,7 @@
 //!   response shapes the JSONL event log had (`store_contract.rs` pins them).
 //!
 //! Hosts: the desktop app (its Tauri commands and its HTTP tool server) and
-//! each `quotatlas mcp` process. Several processes may write one scope; the
+//! each `fubumem mcp` process. Several processes may write one scope; the
 //! record serializes their write transactions (see `atlas_memory::record`).
 //!
 //! Design invariants carried over from the JSONL store:

@@ -1,4 +1,4 @@
-//! The `quotatlas` command: run Claude Code or Codex with shared memory and
+//! The `fubumem` command: run Claude Code or Codex with shared memory and
 //! with a usage limit turned into a handoff to another account, serve that
 //! memory to any MCP agent, show every account's quota, and open folders in
 //! the desktop app.
@@ -8,12 +8,12 @@ use std::path::PathBuf;
 
 use anyhow::Context;
 use clap::{Parser, Subcommand};
-use quotatlas::accounts::{self, Account, Provider};
-use quotatlas::quota::{self, claude, codex, QuotaWindow};
-use quotatlas::run::{self, Run};
+use fubumem::accounts::{self, Account, Provider};
+use fubumem::quota::{self, claude, codex, QuotaWindow};
+use fubumem::run::{self, Run};
 
 #[derive(Parser)]
-#[command(name = "quotatlas", version, about = "Every coding agent. Every account. One memory.")]
+#[command(name = "fubumem", version, about = "Every coding agent. Every account. One memory.")]
 struct Cli {
     #[command(subcommand)]
     command: Command,
@@ -40,12 +40,12 @@ enum Command {
         #[arg(long, default_value = "mcp")]
         agent: String,
     },
-    /// Open a folder in the Quotatlas desktop app.
+    /// Open a folder in the FubuMem desktop app.
     Open {
         /// The folder; the current one when left out.
         path: Option<PathBuf>,
     },
-    /// `quotatlas <folder>`, the desktop app's shell helper usage, opens it too.
+    /// `fubumem <folder>`, the desktop app's shell helper usage, opens it too.
     #[command(external_subcommand)]
     Folder(Vec<OsString>),
 }
@@ -64,7 +64,7 @@ struct AgentArgs {
 async fn main() {
     // `claude` and `codex` hand their arguments to the CLI word for word,
     // `--` included, which clap would consume; only a leading `--account`
-    // is Quotatlas's.
+    // is FubuMem's.
     let argv: Vec<OsString> = std::env::args_os().collect();
     let command = match agent_command(&argv) {
         Some(command) => command,
@@ -73,14 +73,14 @@ async fn main() {
     let code = match dispatch(command).await {
         Ok(code) => code,
         Err(error) => {
-            eprintln!("quotatlas: {error:#}");
+            eprintln!("fubumem: {error:#}");
             1
         }
     };
     std::process::exit(code);
 }
 
-/// `quotatlas claude|codex [--account <name>] <args...>`, read without clap.
+/// `fubumem claude|codex [--account <name>] <args...>`, read without clap.
 /// `None` for anything else, and for `--help`, which clap answers.
 fn agent_command(argv: &[OsString]) -> Option<Command> {
     let (which, rest) = (argv.get(1)?.to_str()?, argv.get(2..).unwrap_or_default());
@@ -110,14 +110,14 @@ async fn dispatch(command: Command) -> anyhow::Result<i32> {
         Command::Login { provider, name } => run::login(provider, &name).await,
         Command::Mcp { agent } => {
             let cwd = std::env::current_dir().context("reading the current directory")?;
-            quotatlas::mcp::serve(&cwd, &agent).await?;
+            fubumem::mcp::serve(&cwd, &agent).await?;
             Ok(0)
         }
         Command::Open { path } => open(path),
         Command::Folder(words) => match words.as_slice() {
             [folder] if std::path::Path::new(folder).is_dir() => open(Some(PathBuf::from(folder))),
             _ => anyhow::bail!(
-                "unknown command `{}`; `quotatlas --help` lists them",
+                "unknown command `{}`; `fubumem --help` lists them",
                 words.first().map(|word| word.to_string_lossy()).unwrap_or_default()
             ),
         },
@@ -125,7 +125,7 @@ async fn dispatch(command: Command) -> anyhow::Result<i32> {
 }
 
 /// One line per account: the room left in its tightest window, then every
-/// window. Stops quietly when the reader goes away (`quotatlas quota | head`).
+/// window. Stops quietly when the reader goes away (`fubumem quota | head`).
 async fn print_quota() {
     use std::io::Write;
     let now = quota::now_secs();
@@ -137,9 +137,9 @@ async fn print_quota() {
                 Ok(_) => {
                     let hint = match provider {
                         Provider::Claude if account.home.is_none() => {
-                            "no reading yet: use it once through `quotatlas claude`".to_string()
+                            "no reading yet: use it once through `fubumem claude`".to_string()
                         }
-                        Provider::Claude => format!("no reading yet: use it once through `quotatlas claude --account {}`", account.label),
+                        Provider::Claude => format!("no reading yet: use it once through `fubumem claude --account {}`", account.label),
                         Provider::Codex => "no windows reported".to_string(),
                     };
                     if writeln!(out, "{:<7} {:<16} {hint}", provider.program(), account.label).is_err() {
@@ -209,7 +209,7 @@ fn open(path: Option<PathBuf>) -> anyhow::Result<i32> {
 #[cfg(target_os = "macos")]
 fn open_in_app(folder: &std::path::Path) -> anyhow::Result<i32> {
     let status = std::process::Command::new("open")
-        .args(["-na", "Quotatlas", "--args"])
+        .args(["-na", "FubuMem", "--args"])
         .arg(folder)
         .status()
         .context("running `open`")?;
@@ -234,28 +234,28 @@ mod tests {
 
     #[test]
     fn a_folder_in_place_of_a_command_is_opened() {
-        let cli = Cli::try_parse_from(["quotatlas", "."]).unwrap();
+        let cli = Cli::try_parse_from(["fubumem", "."]).unwrap();
         assert!(matches!(cli.command, Command::Folder(words) if words == ["."]));
     }
 
     #[test]
     fn agent_arguments_keep_their_double_dash_and_only_a_leading_account_is_ours() {
         let argv = |list: &[&str]| list.iter().map(OsString::from).collect::<Vec<_>>();
-        let Some(Command::Claude(agent)) = agent_command(&argv(&["quotatlas", "claude", "--", "-x fix"])) else {
+        let Some(Command::Claude(agent)) = agent_command(&argv(&["fubumem", "claude", "--", "-x fix"])) else {
             panic!("not claude")
         };
         assert_eq!((agent.account, agent.args), (None, argv(&["--", "-x fix"])));
-        let Some(Command::Codex(agent)) = agent_command(&argv(&["quotatlas", "codex", "--account=side", "exec", "--account"])) else {
+        let Some(Command::Codex(agent)) = agent_command(&argv(&["fubumem", "codex", "--account=side", "exec", "--account"])) else {
             panic!("not codex")
         };
         assert_eq!((agent.account.as_deref(), agent.args), (Some("side"), argv(&["exec", "--account"])));
-        assert!(agent_command(&argv(&["quotatlas", "claude", "--help"])).is_none());
-        assert!(agent_command(&argv(&["quotatlas", "quota"])).is_none());
+        assert!(agent_command(&argv(&["fubumem", "claude", "--help"])).is_none());
+        assert!(agent_command(&argv(&["fubumem", "quota"])).is_none());
     }
 
     #[test]
     fn agent_arguments_pass_through_untouched() {
-        let cli = Cli::try_parse_from(["quotatlas", "claude", "--account", "work", "--model", "opus", "-c"]).unwrap();
+        let cli = Cli::try_parse_from(["fubumem", "claude", "--account", "work", "--model", "opus", "-c"]).unwrap();
         let Command::Claude(agent) = cli.command else { panic!("not claude") };
         assert_eq!(agent.account.as_deref(), Some("work"));
         assert_eq!(agent.args, ["--model", "opus", "-c"]);

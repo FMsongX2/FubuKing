@@ -1,4 +1,4 @@
-// Modified by Quotatlas from upstream Atlas (Apache-2.0).
+// Modified by FubuMem from upstream Atlas (Apache-2.0).
 import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { toast } from "sonner";
@@ -46,7 +46,7 @@ import { useSettingsNav, type SettingsSection } from "../stores/settings-nav-sto
 import { openConfigFile } from "../lib/atlas-config-api";
 import { useSettingsStore } from "@/features/settings/stores/settings-store";
 import { useAgentRegistryStore } from "@/features/agents/stores/agent-registry-store";
-import { TELEMETRY_AVAILABLE } from "@/lib/quotatlas";
+import { TELEMETRY_AVAILABLE } from "@/lib/fubumem";
 import { AccountsSettings } from "@/features/accounts/components/accounts-settings";
 
 const SECTIONS: Array<{
@@ -291,7 +291,7 @@ function GeneralSettings() {
     try {
       const next = await invoke<CliStatus>("cli_install_helper");
       setCli(next);
-      toast.success("Installed the quotatlas command");
+      toast.success("Installed the fubumem command");
     } catch (e) {
       toast.error(`Install failed: ${e instanceof Error ? e.message : String(e)}`);
     } finally {
@@ -307,7 +307,7 @@ function GeneralSettings() {
             ? ` (version ${cli.installedVersion}, current ${cli.currentVersion})`
             : ` (version unknown, current ${cli.currentVersion})`
         }`
-    : `Will install to ${cli?.path ?? "~/.local/bin/quotatlas"}`;
+    : `Will install to ${cli?.path ?? "~/.local/bin/fubumem"}`;
 
   return (
     <div className="space-y-6">
@@ -315,7 +315,7 @@ function GeneralSettings() {
       {configError && (
         <div className="rounded-md border border-warning/40 bg-warning-muted p-3 space-y-2">
           <p className="text-sm font-medium text-foreground">
-            Quotatlas is using the last valid settings — config.toml has a problem
+            FubuMem is using the last valid settings — config.toml has a problem
           </p>
           <p className="text-xs text-secondary-foreground font-mono break-all">{configError}</p>
           <div className="flex gap-2">
@@ -386,11 +386,11 @@ function GeneralSettings() {
       </SettingRow>
       <SectionTitle
         title="Terminal notifications"
-        subtitle="Be told when a command finishes or wants input, wherever you are in Quotatlas"
+        subtitle="Be told when a command finishes or wants input, wherever you are in FubuMem"
       />
       <SettingRow
         label="Terminal notifications"
-        description="A command that fails, runs longer than the threshold, or asks for input raises an item in the notification center, a toast when its terminal is off screen, and a macOS notification when Quotatlas is in the background. Nothing fires while you are looking at that terminal."
+        description="A command that fails, runs longer than the threshold, or asks for input raises an item in the notification center, a toast when its terminal is off screen, and a macOS notification when FubuMem is in the background. Nothing fires while you are looking at that terminal."
       >
         <Toggle
           checked={settings.terminalNotifications}
@@ -436,7 +436,7 @@ function GeneralSettings() {
       </SettingRow>
       <SettingRow
         label="macOS notifications"
-        description="Also raise a system notification when the Quotatlas window is not focused."
+        description="Also raise a system notification when the FubuMem window is not focused."
       >
         <Toggle
           checked={settings.terminalNotifyNative}
@@ -455,7 +455,7 @@ function GeneralSettings() {
       <SectionTitle title="Behaviour" subtitle="Files, logs and the editor" />
       <SettingRow
         label="Auto-add .atlas to .gitignore"
-        description="When you open a git-tracked project, Quotatlas adds `.atlas/` to the project's .gitignore (creating one if needed). Quotatlas keeps its caches and state in `.atlas/` — keeping it out of version control is almost always what you want. No-op on non-git projects."
+        description="When you open a git-tracked project, FubuMem adds `.atlas/` to the project's .gitignore (creating one if needed). FubuMem keeps its caches and state in `.atlas/` — keeping it out of version control is almost always what you want. No-op on non-git projects."
       >
         <Toggle
           checked={settings.autoAddAtlasGitignore}
@@ -562,8 +562,8 @@ function GeneralSettings() {
         />
       </SettingRow>
       <SettingRow
-        label="Quotatlas CLI"
-        description={`Adds a \`quotatlas\` command to your shell — type \`quotatlas .\` in any terminal to open the current folder as a project. Refreshed automatically on every launch so an older copy never lingers. ${cliInstalledLine}.`}
+        label="FubuMem CLI"
+        description={`Adds a \`fubumem\` command to your shell — type \`fubumem .\` in any terminal to open the current folder as a project. Refreshed automatically on every launch so an older copy never lingers. ${cliInstalledLine}.`}
       >
         <button
           type="button"
@@ -720,7 +720,7 @@ function UpdatesSettings() {
 
   return (
     <div className="space-y-6">
-      <SectionTitle title="Updates" subtitle="How Quotatlas keeps itself up to date" />
+      <SectionTitle title="Updates" subtitle="How FubuMem keeps itself up to date" />
       <SettingRow
         label="Automatic updates"
         description={
@@ -728,7 +728,7 @@ function UpdatesSettings() {
             ? "Check for a newer version in the background and download the installer automatically. Windows asks for permission before it is installed. Turn off to never check or download."
             : isLinux
               ? "Check for a newer version in the background. On Linux, update via your package manager (AUR, deb, rpm) or download the latest release asset. Turn off to never check."
-              : "Check for a newer version in the background and download it automatically. Updates are Apple-signed and notarized; Quotatlas verifies the signature before installing. Turn off to never check or download."
+              : "Check for a newer version in the background and download it automatically. Updates are Apple-signed and notarized; FubuMem verifies the signature before installing. Turn off to never check or download."
         }
       >
         <Toggle
@@ -749,7 +749,7 @@ function UpdatesSettings() {
         label={ready ? `Update ready${version ? ` (${version})` : ""}` : "Check for updates"}
         description={
           ready
-            ? "A new version has been downloaded and verified. Restart now, or it'll be applied automatically the next time you quit Quotatlas."
+            ? "A new version has been downloaded and verified. Restart now, or it'll be applied automatically the next time you quit FubuMem."
             : "Check now regardless of the automatic-update setting. Newer versions download in the background; you'll be prompted to restart when ready."
         }
       >
@@ -762,12 +762,12 @@ function UpdatesSettings() {
 function AboutSettings() {
   return (
     <div className="space-y-4">
-      <SectionTitle title="About" subtitle="Quotatlas IDE" />
+      <SectionTitle title="About" subtitle="FubuMem IDE" />
       <div className="rounded-lg border border-border bg-card p-4 space-y-2">
         <div className="flex items-center gap-2">
           <AtlasIcon size={40} className="rounded-xl" />
           <div>
-            <p className="text-sm font-semibold text-foreground">Quotatlas</p>
+            <p className="text-sm font-semibold text-foreground">FubuMem</p>
             <p className="text-2xs text-muted-foreground">v0.3.3 — The second brain IDE</p>
           </div>
         </div>

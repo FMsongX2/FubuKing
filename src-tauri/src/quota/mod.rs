@@ -1,14 +1,14 @@
-//! Quotatlas quota: per-account usage limits (ADR Q-0002).
+//! FubuMem quota: per-account usage limits (ADR Q-0002).
 //!
 //! Every account the app knows about (the default Claude Code and Codex
 //! logins, plus each account entry) gets one `AccountQuota`. Figures come only
-//! from channels the official CLIs expose; the readers live in the `quotatlas`
+//! from channels the official CLIs expose; the readers live in the `fubumem`
 //! crate, shared with the CLI. The service refreshes on a timer and on demand,
 //! keeps the last snapshot for the UI and broadcasts each new one as
 //! `atlas:quota-changed`.
 
-pub use quotatlas::quota::{claude, codex, QuotaWindow};
-use quotatlas::quota::now_secs;
+pub use fubumem::quota::{claude, codex, QuotaWindow};
+use fubumem::quota::now_secs;
 
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -39,7 +39,7 @@ pub enum QuotaStatus {
     Pending,
     /// The CLI has no login for this account.
     SignedOut,
-    /// Quotatlas does not read this account, by design.
+    /// FubuMem does not read this account, by design.
     Untracked,
     /// Reading failed; `message` says why.
     Unavailable,
@@ -170,7 +170,7 @@ async fn read_codex(target: &Target) -> AccountQuota {
 }
 
 async fn read_claude(target: &Target) -> AccountQuota {
-    // The default login's readings come from runs through `quotatlas claude`,
+    // The default login's readings come from runs through `fubumem claude`,
     // which saves them outside `~/.claude`.
     let Some(dir) = target.home.clone().or_else(claude::default_reading_dir) else {
         return target.quota(QuotaStatus::Unavailable);
@@ -180,7 +180,7 @@ async fn read_claude(target: &Target) -> AccountQuota {
         // Accounts made before quota existed get their status line here.
         if profile {
             if let Err(e) = claude::install_statusline(&dir) {
-                tracing::warn!(target: "quotatlas::quota", "status line for {}: {e}", dir.display());
+                tracing::warn!(target: "fubumem::quota", "status line for {}: {e}", dir.display());
             }
         }
         claude::read(&dir)
@@ -197,7 +197,7 @@ async fn read_claude(target: &Target) -> AccountQuota {
         _ if !profile => AccountQuota {
             message: Some(
                 "Your default Claude Code login is read without editing ~/.claude: run it once \
-                 through `quotatlas claude` in a terminal to load its limits."
+                 through `fubumem claude` in a terminal to load its limits."
                     .into(),
             ),
             ..target.quota(QuotaStatus::Untracked)

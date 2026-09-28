@@ -3,7 +3,7 @@
   "app": {
     "windows": [
       {
-        "title": "Quotatlas",
+        "title": "FubuMem",
         "width": 1280,
         "height": 800,
         "minWidth": 960,
@@ -42,7 +42,7 @@
           "libglib2.0-0"
         ],
         "provides": [
-          "quotatlas"
+          "fubumem"
         ]
       },
       "rpm": {
@@ -54,7 +54,7 @@
           "glib2"
         ],
         "provides": [
-          "quotatlas"
+          "fubumem"
         ]
       },
       "appimage": {

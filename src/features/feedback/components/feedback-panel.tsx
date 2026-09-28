@@ -1,4 +1,4 @@
-// Modified by Quotatlas from upstream Atlas (Apache-2.0).
+// Modified by FubuMem from upstream Atlas (Apache-2.0).
 import { useEffect, useRef } from "react";
 import { Camera, Check, EyeOff, MessageCircleQuestion, MessagesSquare, X } from "lucide-react";
 import { GithubIcon } from "@/components/github-icon";
@@ -224,7 +224,7 @@ export function FeedbackPanel() {
               <button
                 type="button"
                 onClick={() => void a.attachScreenshot()}
-                title="Drag a region — or press Space, then click the Quotatlas window."
+                title="Drag a region — or press Space, then click the FubuMem window."
                 className="inline-flex h-6 items-center gap-1.5 rounded-md border border-border-subtle bg-element-hover px-2 text-xs text-muted-foreground hover:bg-element-selected hover:text-foreground transition-colors cursor-pointer"
               >
                 <Camera size={11} strokeWidth={1.75} />

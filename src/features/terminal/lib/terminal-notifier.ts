@@ -1,4 +1,4 @@
-// Modified by Quotatlas from upstream Atlas (Apache-2.0).
+// Modified by FubuMem from upstream Atlas (Apache-2.0).
 /**
  * Terminal notifications: what to say, where to say it, and when to stay quiet.
  *
@@ -209,7 +209,7 @@ function deliver(d: Decision, ctx: TerminalCtx): void {
   }
   if (d.channels.native) {
     void sendNativeNotification({
-      title: `Quotatlas: ${ctx.projectName ?? "Terminal"}`,
+      title: `FubuMem: ${ctx.projectName ?? "Terminal"}`,
       body: `${d.title} — ${d.body}`,
       sound: d.channels.sound ? "Ping" : undefined,
     });

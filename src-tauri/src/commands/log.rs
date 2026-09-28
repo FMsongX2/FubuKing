@@ -1,4 +1,4 @@
-// Modified by Quotatlas from upstream Atlas (Apache-2.0).
+// Modified by FubuMem from upstream Atlas (Apache-2.0).
 //! The activity log's on-disk half.
 //!
 //! Two files, and the split matters. A **project** log lives inside the project
@@ -19,7 +19,7 @@ use std::path::PathBuf;
 /// Directory holding one org's log files.
 fn org_log_dir(org: &str) -> Result<PathBuf, String> {
     let home = dirs::home_dir().ok_or_else(|| "no home dir".to_string())?;
-    let root = home.join(".quotatlas").join("log");
+    let root = home.join(".fubumem").join("log");
     // An org id is a UUID we minted, but it arrives from the renderer — so
     // treat it as untrusted and refuse anything that could climb out of the log
     // directory rather than trusting the caller.
@@ -32,7 +32,7 @@ fn org_log_dir(org: &str) -> Result<PathBuf, String> {
 /// Where the pre-org global pinned log lived.
 fn legacy_pinned_path() -> Result<PathBuf, String> {
     let home = dirs::home_dir().ok_or_else(|| "no home dir".to_string())?;
-    Ok(home.join(".quotatlas").join("log").join("pinned.jsonl"))
+    Ok(home.join(".fubumem").join("log").join("pinned.jsonl"))
 }
 
 /// This org's pinned log, adopting the legacy global file if it has not been

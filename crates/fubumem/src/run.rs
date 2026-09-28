@@ -1,4 +1,4 @@
-//! `quotatlas claude` and `quotatlas codex`: run the agent CLI under the
+//! `fubumem claude` and `fubumem codex`: run the agent CLI under the
 //! account with the most room, with the shared-memory server attached, and
 //! when a session stops on its usage limit, carry on instead of starting over:
 //! the same session on the next account of that CLI, or, when none has room,
@@ -55,7 +55,7 @@ pub async fn run(run: Run) -> anyhow::Result<i32> {
     let mut account = match &run.account {
         Some(wanted) => accounts::find(&accounts, wanted)
             .cloned()
-            .with_context(|| format!("no {} account `{wanted}`; `quotatlas quota` lists them", provider.program()))?,
+            .with_context(|| format!("no {} account `{wanted}`; `fubumem quota` lists them", provider.program()))?,
         None => pick(accounts.clone(), true).await.unwrap_or_else(|| Account::default_for(provider)),
     };
     let first = FirstRun::new(run.provider, run.args.clone());
@@ -81,7 +81,7 @@ pub async fn run(run: Run) -> anyhow::Result<i32> {
             if code != 0
                 && !touched
                 && confirm(&format!(
-                    "quotatlas: {account} did not resume session {}. Start a new session there from a brief of it? [Y/n] ",
+                    "fubumem: {account} did not resume session {}. Start a new session there from a brief of it? [Y/n] ",
                     previous.id
                 ))
             {
@@ -93,19 +93,19 @@ pub async fn run(run: Run) -> anyhow::Result<i32> {
 
         let Some(session) = latest else { return Ok(code) };
         let Some(message) = sessions::limit_message(&session, started) else { return Ok(code) };
-        eprintln!("quotatlas: {account} stopped on its usage limit: {message}");
+        eprintln!("fubumem: {account} stopped on its usage limit: {message}");
 
         let untried = |list: &[Account], of: Provider| -> Vec<Account> {
             list.iter().filter(|a| !tried.contains(&(of, a.id.clone()))).cloned().collect()
         };
         if let Some(next) = pick(untried(&accounts, provider), false).await {
-            if !confirm(&format!("quotatlas: resume this session on {next}? [Y/n] ")) {
+            if !confirm(&format!("fubumem: resume this session on {next}? [Y/n] ")) {
                 return Ok(code);
             }
             let copy = sessions::copy_to(&session, &next)
                 .with_context(|| format!("copying session {} to {next}", session.id))?;
             if provider == Provider::Claude && claude::trusts_folder(&next, &cwd) == Some(false) {
-                eprintln!("quotatlas: {next} has not trusted this folder yet. When Claude asks, choose \"Yes, I trust this folder\".");
+                eprintln!("fubumem: {next} has not trusted this folder yet. When Claude asks, choose \"Yes, I trust this folder\".");
             }
             launch_args = resume_args(provider, first.mode(), &first.options_for(provider), &session.id);
             account = next;
@@ -118,7 +118,7 @@ pub async fn run(run: Run) -> anyhow::Result<i32> {
         if let Some(next) = pick(others, false).await {
             let agent = if other == Provider::Codex { "Codex" } else { "Claude Code" };
             if !confirm(&format!(
-                "quotatlas: no other {} account has room. Continue in {agent} on {next} with a brief of this session? [Y/n] ",
+                "fubumem: no other {} account has room. Continue in {agent} on {next} with a brief of this session? [Y/n] ",
                 provider.program()
             )) {
                 return Ok(code);
@@ -132,7 +132,7 @@ pub async fn run(run: Run) -> anyhow::Result<i32> {
         }
 
         eprintln!(
-            "quotatlas: no other account has room. Add one with `quotatlas login {} <name>`.",
+            "fubumem: no other account has room. Add one with `fubumem login {} <name>`.",
             provider.program()
         );
         return Ok(code);
@@ -265,14 +265,14 @@ pub async fn login(provider: Provider, label: &str) -> anyhow::Result<i32> {
     let cwd = std::env::current_dir().context("reading the current directory")?;
     let args: Vec<OsString> = match provider {
         Provider::Claude => {
-            eprintln!("quotatlas: sign in with /login in the Claude Code session that opens now, then exit it.");
+            eprintln!("fubumem: sign in with /login in the Claude Code session that opens now, then exit it.");
             Vec::new()
         }
         Provider::Codex => vec!["login".into()],
     };
     let code = exit_code(launch(&account, &cwd, &args, None).await?);
     if code == 0 {
-        eprintln!("quotatlas: {account} is ready: `quotatlas {} --account {}`", provider.program(), account.label);
+        eprintln!("fubumem: {account} is ready: `fubumem {} --account {}`", provider.program(), account.label);
     }
     Ok(code)
 }
@@ -318,7 +318,7 @@ async fn launch(
 ) -> anyhow::Result<ExitStatus> {
     let program = account.provider.program();
     let (before, after) = added_args(account, cwd, args);
-    // What Quotatlas adds goes ahead of a `--`, after which the CLI would take
+    // What FubuMem adds goes ahead of a `--`, after which the CLI would take
     // it for a prompt.
     let split = args.iter().position(|word| word == "--").unwrap_or(args.len());
     let saved = watch_since.and_then(|_| terminal::Saved::take());
@@ -356,7 +356,7 @@ async fn launch(
     }
 }
 
-/// What Quotatlas adds around the user's arguments, as (before, after): the
+/// What FubuMem adds around the user's arguments, as (before, after): the
 /// shared-memory server for this run, and for Claude the status line quota is
 /// read through. Nothing is written to the CLI's own configuration.
 ///
@@ -395,7 +395,7 @@ fn added_args(account: &Account, cwd: &Path, args: &[OsString]) -> (Vec<OsString
     }
 }
 
-/// Claude reports quota through its status line. A profile has Quotatlas's
+/// Claude reports quota through its status line. A profile has FubuMem's
 /// script in its own settings; otherwise the script is passed for this run,
 /// running the account's own status line after it when there is one.
 ///
@@ -406,7 +406,7 @@ fn added_args(account: &Account, cwd: &Path, args: &[OsString]) -> (Vec<OsString
 fn status_line_args(account: &Account, cwd: &Path, args: &[OsString]) -> Vec<OsString> {
     if let Some(home) = &account.home {
         if let Err(e) = claude::install_statusline(home) {
-            eprintln!("quotatlas: no quota for {account}: {e}");
+            eprintln!("fubumem: no quota for {account}: {e}");
         }
     }
     let theirs_decide = args.iter().take_while(|w| *w != "--").any(|word| {
@@ -501,7 +501,7 @@ mod terminal {
     /// Ask the CLI to exit as Ctrl-C would, then insist: SIGINT, SIGTERM,
     /// SIGKILL, each after `grace`. Like Ctrl-C, each signal goes to the CLI
     /// and every descendant in its process group, so a `claude` that is a
-    /// wrapper script does not leave the real CLI running. Quotatlas shares
+    /// wrapper script does not leave the real CLI running. FubuMem shares
     /// that group and is left out.
     pub async fn stop(child: &mut tokio::process::Child, grace: Duration) -> std::io::Result<ExitStatus> {
         let group = child.id().map(foreground_tree).unwrap_or_default();

@@ -1,4 +1,4 @@
-// Modified by Quotatlas from upstream Atlas (Apache-2.0).
+// Modified by FubuMem from upstream Atlas (Apache-2.0).
 // The one sign-in surface for every ACP agent (Phase M of
 // `plans/atlas-acp-auth-login-loop.md`).
 //
@@ -167,7 +167,7 @@ export function methodBlockedReason(method: AuthMethodWire, env: AuthEnvStatus[]
   // `terminal`-kind with nothing runnable is the case R3's enrichment exists to
   // prevent; if it still happens the CLI must be run by hand.
   if (method.kind === "terminal" && !method.terminalCommand) {
-    return "Quotatlas could not find this agent's CLI to run the login.";
+    return "FubuMem could not find this agent's CLI to run the login.";
   }
   return null;
 }
@@ -579,7 +579,7 @@ function AgentOAuthModal({
                   {phase.methods.length === 0 && (
                     <p className="px-2 py-4 text-xs text-secondary-foreground">
                       {label} asked for credentials but did not say what it needs, and offered no
-                      sign-in method Quotatlas can run. If it reads a provider API key from the
+                      sign-in method FubuMem can run. If it reads a provider API key from the
                       environment, export that variable in your shell profile and {label} will pick
                       it up on its next start.
                     </p>

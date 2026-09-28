@@ -1,4 +1,4 @@
-// Modified by Quotatlas from upstream Atlas (Apache-2.0).
+// Modified by FubuMem from upstream Atlas (Apache-2.0).
 import { Fragment, useEffect, useMemo, useRef } from "react";
 import { AlertTriangle, Pencil } from "lucide-react";
 import { toast } from "sonner";
@@ -163,7 +163,7 @@ export function KeybindingsTable({
             <div key={id} className={cn(GRID, "h-[28px] px-2 text-xs text-muted-foreground")}>
               <span />
               <span className="truncate font-mono text-xs">{id}</span>
-              <span className="text-muted-foreground">not in this version of Quotatlas</span>
+              <span className="text-muted-foreground">not in this version of FubuMem</span>
               <span />
               <button
                 type="button"

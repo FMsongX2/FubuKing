@@ -1,4 +1,4 @@
-// Modified by Quotatlas from upstream Atlas (Apache-2.0).
+// Modified by FubuMem from upstream Atlas (Apache-2.0).
 import { memo } from "react";
 import { ChevronDown, Gauge } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -55,7 +55,7 @@ export const UsagePill = memo(function UsagePill({ tabId }: { tabId: string }) {
       <button
         onClick={toggle}
         className={composerPillClass(open)}
-        title="Session usage — context, tokens, cost and what Quotatlas recorded"
+        title="Session usage — context, tokens, cost and what FubuMem recorded"
         data-usage-state={pill.state}
       >
         <span key={pill.state} className="atlas-pill-swap flex items-center">

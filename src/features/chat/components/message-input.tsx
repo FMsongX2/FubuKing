@@ -1,4 +1,4 @@
-// Modified by Quotatlas from upstream Atlas (Apache-2.0).
+// Modified by FubuMem from upstream Atlas (Apache-2.0).
 import { useState, useRef, useCallback, useEffect, useLayoutEffect, useMemo } from "react";
 import { createPortal } from "react-dom";
 import { useActionShortcut } from "@/features/keybindings/lib/use-action-shortcut";
@@ -77,7 +77,7 @@ import { RetryPill } from "./retry-pill";
 import { AiGrantBar } from "./ai-grant-bar";
 import { RemovedAgentBar } from "./removed-agent-bar";
 import { HostedAgentBar } from "./hosted-agent-bar";
-import { HOSTED_SERVICES_ENABLED } from "@/lib/quotatlas";
+import { HOSTED_SERVICES_ENABLED } from "@/lib/fubumem";
 import { useAiGrantProbe, useNoAiGrant } from "../stores/ai-grant-store";
 import {
   QUALITY_LADDER,
@@ -820,7 +820,7 @@ export function MessageInput({
   running = false,
   stopping = false,
   disabled: disabledProp = false,
-  placeholder = "Message Quotatlas... (@ to mention, / for commands)",
+  placeholder = "Message FubuMem... (@ to mention, / for commands)",
 }: MessageInputProps) {
   const { enqueueMessage, removeQueueItem, setAcpModes, setAcpModesPending, setNativeEffort } =
     useChatStore.use.actions();

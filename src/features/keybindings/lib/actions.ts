@@ -1,4 +1,4 @@
-// Modified by Quotatlas from upstream Atlas (Apache-2.0).
+// Modified by FubuMem from upstream Atlas (Apache-2.0).
 /**
  * The action registry — the single source of truth for every rebindable
  * shortcut: its stable id, title, category, default chord(s) and the focus

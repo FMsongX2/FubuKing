@@ -1,4 +1,4 @@
-// Modified by Quotatlas from upstream Atlas (Apache-2.0).
+// Modified by FubuMem from upstream Atlas (Apache-2.0).
 //! The shared-memory **record store**: one SQLite database per scope.
 //!
 //! Every agent on a repository — native and ACP — writes into this one record,
@@ -27,7 +27,7 @@
 //! **Concurrency.** One connection per scope per process, behind a mutex:
 //! [`open_scope`] hands every caller the same `Arc<RecordStore>` for a root.
 //! Other processes may write the same database (the desktop app and each
-//! `quotatlas mcp` server), so every write transaction begins IMMEDIATE: it
+//! `fubumem mcp` server), so every write transaction begins IMMEDIATE: it
 //! takes SQLite's write lock before reading what it will change, and a
 //! concurrent writer waits out the busy timeout instead of failing on a stale
 //! snapshot. Every method is synchronous and may touch disk; async callers run
@@ -368,7 +368,7 @@ fn ensure_ignored(atlas_dir: &Path) {
     if !marker.exists() {
         let _ = std::fs::write(
             &marker,
-            "# Per-project state of Quotatlas: machine-specific databases. Never committed.\n*\n",
+            "# Per-project state of FubuMem: machine-specific databases. Never committed.\n*\n",
         );
     }
 }
@@ -674,7 +674,7 @@ impl RecordStore {
                 put_vector(&tx, id, model, v)?;
                 Some((model, v))
             }
-            // A replacement from a writer with no embedder (a `quotatlas mcp`
+            // A replacement from a writer with no embedder (a `fubumem mcp`
             // process) must not leave the old wording's vector behind, or
             // near-duplicate checks match words the entry no longer holds.
             (None, WriteOutcome::Replaced) => {

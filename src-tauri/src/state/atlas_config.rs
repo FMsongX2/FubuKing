@@ -1,4 +1,4 @@
-// Modified by Quotatlas from upstream Atlas (Apache-2.0).
+// Modified by FubuMem from upstream Atlas (Apache-2.0).
 //! `AtlasConfig` — the human- and agent-editable settings file.
 //!
 //! Replaces `AppState.settings` (formerly the `settings` object inside
@@ -50,10 +50,10 @@ pub const CONFIG_FILE_NAME: &str = "config.toml";
 
 /// Directory under `~/.config` (or `$XDG_CONFIG_HOME`) holding
 /// [`CONFIG_FILE_NAME`]. Named for the product, not the bundle id: a path a
-/// user types should read `quotatlas`, not the reverse-DNS identifier. It
+/// user types should read `fubumem`, not the reverse-DNS identifier. It
 /// differs from upstream Atlas's `atlas` so both apps can be installed side by
 /// side without sharing one settings file.
-pub const CONFIG_DIR_NAME: &str = "quotatlas";
+pub const CONFIG_DIR_NAME: &str = "fubumem";
 
 /// How many times [`ConfigManager::apply_patch`] rebuilds its patch when an
 /// external write lands inside the merge-then-swap window. Three is enough to
@@ -249,7 +249,7 @@ pub struct AppSettings {
     /// on the frontend (⌘+/⌘-/⌘0); persisted so it survives relaunch.
     #[serde(default = "default_ui_scale")]
     pub ui_scale: f32,
-    /// Anonymous product telemetry (PostHog). Default **OFF** in Quotatlas,
+    /// Anonymous product telemetry (PostHog). Default **OFF** in FubuMem,
     /// which also ships without a key, so the client is inert either way.
     /// Gates both the Rust emitter and the frontend `posthog-js` crash
     /// reporter. See `crate::telemetry`.
@@ -474,7 +474,7 @@ const SETTINGS_DOCS: &[(&str, &str)] = &[
     ),
     (
         "shareTelemetry",
-        "# Anonymous product telemetry. Off by default, and Quotatlas builds\n\
+        "# Anonymous product telemetry. Off by default, and FubuMem builds\n\
          # ship without an analytics key. See TELEMETRY.md. (default: false)",
     ),
     (
@@ -1847,20 +1847,20 @@ mod tests {
         (dir, path)
     }
 
-    // ── config_root (issue #64 follow-up: ~/.config/quotatlas, not the bundle id) ──
+    // ── config_root (issue #64 follow-up: ~/.config/fubumem, not the bundle id) ──
 
     #[test]
-    fn config_lives_under_dot_config_quotatlas_not_the_bundle_id() {
+    fn config_lives_under_dot_config_fubumem_not_the_bundle_id() {
         let home = PathBuf::from("/Users/someone");
         let root = config_root_from(None, Some(&home)).expect("a home resolves a root");
 
-        assert_eq!(root, PathBuf::from("/Users/someone/.config/quotatlas"));
+        assert_eq!(root, PathBuf::from("/Users/someone/.config/fubumem"));
         assert_eq!(
             root.join(CONFIG_FILE_NAME),
-            PathBuf::from("/Users/someone/.config/quotatlas/config.toml")
+            PathBuf::from("/Users/someone/.config/fubumem/config.toml")
         );
         // The whole point: nothing here reads the bundle identifier.
-        assert!(!root.to_string_lossy().contains("io.github.fmsongx2.quotatlas"));
+        assert!(!root.to_string_lossy().contains("io.github.fmsongx2.fubumem"));
         assert!(!root.to_string_lossy().contains("Application Support"));
     }
 
@@ -1873,7 +1873,7 @@ mod tests {
 
         let root = config_root_from(Some(&xdg), Some(&home)).unwrap();
 
-        assert_eq!(root, PathBuf::from("/elsewhere/cfg/quotatlas"));
+        assert_eq!(root, PathBuf::from("/elsewhere/cfg/fubumem"));
     }
 
     /// A relative `$XDG_CONFIG_HOME` is ignored rather than resolved against
@@ -1886,7 +1886,7 @@ mod tests {
 
         let root = config_root_from(Some(&xdg), Some(&home)).unwrap();
 
-        assert_eq!(root, PathBuf::from("/Users/someone/.config/quotatlas"));
+        assert_eq!(root, PathBuf::from("/Users/someone/.config/fubumem"));
     }
 
     /// No home and no usable XDG: there is nowhere to put it, and `load`

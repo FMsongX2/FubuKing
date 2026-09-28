@@ -1,4 +1,4 @@
-// Modified by Quotatlas from upstream Atlas (Apache-2.0).
+// Modified by FubuMem from upstream Atlas (Apache-2.0).
 //! atlas-memory — Atlas's on-device RAG/memory engine.
 //!
 //! Per-project engine that owns a persistent **usearch HNSW** index fed by an
@@ -34,7 +34,7 @@ mod retrieve;
 // call is injected by the Tauri layer via a closure.
 pub mod extract;
 
-// Global cross-repository memory under `~/.quotatlas/memory/`. Deterministic,
+// Global cross-repository memory under `~/.fubumem/memory/`. Deterministic,
 // conservative promotion over the record table (Fact, conf ≥ 0.8, seen in ≥2
 // repositories), blended into `retrieve` when local memory is sparse.
 // Tauri-free; resolves `$HOME` (or an env override).

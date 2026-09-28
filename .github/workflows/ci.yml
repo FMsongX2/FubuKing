@@ -1,4 +1,4 @@
-# Modified by Quotatlas from upstream Atlas (Apache-2.0).
+# Modified by FubuMem from upstream Atlas (Apache-2.0).
 name: CI
 
 on:
@@ -267,7 +267,7 @@ jobs:
             clippy: true
           - crate: atlas-thread-metadata
             clippy: true
-          - crate: quotatlas
+          - crate: fubumem
             clippy: true
     steps:
       - uses: actions/checkout@v5

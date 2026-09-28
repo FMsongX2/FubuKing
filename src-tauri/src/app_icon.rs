@@ -1,4 +1,4 @@
-// Modified by Quotatlas from upstream Atlas (Apache-2.0).
+// Modified by FubuMem from upstream Atlas (Apache-2.0).
 //! The app icon, from the persisted `appIcon` setting.
 //!
 //! The selectable icons are listed in `icons/app-icons/app-icons.json`, and

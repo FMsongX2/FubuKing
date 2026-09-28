@@ -1,16 +1,16 @@
-<!-- Modified by Quotatlas from upstream Atlas (Apache-2.0). -->
+<!-- Modified by FubuMem from upstream Atlas (Apache-2.0). -->
 # Telemetry and network access
 
-Quotatlas sends no telemetry.
+FubuMem sends no telemetry.
 
 - Release builds carry no analytics key. Upstream Atlas's PostHog client is still in the code, and without a key it is constructed inert: nothing is queued, nothing is sent, and the frontend never loads `posthog-js`.
 - The "Share usage data" setting defaults to off and is hidden, because it would be a switch that does nothing.
-- The updater upstream Atlas drives through analytics feature flags is inert for the same reason. Quotatlas releases are published on GitHub.
-- A build made with an analytics key supplied through `ATLAS_POSTHOG_KEY` is not a Quotatlas release build.
+- The updater upstream Atlas drives through analytics feature flags is inert for the same reason. FubuMem releases are published on GitHub.
+- A build made with an analytics key supplied through `ATLAS_POSTHOG_KEY` is not a FubuMem release build.
 
 ## Hosted services
 
-Quotatlas does not use Atlas's hosted services: sign-in, organisations, team chat, checkpoint sync, shared artifacts, the AI gateway and its credits. The backend refuses to start sign-in (`src-tauri/src/hosted.rs`), and every one of those services is reached only through a signed-in account. There is no Quotatlas server.
+FubuMem does not use Atlas's hosted services: sign-in, organisations, team chat, checkpoint sync, shared artifacts, the AI gateway and its credits. The backend refuses to start sign-in (`src-tauri/src/hosted.rs`), and every one of those services is reached only through a signed-in account. There is no FubuMem server.
 
 ## Network requests the app makes
 

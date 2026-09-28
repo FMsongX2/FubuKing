@@ -1,4 +1,4 @@
-# Modified by Quotatlas from upstream Atlas (Apache-2.0).
+# Modified by FubuMem from upstream Atlas (Apache-2.0).
 name: Feature Request / Feedback
 description: Suggest something, propose work, or tell us what feels clumsy
 labels: ["enhancement"]
@@ -15,7 +15,7 @@ body:
     attributes:
       label: Tell us more
       description: >-
-        What would you like Quotatlas to do, or what feels slow, clumsy, or confusing?
+        What would you like FubuMem to do, or what feels slow, clumsy, or confusing?
         Markdown and code blocks render here, so this box can also hold a full
         writeup — current behaviour, the ask, implementation notes, files to touch,
         what you've already checked or ruled out, how you'd verify it — if you've

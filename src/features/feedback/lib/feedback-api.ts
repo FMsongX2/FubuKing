@@ -1,4 +1,4 @@
-// Modified by Quotatlas from upstream Atlas (Apache-2.0).
+// Modified by FubuMem from upstream Atlas (Apache-2.0).
 // IPC surface for the feedback panel.
 //
 // Rust owns identity: this sends a single `anonymous` bit and never the user's
@@ -23,7 +23,7 @@ export const CATEGORIES: ReadonlyArray<{
   {
     id: "feature_request",
     label: "Feature request",
-    placeholder: "What would you like Quotatlas to do?",
+    placeholder: "What would you like FubuMem to do?",
   },
   {
     id: "improvement",

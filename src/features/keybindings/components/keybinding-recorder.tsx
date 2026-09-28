@@ -1,4 +1,4 @@
-// Modified by Quotatlas from upstream Atlas (Apache-2.0).
+// Modified by FubuMem from upstream Atlas (Apache-2.0).
 import { useEffect, useState } from "react";
 import { Lock } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -122,8 +122,8 @@ export function KeybindingRecorder({
               The Default profile is locked
             </div>
             <p className="text-xs leading-relaxed text-secondary-foreground">
-              Default always keeps Quotatlas's built-in shortcuts. Duplicate it into a new profile
-              to change <span className="text-foreground">{def.title}</span> and anything else.
+              Default always keeps FubuMem's built-in shortcuts. Duplicate it into a new profile to
+              change <span className="text-foreground">{def.title}</span> and anything else.
             </p>
             <div className="flex justify-end gap-2 pt-0.5">
               <button

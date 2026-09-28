@@ -710,6 +710,7 @@ dependencies = [
  "dirs",
  "dotenvy",
  "dunce",
+ "fubumem",
  "futures",
  "ignore",
  "mimalloc",
@@ -720,7 +721,6 @@ dependencies = [
  "parking_lot",
  "posthog-rs",
  "pulldown-cmark 0.13.4",
- "quotatlas",
  "reqwest 0.12.28",
  "rig-core",
  "rmcp",
@@ -6801,6 +6801,24 @@ dependencies = [
 ]
 
 [[package]]
+name = "fubumem"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "atlas-agent-transcript",
+ "atlas-process",
+ "atlas-shared-memory",
+ "chrono",
+ "clap",
+ "dirs",
+ "rmcp",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "tokio",
+]
+
+[[package]]
 name = "futf"
 version = "0.1.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -12442,24 +12460,6 @@ dependencies = [
  "socket2",
  "tracing",
  "windows-sys 0.60.2",
-]
-
-[[package]]
-name = "quotatlas"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "atlas-agent-transcript",
- "atlas-process",
- "atlas-shared-memory",
- "chrono",
- "clap",
- "dirs",
- "rmcp",
- "serde",
- "serde_json",
- "tempfile",
- "tokio",
 ]
 
 [[package]]

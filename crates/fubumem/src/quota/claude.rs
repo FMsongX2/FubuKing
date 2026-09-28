@@ -3,9 +3,9 @@
 //! Claude Code documents one machine-readable view of subscription limits:
 //! the JSON it pipes to a statusLine command, whose `rate_limits.five_hour`
 //! and `rate_limits.seven_day` carry `used_percentage` and `resets_at`
-//! (code.claude.com/docs/en/statusline.md). A Quotatlas account's profile gets
-//! a statusLine script that saves that JSON next to it, and Quotatlas reads the
-//! saved copy. The default login's settings are not edited; `quotatlas claude`
+//! (code.claude.com/docs/en/statusline.md). A FubuMem account's profile gets
+//! a statusLine script that saves that JSON next to it, and FubuMem reads the
+//! saved copy. The default login's settings are not edited; `fubumem claude`
 //! passes the script per run instead, when the user has no status line of
 //! their own. The account's login is never read. The figures are as fresh as
 //! the account's last turn; the saved file's modification time says how fresh.
@@ -19,31 +19,31 @@ use super::QuotaWindow;
 use crate::accounts::{self, Account};
 
 /// Where the status line script saves Claude Code's status JSON.
-pub const RATE_LIMITS_FILE: &str = "quotatlas-rate-limits.json";
+pub const RATE_LIMITS_FILE: &str = "fubumem-rate-limits.json";
 /// The script itself, inside the profile home it serves.
-const SCRIPT_FILE: &str = "quotatlas-statusline.sh";
+const SCRIPT_FILE: &str = "fubumem-statusline.sh";
 /// Claude Code's user settings file inside a `CLAUDE_CONFIG_DIR`.
 const SETTINGS_FILE: &str = "settings.json";
 
 /// Writes stdin to a temporary file and renames it over the saved copy, so
-/// Quotatlas never reads a half-written file. Given an argument, it runs that
+/// FubuMem never reads a half-written file. Given an argument, it runs that
 /// as the user's own status line on the same JSON and prints what it prints;
 /// otherwise a fixed status text. Nothing user-controlled is interpolated into
 /// the script: the user's command arrives as an argument.
 const SCRIPT: &str = r#"#!/bin/sh
-# Written by Quotatlas for this Claude Code account. Claude Code pipes its
-# status JSON to this script; Quotatlas reads the rate_limits in the saved
+# Written by FubuMem for this Claude Code account. Claude Code pipes its
+# status JSON to this script; FubuMem reads the rate_limits in the saved
 # copy to show the account's quota. The account's login is never read.
 dir=$(dirname "$0")
-tmp="$dir/.quotatlas-rate-limits.$$"
+tmp="$dir/.fubumem-rate-limits.$$"
 umask 077
 if cat > "$tmp"; then
   if [ -n "$1" ]; then
     sh -c "$1" < "$tmp"
   else
-    printf 'Quotatlas\n'
+    printf 'FubuMem\n'
   fi
-  mv -f "$tmp" "$dir/quotatlas-rate-limits.json"
+  mv -f "$tmp" "$dir/fubumem-rate-limits.json"
 else
   rm -f "$tmp"
 fi
@@ -62,7 +62,7 @@ fn script_path(profile_home: &Path) -> PathBuf {
 }
 
 /// Where the default login's readings are saved. Not in `~/.claude`: the
-/// default login's files are the user's, so the script lives in Quotatlas's
+/// default login's files are the user's, so the script lives in FubuMem's
 /// own data dir and is handed to Claude Code per run (see `status_line_settings`).
 pub fn default_reading_dir() -> Option<PathBuf> {
     accounts::app_data_dir().map(|dir| dir.join("claude-default"))
@@ -108,7 +108,7 @@ pub fn status_line_settings(script: &Path, theirs: Option<&Value>) -> Value {
 }
 
 /// The status line the account's own settings set, unless it is the script
-/// Quotatlas installed there.
+/// FubuMem installed there.
 pub fn user_status_line(user_settings: &Path) -> Option<Value> {
     let line = settings_status_line(user_settings)?;
     let ours = user_settings.parent().map(|home| shell_quote(&script_path(home)));
@@ -116,7 +116,7 @@ pub fn user_status_line(user_settings: &Path) -> Option<Value> {
 }
 
 /// Whether the project in `cwd` sets a status line of its own. Claude Code
-/// runs that one under its own trust rules; Quotatlas does not lift it into a
+/// runs that one under its own trust rules; FubuMem does not lift it into a
 /// flag, where those rules (and `--restricted`) would no longer apply.
 pub fn project_sets_status_line(cwd: &Path) -> bool {
     [".claude/settings.local.json", ".claude/settings.json"]
@@ -135,7 +135,7 @@ fn shell_quote(path: &Path) -> String {
     format!("'{}'", path.to_string_lossy().replace('\'', r"'\''"))
 }
 
-/// Install the status line script into a Quotatlas-managed profile and point
+/// Install the status line script into a FubuMem-managed profile and point
 /// the profile's `settings.json` at it. Idempotent. A statusLine the user
 /// configured themselves in this profile is left alone, and quota for the
 /// account then stays unknown.
@@ -183,7 +183,7 @@ pub fn trusts_folder(account: &Account, cwd: &Path) -> Option<bool> {
 
 /// Write via a sibling temp file and a rename.
 fn write_atomic(path: &Path, bytes: &[u8]) -> io::Result<()> {
-    let tmp = path.with_extension("quotatlas-tmp");
+    let tmp = path.with_extension("fubumem-tmp");
     std::fs::write(&tmp, bytes)?;
     std::fs::rename(&tmp, path)
 }
@@ -368,7 +368,7 @@ mod tests {
                 child.wait_with_output()
             })
             .unwrap();
-        assert_eq!(String::from_utf8_lossy(&output.stdout), "Quotatlas\n");
+        assert_eq!(String::from_utf8_lossy(&output.stdout), "FubuMem\n");
         let reading = read(home.path()).unwrap();
         assert_eq!(reading.windows[0].used_percent, 42.0);
         assert!(reading.updated_at.is_some());

@@ -1,4 +1,4 @@
-// Modified by Quotatlas from upstream Atlas (Apache-2.0).
+// Modified by FubuMem from upstream Atlas (Apache-2.0).
 //! The Shared-tab command contract, pinned byte-for-byte.
 //!
 //! The five commands (`memory_get_state`, `memory_list_events`, `memory_query`,

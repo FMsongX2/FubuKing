@@ -1,4 +1,4 @@
-//! Accounts: the logins Quotatlas can run an agent CLI under.
+//! Accounts: the logins FubuMem can run an agent CLI under.
 //!
 //! Each CLI's default login is one account. Every other account is a profile
 //! home, a `CLAUDE_CONFIG_DIR` or `CODEX_HOME`, at `<app config dir>/accounts/<id>`
@@ -13,14 +13,14 @@ use std::path::{Path, PathBuf};
 use serde::Serialize;
 
 /// The desktop app's bundle identifier, which names its config and data dirs.
-pub const IDENTIFIER: &str = "io.github.fmsongx2.quotatlas";
+pub const IDENTIFIER: &str = "io.github.fmsongx2.fubumem";
 /// Directory under the app config dir holding one profile home per account.
 pub const ACCOUNTS_DIR: &str = "accounts";
 /// The label of each CLI's own login.
 pub const DEFAULT_LABEL: &str = "default";
-/// Left in a profile `quotatlas login` made, so the desktop app gives it an
+/// Left in a profile `fubumem login` made, so the desktop app gives it an
 /// agent entry once. An account removed in the app has none and stays removed.
-pub const ADOPT_MARKER: &str = ".quotatlas-adopt";
+pub const ADOPT_MARKER: &str = ".fubumem-adopt";
 
 /// Which CLI an account belongs to, and therefore which variable selects its
 /// profile.

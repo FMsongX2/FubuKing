@@ -5,8 +5,8 @@ import { cycleChatAgent } from "../lib/switch-agent";
 import { COMPOSER_STRIP, COMPOSER_STRIP_ACTION } from "./composer-strip";
 
 /**
- * Quotatlas: the native agent's composer notice. Upstream Atlas runs that
- * agent on its hosted gateway, which Quotatlas does not use (ADR Q-0001), so
+ * FubuMem: the native agent's composer notice. Upstream Atlas runs that
+ * agent on its hosted gateway, which FubuMem does not use (ADR Q-0001), so
  * instead of a sign-in that cannot succeed the strip says so and offers the two
  * ways forward: switch this chat to another agent, or install one.
  */
@@ -15,10 +15,10 @@ export function HostedAgentBar({ tabId }: { tabId: string }) {
     <div
       data-testid="hosted-agent-bar"
       className={COMPOSER_STRIP}
-      title="The built-in agent needs Atlas's hosted gateway, which Quotatlas does not use"
+      title="The built-in agent needs Atlas's hosted gateway, which FubuMem does not use"
     >
       <span className="min-w-0 truncate text-muted-foreground">
-        The built-in agent is not available in Quotatlas. Use Claude Code or Codex.
+        The built-in agent is not available in FubuMem. Use Claude Code or Codex.
       </span>
       <div className="flex shrink-0 items-center gap-1">
         <button

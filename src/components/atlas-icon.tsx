@@ -1,4 +1,4 @@
-// Modified by Quotatlas from upstream Atlas (Apache-2.0).
+// Modified by FubuMem from upstream Atlas (Apache-2.0).
 import atlasIconUrl from "@/assets/atlas-icon.svg";
 import { cn } from "@/lib/utils";
 
@@ -8,7 +8,7 @@ interface AtlasIconProps {
   alt?: string;
 }
 
-export function AtlasIcon({ size = 32, className, alt = "Quotatlas" }: AtlasIconProps) {
+export function AtlasIcon({ size = 32, className, alt = "FubuMem" }: AtlasIconProps) {
   return (
     <img
       src={atlasIconUrl}

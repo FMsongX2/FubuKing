@@ -1,4 +1,4 @@
-// Modified by Quotatlas from upstream Atlas (Apache-2.0).
+// Modified by FubuMem from upstream Atlas (Apache-2.0).
 //! The memory tool server, end to end over loopback with an rmcp client, and
 //! the pure ranking behind the briefing.
 

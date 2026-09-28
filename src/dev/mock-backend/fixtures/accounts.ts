@@ -21,7 +21,7 @@ const mockAccounts: Account[] = [
     baseAgentId: "claude-acp",
     label: "work",
     provider: "claude",
-    profileHome: "/Users/dev/.config/quotatlas-mock/accounts/claude-acp@work",
+    profileHome: "/Users/dev/.config/fubumem-mock/accounts/claude-acp@work",
     displayName: "Claude Agent · work",
   },
 ];
@@ -49,7 +49,7 @@ export const accountsHandlers: TypedHandlers<AccountsResponses> = {
       baseAgentId: base,
       label: name,
       provider: base.startsWith("claude") ? "claude" : "codex",
-      profileHome: `/Users/dev/.config/quotatlas-mock/accounts/${id}`,
+      profileHome: `/Users/dev/.config/fubumem-mock/accounts/${id}`,
       displayName: `${BASE_NAMES[base] ?? base} · ${name}`,
     };
     mockAccounts.push(account);

@@ -1,4 +1,4 @@
-// Modified by Quotatlas from upstream Atlas (Apache-2.0).
+// Modified by FubuMem from upstream Atlas (Apache-2.0).
 //! Consented import of Claude's auto-memory into shared memory.
 //!
 //! Claude Code keeps its own per-project memory: one markdown file per memory
