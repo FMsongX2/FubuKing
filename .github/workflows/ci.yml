@@ -5,14 +5,6 @@ on:
   push:
     branches:
       - main
-      # Version branches (0.2.5, 0.10.0, …). Not for the check itself — work
-      # lands here via PRs that were already checked — but so the branch owns a
-      # warm dependency cache. A pull request can restore caches from its base
-      # branch, and with no run ever having happened on a version branch there
-      # was nothing to restore: every contributor's first run rebuilt all
-      # ~1,160 crates in the app's graph from scratch, which is ~16 minutes on
-      # the app job versus ~2.
-      - '[0-9]+.[0-9]+.[0-9]+'
   pull_request:
 
 # A new push to the same branch makes the previous run's answer irrelevant.
@@ -27,283 +19,58 @@ permissions:
 env:
   # Incremental compilation only pays off across repeated local rebuilds; a CI
   # job compiles once and throws the machine away, so it is pure overhead here.
-  # It is also load-bearing for sccache (see `SCCACHE_*` on the Rust jobs):
-  # sccache refuses to cache an incremental compile, so turning this back on
-  # would silently reduce every sccache lookup to a miss.
   CARGO_INCREMENTAL: 0
-  # `line-tables-only` rather than the default full debug info: it is most of
-  # the build-time and artifact-size saving while still giving panics real file
-  # and line numbers, which is the whole point of reading a failed CI log.
+  # `line-tables-only` rather than the default full debug info: most of the
+  # build-time and artifact-size saving, while panics keep real file and line
+  # numbers, which is the whole point of reading a failed CI log.
   CARGO_PROFILE_DEV_DEBUG: line-tables-only
-  # sccache, for the Rust jobs (each sets `RUSTC_WRAPPER: sccache` itself and
-  # installs it with mozilla-actions/sccache-action). It exists for the
-  # workspace MEMBERS, which Swatinem/rust-cache deliberately prunes from the
-  # target dir it saves. 110 of the root workspace's members are the ported
-  # Atlas Agent engine, so without this every job that reaches the engine recompiles
-  # it from source: 20m49s of the atlas-native-agent job's ~26 minutes, which
-  # made that job the length of the whole run. rust-cache stays, for the
-  # registry, git deps and the non-member part of target/ — sccache cannot
-  # cache anything that invokes the linker (bin, proc-macro, build scripts),
-  # nor `cargo clippy`/`check` (metadata-only output), so it complements
-  # rust-cache rather than replacing it.
-  #
-  # Cache budget: GitHub gives the repo 10 GB, and it sat at ~9.7 GB before
-  # sccache. Going over is not an error, it is least-recently-used eviction,
-  # i.e. the caches quietly thrash each other. So only pushes to `main` and the
-  # version branches write — the same scope rust-cache's `save-if` uses below.
-  # A pull request reads its base branch's entries and writes none: a PR that
-  # edits the engine recompiles what it touched on each push, which is the
-  # price of not letting every open PR park its own copy of the engine in the
-  # budget. Keys are content hashes of each rustc invocation, so jobs on the
-  # same OS that compile a crate identically share one entry rather than
-  # storing it per job. To purge everything sccache wrote, change
-  # SCCACHE_GHA_VERSION.
-  SCCACHE_GHA_ENABLED: 'true'
-  SCCACHE_GHA_RW_MODE: ${{ github.event_name == 'push' && 'READ_WRITE' || 'READ_ONLY' }}
 
 jobs:
-  frontend:
-    name: frontend
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v5
-        with:
-          # Full history, not the depth-1 default: vendor-licensing.test.ts
-          # derives its fork point as the oldest commit touching the path the engine was vendored under,
-          # and on a shallow clone that resolves to HEAD — the modification
-          # set comes back empty and the suite fails (#58).
-          fetch-depth: 0
-      - uses: oven-sh/setup-bun@v2
-      - name: Install
-        run: bun install --frozen-lockfile
-      - name: Lint
-        run: bun run lint
-      - name: Check formatting
-        run: bun run format:check
-      # Two configs: app code (`src/`, no Node globals) and test code
-      # (Node globals allowed). See the comments in tsconfig.json.
-      - name: Typecheck
-        run: bun run typecheck
-      # Covers the Rust/TypeScript IPC contract, which nothing else can see —
-      # `tsc` treats a command name as an opaque string.
-      - name: Test
-        run: bun run test
-      # Typechecking is not a build. Rollup resolves imports, runs the chunk
-      # splitter and evaluates anything at module scope, so a broken dynamic
-      # import or a bad alias fails here and nowhere earlier.
-      - name: Build
-        run: bun run build
-
-  app:
-    # The Tauri app itself — the only thing here that compiles the ~400
-    # `#[tauri::command]` handlers and the `generate_handler!` registration.
-    # Without this job every other check can be green while the app does not
-    # build at all; `crates` only covers the libraries underneath it.
-    #
-    # Runs on macOS because that is the supported platform (see CONTRIBUTING),
-    # and because Tauri on Linux would additionally need webkit2gtk/gtk3
-    # system packages installed before it could compile.
-    #
-    # This is the slowest job in the pipeline by a wide margin on a cold cache.
-    name: app (src-tauri)
-    runs-on: macos-latest
-    env:
-      # Set per job, never workflow-wide: with no sccache on PATH every cargo
-      # invocation fails, so only a job that runs sccache-action may set it.
-      RUSTC_WRAPPER: sccache
-    steps:
-      - uses: actions/checkout@v5
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          components: clippy
-      # Before rust-cache: once RUSTC_WRAPPER is set, cargo invokes it even to
-      # probe `rustc -vV`, so sccache must be on PATH before anything runs
-      # cargo.
-      - uses: mozilla-actions/sccache-action@v0.0.11
-      # One cargo workspace since #38: the lockfile and the target dir both
-      # live at the repo root, so that is what the cache keys off. Saved from
-      # pushes only, for the cache budget (see SCCACHE_GHA_RW_MODE).
-      - uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: .
-          save-if: ${{ github.event_name == 'push' }}
-      - name: Configure git identity for test repos
-        run: |
-          git config --global user.name "CI"
-          git config --global user.email "ci@example.invalid"
-      # Compiles the app and its command surface, then runs its ~450 unit
-      # tests. `--lib` because that is where every one of them lives:
-      # src-tauri has no `tests/` directory, its three fenced doc blocks are
-      # bash/text/json (rustdoc never compiles those), and `main.rs` has no
-      # tests. A bare `cargo test` also built and linked the `atlas` binary's
-      # own test harness and ran the doctest pass — a second full-size app
-      # link to run zero tests. Add `--tests`/`--doc` back if either gains one.
-      - name: Test
-        working-directory: src-tauri
-        run: cargo test --locked --lib
-      # Plain clippy, no `-D warnings`: the workspace lint table (`[lints]`
-      # in the manifest, #60) already carries its own denies, and this is the
-      # crate where the #54 cfg outage happened — the deny has to be able to
-      # fail a build here, not only warn.
-      - name: Clippy (workspace lint table)
-        working-directory: src-tauri
-        run: cargo clippy --locked --all-targets
-
-  fubuking-windows:
-    # The `fubuking` CLI on Windows. Its console handoff (the Windows
-    # `terminal` module in `run.rs`) and the PATHEXT lookup compile only
-    # here, and the process-tree kill is tested only here. No sccache: this is
-    # the one Windows job, and rust-cache covers the registry and git deps.
-    name: fubuking (Windows)
-    runs-on: windows-latest
-    steps:
-      - uses: actions/checkout@v5
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          components: clippy
-      - uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: .
-          save-if: ${{ github.event_name == 'push' }}
-      - name: Test
-        working-directory: crates/fubuking
-        run: cargo test --locked
-      - name: Clippy (-D warnings)
-        working-directory: crates/fubuking
-        run: cargo clippy --locked --all-targets -- -D warnings
-
-  engine-dialect:
-    # The Atlas-authored gateway dialect (~2,700 lines under
-    # vendor/atlas-engine/atlas-engine-api/src/atlas_chat/) is first-party code that happens
-    # to live in vendor/ — its request/SSE fixture suites are the primary
-    # evidence for the dialect's correctness, and until #64 they ran in no CI
-    # job at all.
-    #
-    # Alongside it, the eight vendored crates Atlas has edited since the port
-    # — for the dialect wiring (#50, #52), the phone-home removals (#43), the
-    # rename (#55) and Windows process spawning — whose own suites are green:
-    # 915 tests. Changing ported code is ordinary work (ADR-0003), and this is
-    # where a change to it gets checked.
-    #
-    # Deliberately not the whole vendored engine: its other ~100 members are
-    # upstream's code with upstream's suites, unchanged by Atlas, so running
-    # them would buy a much longer job for no new evidence. When Atlas edits
-    # another vendored crate, add its `-p` here.
-    name: engine dialect (atlas-engine-api)
-    runs-on: ubuntu-latest
-    env:
-      RUSTC_WRAPPER: sccache # see the app job
-    steps:
-      - uses: actions/checkout@v5
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: mozilla-actions/sccache-action@v0.0.11
-      - uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: .
-          save-if: ${{ github.event_name == 'push' }}
-      # Some of the vendored suites build scratch git repositories; same reason
-      # as in `crates`.
-      - name: Configure git identity for test repos
-        run: |
-          git config --global user.name "CI"
-          git config --global user.email "ci@example.invalid"
-      - name: Test
-        run: >-
-          cargo test --locked
-          -p atlas-engine-api
-          -p atlas-engine-model-provider
-          -p atlas-engine-models-manager
-          -p atlas-engine-protocol
-          -p atlas-engine-otel
-          -p atlas-engine-feedback
-          -p atlas-engine-analytics
-          -p atlas-engine-shell-command
-          -p atlas-engine-config
-
   crates:
     # Every crate gets its own job so a failure names the crate rather than the
-    # workspace. Adding a crate here is a one-line change, and
-    # `tests/ci-coverage.test.ts` fails the build if a new crate is left out of
-    # this list.
+    # workspace. A new workspace member needs a line here.
     #
-    # Since #38 all of these except `atlas-kb-server` are members of the root
-    # workspace: `cargo test` inside a member directory still selects only that
-    # package, but the lockfile and target dir are the root's.
-    #
-    # `clippy: true` marks the crates that are currently warning-clean under
+    # `clippy: true` marks the crates that are warning-clean under
     # `-D warnings`. The rest are not yet; flip the flag as each is cleaned up
     # rather than weakening the gate for the ones that already pass.
-    #
-    # `release-build: true` additionally builds the crate with its release
-    # profile (see the step).
     name: ${{ matrix.crate }}
     runs-on: ubuntu-latest
-    env:
-      RUSTC_WRAPPER: sccache # see the app job
     strategy:
       # Report every failing crate in one run instead of stopping at the first.
       fail-fast: false
       matrix:
         include:
-          - crate: atlas-acp-thread
-            clippy: true
-          - crate: atlas-agent-delta
-            clippy: true
-          - crate: atlas-agent-manager
-            clippy: true
-          - crate: atlas-process
-          - crate: atlas-agent-servers
-            clippy: true
           - crate: atlas-agent-transcript
             clippy: true
-          - crate: atlas-agent-store
-            clippy: true
           - crate: atlas-agent-wire
-            clippy: true
-          - crate: atlas-artifacts
             clippy: true
           - crate: atlas-bus
           - crate: atlas-checkpoint
             clippy: true
-          - crate: atlas-codeindex
-          - crate: atlas-comms
-            clippy: true
           - crate: atlas-embed
-          - crate: atlas-git
-            clippy: true
-          - crate: atlas-gitdiff
-          - crate: atlas-icon-theme
-            clippy: true
-          - crate: atlas-kb-server
-            release-build: true
           - crate: atlas-memory
             clippy: true
-          - crate: atlas-native-agent
-            clippy: true
-            sandbox: true
+          - crate: atlas-process
           - crate: atlas-redact
             clippy: true
           - crate: atlas-shared-memory
-            clippy: true
-          - crate: atlas-terminal
-          - crate: atlas-theme
-            clippy: true
-          - crate: atlas-thread-metadata
             clippy: true
           - crate: fubuking
             clippy: true
     steps:
       - uses: actions/checkout@v5
+        with:
+          # Full history, not the depth-1 default: fubuking's `apache_notices`
+          # test diffs the tree against the fork base.
+          fetch-depth: 0
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy
-      - uses: mozilla-actions/sccache-action@v0.0.11
-      # Workspace members share the root lockfile and target dir;
-      # `atlas-kb-server` is excluded from the workspace (it keeps its own
-      # profile and is built on demand at runtime) and so keeps its own cache.
+      # Workspace members share the root lockfile and target dir. Saved from
+      # pushes only, so open pull requests do not crowd out the cache budget.
       - uses: Swatinem/rust-cache@v2
         with:
-          workspaces: ${{ matrix.crate == 'atlas-kb-server' && 'crates/atlas-kb-server' || '.' }}
+          workspaces: .
           save-if: ${{ github.event_name == 'push' }}
       # Several suites build real git repositories in a tempdir, and `git
       # commit` refuses to run without an identity. Set for every crate so
@@ -312,56 +79,11 @@ jobs:
         run: |
           git config --global user.name "CI"
           git config --global user.email "ci@example.invalid"
-      # `engine_turn.rs` runs real commands through the ported engine's
-      # sandbox. macOS sandboxes with `/usr/bin/sandbox-exec`, already on disk,
-      # which is why these tests only ever failed here. Linux has no such
-      # binary: the engine re-execs a helper under the arg0
-      # `atlas-engine-linux-sandbox`, and that helper delegates the filesystem view to
-      # bubblewrap — which the runner image does not ship.
-      #
-      # Its absence is invisible by construction. The helper panics at
-      # `linux-sandbox/src/launcher.rs` from inside the `#[ctor]` that performs
-      # the arg0 dispatch; a ctor cannot unwind, so the panic aborts and its
-      # message dies with the process. The engine sees only `Sandbox(Signal(6))`
-      # and the suite reports that an approved command never ran — three
-      # translations away from "bwrap is not installed".
-      #
-      # Flagged rather than installed for every crate because
-      # `tests/engine-quarantine.test.ts` keeps `atlas-native-agent` the only
-      # manifest allowed to name a `atlas-engine-*` crate, so no other job can reach
-      # this sandbox. Flip the flag on any crate that later can.
-      - name: Install bubblewrap (the engine's Linux sandbox needs it)
-        if: matrix.sandbox
-        run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y -qq --no-install-recommends bubblewrap
-          bwrap --version
       - name: Test
         working-directory: crates/${{ matrix.crate }}
         run: cargo test --locked
-      # atlas-kb-server is never shipped as a binary: `knowledge_export`
-      # compiles it on the user's machine, with `cargo build --release` and the
-      # crate's own release profile (`panic = "abort"`, thin LTO, strip), which
-      # no other step here exercises. Three direct dependencies, so this costs
-      # well under a minute, and it is the build users actually run.
-      - name: Build (release profile, as knowledge_export does)
-        if: matrix.release-build
-        working-directory: crates/${{ matrix.crate }}
-        run: cargo build --locked --release
-      # Exactly one clippy pass per crate, never two. Every member crate gets
-      # at least the workspace lint table (`[lints] workspace = true`, #60),
-      # whose entries are denies of their own; `clippy: true` crates get
-      # `-D warnings` on top, which is a strict superset. It used to be both
-      # passes for those crates, and the plain one found nothing the strict
-      # one would not — while changing the clippy arguments invalidates every
-      # workspace member cargo lints, so for atlas-native-agent that was the
-      # whole ported engine linted twice. sccache cannot help here (clippy
-      # emits metadata only), so the only saving is not doing it twice.
-      #
-      # Two complementary `if`s rather than one step with an expression in
-      # `run`: tests/ci-coverage.test.ts checks the pair stays complementary,
-      # and a `run` line with no `${{ }}` in it stays runnable as-is by tools
-      # that replay these steps outside Actions.
+      # Exactly one clippy pass per crate: `-D warnings` on top of the
+      # workspace lint table is a strict superset of the table alone.
       - name: Clippy (-D warnings)
         if: matrix.clippy
         working-directory: crates/${{ matrix.crate }}
@@ -370,3 +92,27 @@ jobs:
         if: ${{ !matrix.clippy }}
         working-directory: crates/${{ matrix.crate }}
         run: cargo clippy --locked --all-targets
+
+  fubuking-windows:
+    # The `fubuking` CLI on Windows. Its console handoff (the Windows
+    # `terminal` module in `run.rs`) and the PATHEXT lookup compile only
+    # here, and the process-tree kill is tested only here.
+    name: fubuking (Windows)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0 # see the crates job
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: .
+          save-if: ${{ github.event_name == 'push' }}
+      - name: Test
+        working-directory: crates/fubuking
+        run: cargo test --locked
+      - name: Clippy (-D warnings)
+        working-directory: crates/fubuking
+        run: cargo clippy --locked --all-targets -- -D warnings

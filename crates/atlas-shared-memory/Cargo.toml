@@ -3,7 +3,7 @@ name = "atlas-shared-memory"
 version = "0.1.0"
 edition = "2021"
 license = "Apache-2.0"
-description = "Shared cross-agent memory: the record facade and its seven MCP tools, served by the desktop app over HTTP and by `fubuking mcp` over stdio"
+description = "Shared cross-agent memory: the record facade and its seven MCP tools, served by `fubuking mcp` over stdio"
 publish = false
 
 [dependencies]

@@ -2,11 +2,11 @@
 //! Source-level audit: every `Command::new(` in Windows-reachable code must
 //! opt out of a console window, or be listed below as a known gap.
 //!
-//! Atlas is a GUI (console-less) process. On Windows, any console-subsystem
-//! child spawned without `CREATE_NO_WINDOW` gets a fresh console, and with
-//! Windows Terminal as the default terminal host that console is a visible
-//! window (see docs/archive/windows-terminal-spawn.md). The compiler cannot
-//! catch a missing flag, so this test walks the source instead.
+//! `fubuking mcp` may run with no console of its own, as an agent's MCP
+//! server. On Windows, any console-subsystem child spawned from such a process
+//! without `CREATE_NO_WINDOW` gets a fresh console, and with Windows Terminal
+//! as the default terminal host that console is a visible window. The compiler
+//! cannot catch a missing flag, so this test walks the source instead.
 //!
 //! A spawn site counts as gated when, within `WINDOW` lines after
 //! `Command::new(`, the code calls one of `GATES` (the `atlas-process`
@@ -35,14 +35,10 @@ const GATES: &[&str] = &[
 ];
 
 /// Ungated spawn sites that are reachable on Windows and still open for work.
-/// Keep in sync with the action plan in docs/archive/windows-terminal-spawn.md.
 const KNOWN_GAPS: &[&str] = &[
-    // Runs inside the sandbox `command_runner` binary, itself a console
-    // process, so its `cmd.exe` child inherits that console: no new window.
-    "vendor/atlas-engine/windows-sandbox-rs/src/bin/command_runner/win/cwd_junction.rs",
     // The `fubuking` CLI is itself a console process, and the agent CLI it
     // runs is a TUI that must draw in that console: CREATE_NO_WINDOW would
-    // leave it none. The same reasoning as the entry above.
+    // leave it none.
     "crates/fubuking/src/run.rs",
 ];
 
@@ -207,10 +203,8 @@ fn repo_root() -> PathBuf {
 fn every_windows_reachable_spawn_is_gated_or_a_known_gap() {
     let root = repo_root();
     let mut files = Vec::new();
-    for dir in ["src-tauri/src", "crates", "vendor/atlas-engine"] {
-        walk(&root.join(dir), &mut files);
-    }
-    assert!(files.len() > 100, "expected to walk the whole workspace");
+    walk(&root.join("crates"), &mut files);
+    assert!(files.len() > 50, "expected to walk the whole workspace");
 
     let mut new_gaps: Vec<String> = Vec::new();
     let mut still_open: Vec<&str> = Vec::new();

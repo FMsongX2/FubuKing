@@ -1,5 +1,5 @@
 //! FubuKing: one memory and usage-limit handoff for Claude Code, Codex and
-//! any MCP agent. The `fubuking` binary and the desktop app share this crate.
+//! any MCP agent. The library behind the `fubuking` binary.
 
 pub mod accounts;
 pub mod args;

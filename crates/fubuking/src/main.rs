@@ -1,10 +1,8 @@
 //! The `fubuking` command: run Claude Code or Codex with shared memory and
 //! with a usage limit turned into a handoff to another account, serve that
-//! memory to any MCP agent, show every account's quota, and open folders in
-//! the desktop app.
+//! memory to any MCP agent, and show every account's quota.
 
 use std::ffi::OsString;
-use std::path::PathBuf;
 
 use anyhow::Context;
 use clap::{Parser, Subcommand};
@@ -40,14 +38,6 @@ enum Command {
         #[arg(long, default_value = "mcp")]
         agent: String,
     },
-    /// Open a folder in the FubuKing desktop app.
-    Open {
-        /// The folder; the current one when left out.
-        path: Option<PathBuf>,
-    },
-    /// `fubuking <folder>`, the desktop app's shell helper usage, opens it too.
-    #[command(external_subcommand)]
-    Folder(Vec<OsString>),
 }
 
 #[derive(clap::Args)]
@@ -113,14 +103,6 @@ async fn dispatch(command: Command) -> anyhow::Result<i32> {
             fubuking::mcp::serve(&cwd, &agent).await?;
             Ok(0)
         }
-        Command::Open { path } => open(path),
-        Command::Folder(words) => match words.as_slice() {
-            [folder] if std::path::Path::new(folder).is_dir() => open(Some(PathBuf::from(folder))),
-            _ => anyhow::bail!(
-                "unknown command `{}`; `fubuking --help` lists them",
-                words.first().map(|word| word.to_string_lossy()).unwrap_or_default()
-            ),
-        },
     }
 }
 
@@ -196,31 +178,6 @@ fn span(seconds: i64) -> String {
     }
 }
 
-/// Hand the folder to the desktop app, as a new window.
-fn open(path: Option<PathBuf>) -> anyhow::Result<i32> {
-    let path = path.unwrap_or_else(|| PathBuf::from("."));
-    let folder = std::fs::canonicalize(&path).with_context(|| format!("no folder at {}", path.display()))?;
-    anyhow::ensure!(folder.is_dir(), "{} is not a folder", folder.display());
-    open_in_app(&folder)
-}
-
-/// `-n` starts a fresh instance so the folder arrives as an argument; the
-/// app's single-instance handler forwards it to the running one.
-#[cfg(target_os = "macos")]
-fn open_in_app(folder: &std::path::Path) -> anyhow::Result<i32> {
-    let status = std::process::Command::new("open")
-        .args(["-na", "FubuKing", "--args"])
-        .arg(folder)
-        .status()
-        .context("running `open`")?;
-    Ok(status.code().unwrap_or(1))
-}
-
-#[cfg(not(target_os = "macos"))]
-fn open_in_app(_folder: &std::path::Path) -> anyhow::Result<i32> {
-    anyhow::bail!("opening folders in the desktop app is macOS-only for now")
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -230,12 +187,6 @@ mod tests {
         assert_eq!(span(12 * 60), "12m");
         assert_eq!(span(4 * 3_600 + 10 * 60), "4h 10m");
         assert_eq!(span(2 * 86_400 + 3 * 3_600), "2d 3h");
-    }
-
-    #[test]
-    fn a_folder_in_place_of_a_command_is_opened() {
-        let cli = Cli::try_parse_from(["fubuking", "."]).unwrap();
-        assert!(matches!(cli.command, Command::Folder(words) if words == ["."]));
     }
 
     #[test]

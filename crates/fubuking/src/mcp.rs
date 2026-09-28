@@ -1,7 +1,7 @@
 //! `fubuking mcp`: the shared-memory tools over stdio, for one session of any
-//! MCP agent. The tools and the record are the desktop app's own
+//! MCP agent. Every session serves the same tools over the same record
 //! (`atlas_shared_memory`), so an agent started from a terminal, from Orca or
-//! from the app reads and writes one memory per repository.
+//! from an IDE reads and writes one memory per repository.
 
 use std::path::Path;
 use std::sync::Arc;
@@ -39,8 +39,8 @@ pub async fn serve(cwd: &Path, agent: &str) -> anyhow::Result<()> {
     Ok(())
 }
 
-/// The desktop app's per-project switch, `.atlas/memory-sharing.json`: on
-/// unless it says `{"enabled": false}`.
+/// The project's switch, `.atlas/memory-sharing.json`: sharing is on unless
+/// it says `{"enabled": false}`.
 // ponytail: read at the launch directory only; a session started in a
 // subfolder of the project does not see the switch.
 fn sharing_enabled(cwd: &str) -> bool {

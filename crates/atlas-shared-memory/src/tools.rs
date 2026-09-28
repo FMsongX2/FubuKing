@@ -12,16 +12,16 @@
 //! | `memory_remember(kind, content, key?)` | writes the record (durable kinds only) |
 //! | `memory_forget(id)` | writes the record |
 //!
-//! Every write goes through [`SharedMemoryStore`], the same path as the
-//! Shared tab, so it is redacted, deduplicated (key, content hash,
-//! near-duplicate) and announced with `atlas:memory-changed`. A read that
+//! Every write goes through [`SharedMemoryStore`], so it is redacted,
+//! deduplicated (key, content hash, near-duplicate) and announced with
+//! `atlas:memory-changed`. A read that
 //! fails returns an empty result; a write that fails returns a tool error the
 //! agent can read. Record work runs on the blocking pool, off the async
 //! runtime.
 //!
-//! The tools are transport-free: the desktop app serves them over HTTP with a
-//! token per session, `fubuking mcp` over stdio for one session. Each host
-//! says who is calling through a [`CallerOf`].
+//! The tools are transport-free: `fubuking mcp` serves them over stdio for one
+//! session, and a host serving many sessions tells them apart by a token per
+//! session. Each host says who is calling through a [`CallerOf`].
 
 use std::borrow::Cow;
 use std::sync::Arc;
@@ -71,7 +71,7 @@ const INDEX_MAX_LIMIT: usize = 20;
 /// `memory_list`'s largest result count.
 const LIST_MAX_LIMIT: usize = 200;
 /// How long a client may treat the tool list as fresh. The tools never change
-/// while the app runs.
+/// while the server runs.
 pub const TOOLS_LIST_TTL_MS: u64 = 60 * 60 * 1000;
 
 const OFF_NOTE: &str = "shared memory is switched off for this project";
@@ -88,13 +88,13 @@ pub struct Caller {
     pub cwd: String,
 }
 
-/// How a host tells the tools who sent a request: the app from the request's
-/// session token, a stdio server from the one session it serves. `None`
+/// How a host tells the tools who sent a request: a multi-session server from
+/// the request's session token, a stdio server from the one session it serves. `None`
 /// refuses the call.
 pub type CallerOf = Arc<dyn Fn(&RequestContext<RoleServer>) -> Option<Caller> + Send + Sync>;
 
-/// Whether shared memory is switched on for a launch directory (the Memory
-/// panel's sharing toggle). Checked on every tool call, so flipping it off
+/// Whether shared memory is switched on for a launch directory (the
+/// project's sharing switch). Checked on every tool call, so flipping it off
 /// mid-session takes effect at once.
 pub type SharingGate = Arc<dyn Fn(&str) -> bool + Send + Sync>;
 

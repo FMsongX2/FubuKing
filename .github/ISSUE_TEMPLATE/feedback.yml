@@ -21,12 +21,11 @@ body:
         what you've already checked or ruled out, how you'd verify it — if you've
         already thought it through that far.
       placeholder: |
-        The send keybinding in chat should be configurable — Enter-to-send
-        fights muscle memory when composing multi-line prompts.
+        `fubuking quota` could show when each window resets as a clock time,
+        not only "resets in 4h 10m".
 
-        Notes: the keymap is registered in the chat composer; CodeMirror
-        keymap precedence matters here, so a user binding has to be added
-        with high precedence rather than appended.
+        Notes: the windows already carry `resets_at`; only the formatting in
+        crates/fubuking/src/main.rs would change.
     validations:
       required: true
 
@@ -38,16 +37,11 @@ body:
       multiple: true
       options:
         - "Not sure"
-        - "agents / chat"
-        - "editor"
-        - "terminal"
-        - "browser"
-        - "knowledge"
-        - "memory"
-        - "git / checkpoints"
-        - "canvas"
-        - "settings"
-        - "install / updates"
+        - "shared memory (MCP)"
+        - "handoff"
+        - "accounts / login"
+        - "quota"
+        - "install / release binaries"
         - "other"
     validations:
       required: false

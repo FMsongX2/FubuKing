@@ -7,7 +7,7 @@ Report security issues privately. Never open a public issue for a vulnerability.
 
 Use GitHub's private vulnerability reporting: open the repository's Security tab and choose "Report a vulnerability" (https://github.com/FMsongX2/FubuKing/security/advisories/new). Include:
 
-- FubuKing version, from Settings → About.
+- FubuKing version, from `fubuking --version`.
 - OS and version, and on a Mac whether it is Apple Silicon or Intel.
 - Steps to reproduce.
 - Impact: what an attacker could do with it.
@@ -16,9 +16,9 @@ If the problem is in code FubuKing inherits unchanged from Atlas, report it to A
 
 ## Scope
 
-FubuKing runs coding agents that read files and execute commands. An agent doing that after you approved it is the product working as designed. An agent doing it without the approval step, or reaching outside the project you granted it, is a vulnerability.
+FubuKing starts the official Claude Code and Codex CLIs, which read files and execute commands under their own approval rules. FubuKing loosening those rules beyond what the README documents, or its memory tools reaching outside the project's own record, is a vulnerability.
 
-Credential handling, the updater, and anything that causes local data to leave the machine unexpectedly are all in scope. FubuKing is designed never to read, copy or store Claude Code or Codex credentials, never to send telemetry and never to contact Atlas's hosted services. A way to make it do any of these is a vulnerability.
+Credential handling and anything that causes local data to leave the machine unexpectedly are in scope. FubuKing is designed never to read, copy or store Claude Code or Codex credentials, never to send telemetry and never to contact Atlas's hosted services. A way to make it do any of these is a vulnerability.
 
 ## What to expect
 

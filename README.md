@@ -14,7 +14,7 @@ It works wherever those CLIs run: a terminal, Orca, an IDE.
 </div>
 
 > [!WARNING]
-> FubuKing is in early alpha. It is a fork of [Atlas](https://github.com/pacifio/atlas) with its hosted services and telemetry removed. The roadmap says what works now.
+> FubuKing is in early alpha. It is a fork of [Atlas](https://github.com/pacifio/atlas) that keeps Atlas's memory crates and leaves out its desktop app, hosted services and telemetry. The roadmap says what works now.
 
 ## Why
 
@@ -42,7 +42,7 @@ The other archives are `x86_64-apple-darwin`, `x86_64-unknown-linux-gnu`, `aarch
 cargo install --git https://github.com/FMsongX2/FubuKing fubuking --locked --root ~/.local --force
 ```
 
-Either way it lands at `~/.local/bin/fubuking`, where the desktop app's folder-opening helper would otherwise go; it replaces that helper (`--force` lets `cargo install` do so), and `fubuking open` does its job.
+Either way it lands at `~/.local/bin/fubuking`; `--force` lets `cargo install` replace one already there.
 
 Run your agents through it:
 
@@ -73,42 +73,26 @@ Codex asks before each tool call of a registered server; `default_tools_approval
 
 ## How it works
 
-Memory. `fubuking mcp` serves seven tools: `memory_briefing`, `memory_changes`, `memory_search`, `memory_get`, `memory_list`, `memory_remember`, `memory_forget`. Agents record decisions, facts, failures and architecture notes; every later session, of any agent, starts from them. The record is one SQLite database per repository at `.atlas/memory/memory.sqlite`, shared by every worktree, redacted before anything is written, and the same record the desktop app uses.
+Memory. `fubuking mcp` serves seven tools: `memory_briefing`, `memory_changes`, `memory_search`, `memory_get`, `memory_list`, `memory_remember`, `memory_forget`. Agents record decisions, facts, failures and architecture notes; every later session, of any agent, starts from them. The record is one SQLite database per repository at `.atlas/memory/memory.sqlite`, shared by every worktree, and redacted before anything is written. To turn sharing off for a project, put `{"enabled": false}` in `.atlas/memory-sharing.json` in the folder you start the agent from.
 
 Handoff. Claude Code and Codex both write a limit hit into the session transcript, and FubuKing watches it while the CLI runs. When an account runs out, it stops the CLI, asks whether to continue, copies the transcript to the next account's profile and resumes the same session there with `claude --resume` or `codex resume`, keeping the options you started with. The next account is the one with the most room left, read from the CLIs' own status line and app server. When no account of that CLI has room, the other CLI takes over with a brief of the session: what you asked, its last replies, and a pointer to the shared memory. An account that has not trusted the folder yet asks first, in either CLI, and FubuKing tells you which answer carries on before it starts; a newly signed-in account also asks its first-run questions once.
 
-Accounts. Every account other than your default login is a profile directory, a separate `CLAUDE_CONFIG_DIR` or `CODEX_HOME` under the app's config directory. Logins happen in the official CLIs, inside that profile, whether they start from `fubuking login` or from the desktop app's sign-in terminal, and the app lists the same accounts.
+Accounts. Every account other than your default login is a profile directory, a separate `CLAUDE_CONFIG_DIR` or `CODEX_HOME` under FubuKing's config directory. Logins happen in the official CLIs, inside that profile, started by `fubuking login`.
 
 Limits of the current version:
 
 - The transcript layouts behind handoff are not documented by either CLI. Checked with Claude Code 2.1.273 and Codex 0.147.0 and 0.157.1. When a CLI cannot find a copied session, FubuKing starts that account over from a brief; when the limit record itself changes shape, the limit goes unnoticed and the run just ends.
 - A limit on one model, which Claude answers with "switch to another model", leaves the CLI open: the same account can go on with another model. Exit the CLI to hand off anyway.
 - On Windows a running CLI is stopped with a console Ctrl-C, then ended with everything it started. A terminal that is not a Windows console, such as mintty, waits for the CLI to exit instead. An agent CLI that npm installed is a `.cmd` file, whose command line cannot hold a brief, so the brief goes into a temporary file the CLI is asked to read. CI compiles the Windows side and tests the process-tree kill; the console stop has not yet run on a real Windows console.
-- The desktop app's sign-in terminal types a POSIX shell line, which its Windows terminal (PowerShell) does not take. On Windows, add accounts with `fubuking login`.
 - FubuKing adds no status line when your own arguments decide the settings (`--settings`, `--setting-sources`, `--restricted`) or the project sets a status line; that run's Claude quota goes unread.
 
 ## Principles
 
-- No telemetry. Builds ship without an analytics key and the setting defaults to off.
+- No telemetry. FubuKing has no analytics code and reports nothing.
 - No hosted services. FubuKing never signs in to, syncs with or routes through Atlas's servers or any server of its own.
 - Hands off your credentials. Logins happen in the official Claude Code and Codex CLIs. FubuKing never reads, copies or stores their tokens and never edits `~/.claude` or `~/.codex`; what it adds to a run, it passes as flags for that run, and your own status line runs as before.
 - No silent account rotation. A handoff asks first.
 - No account pool. Claude Code's [terms](https://code.claude.com/docs/en/legal-and-compliance) do not permit a third-party app to route requests through Free, Pro or Max plan credentials, so every account runs only in its own official CLI.
-
-## The desktop app
-
-The repository also builds a desktop app, the Atlas workspace with accounts and a quota tab added: agents in one window over the same memory, checkpoints linking every commit to the session that produced it, and an editor, terminal and knowledge base around them. It is optional; the CLI does not need it.
-
-Requirements: [Bun](https://bun.sh/), Rust stable, and Xcode Command Line Tools on macOS or the MSVC build tools on Windows.
-
-```bash
-git clone https://github.com/FMsongX2/FubuKing
-cd FubuKing
-bun install
-bun run dev:app
-```
-
-`bun run test:contracts` runs the repository contract tests, including the licence checks.
 
 ## Roadmap
 
@@ -117,7 +101,6 @@ bun run dev:app
 - [x] `fubuking` CLI: shared memory over stdio MCP, limit detection and handoff to the next account
 - [x] Handoff across agents: continue a Claude Code session in Codex, or the reverse, with a brief of the session
 - [x] Hand off while the CLI is still open, keeping the first run's options
-- [x] The desktop app lists accounts made with the CLI
 - [x] Prebuilt binaries for macOS, Linux and Windows with signed build provenance
 - [ ] Apple Developer ID signing and notarization
 

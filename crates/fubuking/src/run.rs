@@ -406,8 +406,8 @@ fn added_args(account: &Account, cwd: &Path, args: &[OsString]) -> (Vec<OsString
             let (server, server_args) = mcp::server_command("codex");
             let toml = |value: serde_json::Value| value.to_string();
             let key = format!("mcp_servers.{}", mcp::SERVER_NAME);
-            // Memory tools run without a prompt, as the desktop app runs them:
-            // they only read and write the project's own record.
+            // Memory tools run without a prompt: they only read and write the
+            // project's own record.
             let before = [
                 format!("{key}.command={}", toml(server.into())),
                 format!("{key}.args={}", toml(server_args.into())),

@@ -12,12 +12,11 @@
 //!   store once per process, migrating every legacy per-directory store of the
 //!   scope into it on first open (`record::legacy`);
 //! - keeps the session → (cwd, agent) routing map the capture hot path uses;
-//! - backs the desktop app's Shared-tab commands with the exact request and
-//!   response shapes the JSONL event log had (`store_contract.rs` pins them).
+//! - backs a memory view's commands with the exact request and response
+//!   shapes the JSONL event log had (`store_contract.rs` pins them).
 //!
-//! Hosts: the desktop app (its Tauri commands and its HTTP tool server) and
-//! each `fubuking mcp` process. Several processes may write one scope; the
-//! record serializes their write transactions (see `atlas_memory::record`).
+//! Hosts: each `fubuking mcp` process. Several processes may write one scope;
+//! the record serializes their write transactions (see `atlas_memory::record`).
 //!
 //! Design invariants carried over from the JSONL store:
 //! - **Typed events, not raw transcript.** Capture classifies ACP deltas into
@@ -301,7 +300,7 @@ pub fn store_for(project_path: &str) -> Result<Arc<RecordStore>, String> {
 static EMBEDDER: OnceLock<Arc<dyn Embedder>> = OnceLock::new();
 
 /// Give every record store — already open and opened later — `embedder`.
-/// The first install wins; the app installs one adapter over the on-device
+/// The first install wins. A host installs one adapter over the on-device
 /// model, which itself degrades to "no vector" until the model is loaded.
 pub fn install_embedder(embedder: Arc<dyn Embedder>) {
     if EMBEDDER.set(embedder.clone()).is_err() {
@@ -341,8 +340,8 @@ pub fn durable_entries(project_path: &str) -> (i64, Vec<Entry>) {
 
 // ── Change notification ──────────────────────────────────────────────────────
 
-/// The Tauri event every write to a scope's shared memory emits. The Shared
-/// tab re-pulls on it (`shared-memory-store.ts`).
+/// The event a host announces every write to a scope's shared memory under,
+/// so a memory view can re-pull.
 pub const MEMORY_CHANGED_EVENT: &str = "atlas:memory-changed";
 
 /// Payload of [`MEMORY_CHANGED_EVENT`]: which scope was written (its root —
@@ -358,7 +357,7 @@ pub struct MemoryChanged {
     pub kinds: Vec<String>,
 }
 
-/// Called after every write. Installed once at startup to emit
+/// Called after every write. A host installs one at startup to announce
 /// [`MEMORY_CHANGED_EVENT`]; tests install a recorder.
 pub type ChangeListener = Arc<dyn Fn(&MemoryChanged) + Send + Sync>;
 
@@ -611,8 +610,8 @@ impl SharedMemoryStore {
             .unwrap_or_default()
     }
 
-    /// Newest events (capped) — backs the Memory panel's events table. 500
-    /// mirrors the Timeline's BOARD_LIMIT; the log itself is unbounded.
+    /// Newest events (capped) — for a memory view's events table. 500
+    /// mirrors upstream Atlas's Timeline board; the log itself is unbounded.
     pub fn list_events(&self, project_path: &str) -> Vec<MemoryEvent> {
         const EVENTS_LIMIT: usize = 500;
         store_for(project_path)
@@ -645,7 +644,7 @@ impl SharedMemoryStore {
 /// The provenance of every entry the extractor writes.
 pub const EXTRACTOR_SOURCE: &str = "extractor";
 
-/// The provenance of every edit made from the Memory panel.
+/// The provenance of every edit a user makes in a memory view.
 pub const USER_SOURCE: &str = "user";
 
 /// Who a write is attributed to: the agent and session a memory-server token
@@ -662,7 +661,7 @@ impl SharedMemoryStore {
 
     /// Record a durable memory on behalf of an agent (`memory_remember`):
     /// confidence 1.0, source = the agent, redacted, key-or-hash identity with
-    /// near-duplicate merge, logged as an event so the Shared tab shows it.
+    /// near-duplicate merge, logged as an event so a memory view shows it.
     /// Working-memory kinds are refused — they are delta-captured only.
     pub fn remember(
         &self,
@@ -700,7 +699,7 @@ impl SharedMemoryStore {
     /// Record one durable entry the extractor distilled from `writer`'s
     /// session: source `extractor`, the model's own 0–1 confidence, and the
     /// same path as a tool write — redacted, key-or-hash identity with
-    /// near-duplicate merge, logged as an event so the Shared tab shows it,
+    /// near-duplicate merge, logged as an event so a memory view shows it,
     /// announced as a memory change.
     pub fn record_extracted(
         &self,
@@ -806,7 +805,7 @@ impl SharedMemoryStore {
         out
     }
 
-    // ── Panel path (the Shared tab's Memories view) ──────────────────────────
+    // ── Panel path (a user's edits in a memory view) ─────────────────────────
 
     /// Every entry with its provenance and confidence, each kind capped at its
     /// display limit, newest write first.
@@ -816,7 +815,7 @@ impl SharedMemoryStore {
         out
     }
 
-    /// The user's edit of entry `id` from the Memory panel: new content,
+    /// The user's edit of entry `id` from a memory view: new content,
     /// source `user`, confidence 1.0, logged and announced (see
     /// [`RecordStore::edit`]). An error when there is no such entry.
     pub fn edit_entry(&self, project_path: &str, id: i64, content: &str) -> Result<MemoryEntry, String> {
@@ -829,7 +828,7 @@ impl SharedMemoryStore {
         Ok(edited.into())
     }
 
-    /// The user's forget of entry `id` from the Memory panel. `false` when
+    /// The user's forget of entry `id` from a memory view. `false` when
     /// there was no such entry.
     pub fn forget_entry(&self, project_path: &str, id: i64) -> Result<bool, String> {
         Ok(self.forget(project_path, id)?.is_some())
@@ -1048,7 +1047,7 @@ mod tests {
         assert!(store.session_ended("s1").is_none());
     }
 
-    /// The event name and payload shape the Shared tab listens for.
+    /// The event name and payload shape a memory view listens for.
     #[test]
     fn the_change_payload_is_root_and_kinds() {
         let change = MemoryChanged {
@@ -1066,7 +1065,7 @@ mod tests {
         Writer { agent: agent.into(), session_id: format!("{agent}-s") }
     }
 
-    /// Every entry on the Shared tab says who wrote it and how sure it is:
+    /// Every entry a memory view lists says who wrote it and how sure it is:
     /// an agent's capture, the extractor's model confidence, an import.
     #[test]
     fn entries_carry_provenance_and_confidence() {

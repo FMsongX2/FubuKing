@@ -1,10 +1,9 @@
 //! Accounts: the logins FubuKing can run an agent CLI under.
 //!
 //! Each CLI's default login is one account. Every other account is a profile
-//! home, a `CLAUDE_CONFIG_DIR` or `CODEX_HOME`, at `<app config dir>/accounts/<id>`
-//! where the id is `<base agent id>@<label slug>` with `@` made path-safe. The
-//! directory listing is the registry, so the desktop app and the CLI find the
-//! same accounts.
+//! home, a `CLAUDE_CONFIG_DIR` or `CODEX_HOME`, at `<config dir>/accounts/<id>`
+//! where the id is `<base agent id>-<label slug>`, e.g. `claude-acp-work`. The
+//! directory listing is the registry.
 
 use std::collections::HashMap;
 use std::io;
@@ -12,15 +11,12 @@ use std::path::{Path, PathBuf};
 
 use serde::Serialize;
 
-/// The desktop app's bundle identifier, which names its config and data dirs.
+/// Names FubuKing's config and data dirs under the platform's own.
 pub const IDENTIFIER: &str = "io.github.fmsongx2.fubuking";
-/// Directory under the app config dir holding one profile home per account.
+/// Directory under the config dir holding one profile home per account.
 pub const ACCOUNTS_DIR: &str = "accounts";
 /// The label of each CLI's own login.
 pub const DEFAULT_LABEL: &str = "default";
-/// Left in a profile `fubuking login` made, so the desktop app gives it an
-/// agent entry once. An account removed in the app has none and stays removed.
-pub const ADOPT_MARKER: &str = ".fubuking-adopt";
 
 /// Which CLI an account belongs to, and therefore which variable selects its
 /// profile.
@@ -34,9 +30,8 @@ pub enum Provider {
 impl Provider {
     pub const ALL: [Provider; 2] = [Provider::Claude, Provider::Codex];
 
-    /// The provider for a base agent id, or `None` when accounts are not
-    /// supported for it. Registry ids first, then the ids a detected install
-    /// uses.
+    /// The provider a profile directory's base agent id stands for, or `None`
+    /// when accounts are not supported for it.
     pub fn for_base(base: &str) -> Option<Self> {
         match base {
             "claude-acp" | "claude-code" => Some(Self::Claude),
@@ -53,7 +48,7 @@ impl Provider {
         }
     }
 
-    /// The registry id the desktop app bases this provider's accounts on.
+    /// The base agent id new profile directories of this provider start with.
     pub fn base(self) -> &'static str {
         match self {
             Self::Claude => "claude-acp",
@@ -141,12 +136,12 @@ impl std::fmt::Display for Account {
     }
 }
 
-/// The desktop app's config dir, the same one Tauri resolves.
+/// FubuKing's config dir, where the account profiles live.
 pub fn app_config_dir() -> Option<PathBuf> {
     dirs::config_dir().map(|dir| dir.join(IDENTIFIER))
 }
 
-/// The desktop app's data dir, the same one Tauri resolves.
+/// FubuKing's data dir, where the default Claude login's quota readings live.
 pub fn app_data_dir() -> Option<PathBuf> {
     dirs::data_dir().map(|dir| dir.join(IDENTIFIER))
 }
@@ -235,7 +230,6 @@ fn create_in(dir: &Path, provider: Provider, label: &str) -> io::Result<Account>
     if provider == Provider::Claude {
         crate::quota::claude::install_statusline(&home)?;
     }
-    std::fs::write(home.join(ADOPT_MARKER), "")?;
     Ok(Account { id, provider, label, home: Some(home) })
 }
 
@@ -271,7 +265,6 @@ mod tests {
         assert_eq!((made.id.as_str(), made.label.as_str()), ("codex-acp-client-a", "client-a"));
         let listed = list_in(Some(dir.path()), Provider::Codex);
         assert_eq!(find(&listed, "client-a"), Some(&made));
-        assert!(made.home.as_ref().unwrap().join(ADOPT_MARKER).exists());
         assert!(create_in(dir.path(), Provider::Codex, "Default").is_err());
     }
 

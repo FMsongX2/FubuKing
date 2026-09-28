@@ -5,9 +5,9 @@
 //! - [`tools`]: the seven MCP tools and their instructions, as an rmcp
 //!   handler any transport can serve.
 //!
-//! The desktop app serves the tools over loopback HTTP; `fubuking mcp` serves
-//! them over stdio. Both write the same record, so every agent on a
-//! repository shares one memory whichever way it was started.
+//! `fubuking mcp` serves the tools over stdio, one process per session. Every
+//! session writes the same record, so every agent on a repository shares one
+//! memory whichever way it was started.
 
 pub mod briefing;
 pub mod store;

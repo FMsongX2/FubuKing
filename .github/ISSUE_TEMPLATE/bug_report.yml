@@ -17,20 +17,17 @@ body:
       description: >-
         Markdown and code blocks render here, so this box can hold anything from a
         single sentence to a full investigation. If you have them, useful things to
-        include: what you expected instead, how to see it in the app, screenshots or
-        a screen recording, relevant log lines, what you've already checked or ruled
-        out, and your FubuKing version / OS + version / which agent was active if it's
+        include: what you expected instead, the command you ran and what it printed,
+        what you've already checked or ruled out, and your FubuKing version
+        (`fubuking --version`) / OS + version / which agent CLI and its version if it's
         relevant.
       placeholder: |
-        Terminal tab loses scrollback when I switch away and back.
+        `fubuking claude` ended on the weekly limit without offering the
+        next account.
 
-        Only happens after the pane has been split. Probably around
-        src/features/terminal/stores/ — the buffer lives in the PTY, so
-        the remount may be dropping the subscription rather than the bytes.
-
-        Checked: the PTY process itself isn't dying (still shows in Activity
-        Monitor), so this looks like a frontend subscription issue, not a
-        backend one.
+        `fubuking quota` shows the other account with room left. Claude Code
+        2.1.283 on macOS. The limit record in the session transcript may have
+        a new shape; detection lives in crates/fubuking/src/sessions.rs.
     validations:
       required: true
 
@@ -42,16 +39,11 @@ body:
       multiple: true
       options:
         - "Not sure"
-        - "agents / chat"
-        - "editor"
-        - "terminal"
-        - "browser"
-        - "knowledge"
-        - "memory"
-        - "git / checkpoints"
-        - "canvas"
-        - "settings"
-        - "install / updates"
+        - "shared memory (MCP)"
+        - "handoff"
+        - "accounts / login"
+        - "quota"
+        - "install / release binaries"
         - "other"
     validations:
       required: false

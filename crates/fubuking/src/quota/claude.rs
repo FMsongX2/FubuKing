@@ -129,7 +129,7 @@ fn settings_status_line(file: &Path) -> Option<Value> {
     serde_json::from_str::<Value>(&raw).ok()?.get("statusLine").cloned()
 }
 
-/// Quote a path for the shell that runs the statusLine command. The app
+/// Quote a path for the shell that runs the statusLine command. On macOS the
 /// config dir is under "Application Support", so the space is the common case.
 fn shell_quote(path: &Path) -> String {
     format!("'{}'", path.to_string_lossy().replace('\'', r"'\''"))

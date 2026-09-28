@@ -2,9 +2,7 @@
 # Kept enabled on purpose. It gives anything that fits neither form somewhere
 # to go, and it keeps a /issues/new?title=…&body=… link that names no
 # `template=` working: with blank issues disabled, GitHub redirects such a link
-# to the template chooser and silently drops the prefilled body. The in-app
-# feedback panel always names a form and fills its `description` field, so it
-# does not depend on this.
+# to the template chooser and silently drops the prefilled body.
 blank_issues_enabled: true
 contact_links:
   - name: Question about FubuKing

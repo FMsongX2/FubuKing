@@ -1,19 +1,14 @@
+# Modified by FubuKing from upstream Atlas (Apache-2.0).
 # Every text file checks out with LF on every OS.
 #
-# Atlas's tooling reads and writes LF: oxfmt, the theme-key generator
-# (`scripts/generate-theme-keys.mjs`, whose drift check compares generated
-# files byte-for-byte) and the source-scanning contract suites in `tests/`
-# (whose regexes anchor on `\n`). Git for Windows defaults to
-# `core.autocrlf=true`, which converts every text file to CRLF on checkout —
-# on the first Windows clone that failed 16 contract tests before a single
-# line had been changed, and with them the pre-commit hook. Declaring the
-# line endings here makes the checkout the same on macOS, Linux and Windows,
-# whatever the machine's `core.autocrlf` says.
+# Git for Windows defaults to `core.autocrlf=true`, which converts every text
+# file to CRLF on checkout. The shared-memory contract tests compare their
+# output byte for byte with golden files under `testdata/`, so a CRLF checkout
+# fails them before a single line has changed. Declaring the line endings here
+# makes the checkout the same on macOS, Linux and Windows, whatever the
+# machine's `core.autocrlf` says.
 #
 # `text=auto` lets Git detect binary files by content and leave them alone.
-# `vendor/atlas-engine/apply-patch/tests/fixtures/scenarios/.gitattributes` marks the
-# engine's CRLF-preservation fixtures `-text`, and a nested file wins over
-# this one for its subtree, so those bytes stay exactly as committed.
 #
 # An existing Windows clone picks this up on its next checkout; to refresh a
 # worktree that was already converted, run `git rm --cached -r -q . && git

@@ -14,8 +14,7 @@ Fixes #
 
 ## Checklist
 
-- [ ] `bun run test` and `bun run test:contracts` pass
-- [ ] The relevant `cargo test` passes for Rust changes (`cargo test -p <crate>`, or `cargo test -p atlas --lib` for `src-tauri`)
+- [ ] `cargo test --workspace` passes and `cargo clippy --workspace --all-targets` is clean
 - [ ] New behaviour has a test; a bug fix has a test that fails without it
 - [ ] Code comments are in English only
 - [ ] Every upstream Atlas file this modifies carries the notice `Modified by FubuKing from upstream Atlas (Apache-2.0).` in a comment on its first line, or is listed in `FUBUKING-CHANGES.md` if it cannot hold a comment

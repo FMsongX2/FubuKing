@@ -1,10 +1,10 @@
 // Modified by FubuKing from upstream Atlas (Apache-2.0).
-//! The Shared-tab command contract, pinned byte-for-byte.
+//! The memory-view command contract, pinned byte-for-byte.
 //!
 //! The five commands (`memory_get_state`, `memory_list_events`, `memory_query`,
 //! `memory_append_event`, `memory_clear_project`) are thin wrappers over the
-//! store methods driven here, and Tauri serialises their return values with
-//! serde_json — so the JSON of these calls IS the response the Memory panel
+//! store methods driven here, and a host serialises their return values with
+//! serde_json — so the JSON of these calls IS the response a memory view
 //! receives. The goldens under `testdata/` were captured from the
 //! JSONL event-log store before the record store replaced it; the record store
 //! has to reproduce them exactly.
