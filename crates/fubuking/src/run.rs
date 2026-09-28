@@ -18,7 +18,7 @@ use anyhow::Context;
 use crate::accounts::{self, Account, Provider};
 use crate::args::{self, Options};
 use crate::mcp;
-use crate::quota::{self, claude};
+use crate::quota::{self, claude, codex};
 use crate::sessions::{self, Session};
 
 /// The first message of a resumed session.
@@ -77,7 +77,7 @@ pub async fn run(run: Run) -> anyhow::Result<i32> {
             // from a brief of the session instead.
             let touched = std::fs::metadata(&copy).and_then(|meta| meta.modified()).is_ok_and(|at| at >= started);
             // Asked, not assumed: the same exit is what declining Claude's
-            // folder-trust question looks like.
+            // folder-trust question looks like. (Codex's "Quit" exits 0.)
             if code != 0
                 && !touched
                 && confirm(&format!(
@@ -86,6 +86,7 @@ pub async fn run(run: Run) -> anyhow::Result<i32> {
                 ))
             {
                 let brief = sessions::brief(&previous, &account).context("reading the session for a brief")?;
+                let brief = brief_for(&crate::executable(provider.program()), brief)?;
                 launch_args = fresh_args(provider, first.mode(), &first.options_for(provider), &brief);
                 continue;
             }
@@ -104,9 +105,7 @@ pub async fn run(run: Run) -> anyhow::Result<i32> {
             }
             let copy = sessions::copy_to(&session, &next)
                 .with_context(|| format!("copying session {} to {next}", session.id))?;
-            if provider == Provider::Claude && claude::trusts_folder(&next, &cwd) == Some(false) {
-                eprintln!("fubuking: {next} has not trusted this folder yet. When Claude asks, choose \"Yes, I trust this folder\".");
-            }
+            warn_if_untrusted(&next, &cwd, first.mode());
             launch_args = resume_args(provider, first.mode(), &first.options_for(provider), &session.id);
             account = next;
             resuming = Some((session, copy));
@@ -124,6 +123,8 @@ pub async fn run(run: Run) -> anyhow::Result<i32> {
                 return Ok(code);
             }
             let brief = sessions::brief(&session, &account).context("reading the session for a brief")?;
+            let brief = brief_for(&crate::executable(other.program()), brief)?;
+            warn_if_untrusted(&next, &cwd, first.mode());
             launch_args = fresh_args(other, first.mode(), &first.options_for(other), &brief);
             provider = other;
             accounts = accounts::list(other);
@@ -245,6 +246,22 @@ fn fresh_args(provider: Provider, mode: Mode, options: &[OsString], brief: &str)
     out
 }
 
+/// Both CLIs ask an account that has not trusted a folder whether to before
+/// anything else, and answering it the other way ends the run, so say which
+/// answer carries on before an interactive start on another account.
+/// `claude -p` and `codex exec` do not ask.
+fn warn_if_untrusted(account: &Account, cwd: &Path, mode: Mode) {
+    let (agent, answer) = match account.provider {
+        Provider::Claude => {
+            ("Claude", (claude::trusts_folder(account, cwd) == Some(false)).then_some("Yes, I trust this folder"))
+        }
+        Provider::Codex => ("Codex", codex::trust_answer(account, cwd)),
+    };
+    if let (Mode::Interactive, Some(answer)) = (mode, answer) {
+        eprintln!("fubuking: {account} has not trusted this folder yet. When {agent} asks, choose \"{answer}\".");
+    }
+}
+
 fn other_provider(provider: Provider) -> Provider {
     match provider {
         Provider::Claude => Provider::Codex,
@@ -252,10 +269,29 @@ fn other_provider(provider: Provider) -> Provider {
     }
 }
 
-/// Whether `program` resolves on `PATH`.
+/// Whether `program` resolves on `PATH`, with `PATHEXT` on Windows.
 fn on_path(program: &str) -> bool {
-    std::env::var_os("PATH")
-        .is_some_and(|path| std::env::split_paths(&path).any(|dir| dir.join(program).is_file()))
+    which::which(program).is_ok()
+}
+
+/// npm installs the agent CLIs on Windows as `.cmd` files. cmd.exe, which
+/// runs them, takes no line break in an argument (Rust will not pass one) and
+/// no command line over 8,191 characters, and a brief has both. For such a
+/// CLI the brief goes into a file, and the first message says where.
+fn brief_for(program: &Path, brief: String) -> anyhow::Result<String> {
+    let batch = program
+        .extension()
+        .is_some_and(|ext| ext.eq_ignore_ascii_case("cmd") || ext.eq_ignore_ascii_case("bat"));
+    if !batch {
+        return Ok(brief);
+    }
+    let stamp = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).map(|d| d.as_nanos()).unwrap_or_default();
+    let path = std::env::temp_dir().join(format!("fubuking-brief-{}-{stamp}.md", std::process::id()));
+    std::fs::write(&path, &brief).with_context(|| format!("writing the brief to {}", path.display()))?;
+    Ok(format!(
+        "The brief of the session you are taking over is in {}. Read it first, then continue as it says.",
+        path.display()
+    ))
 }
 
 /// Create the account `label` and sign it in: Claude Code signs in from its
@@ -317,16 +353,17 @@ async fn launch(
     watch_since: Option<SystemTime>,
 ) -> anyhow::Result<ExitStatus> {
     let program = account.provider.program();
-    let (before, after) = added_args(account, cwd, args);
+    let (mut words, after) = added_args(account, cwd, args);
     // What FubuKing adds goes ahead of a `--`, after which the CLI would take
     // it for a prompt.
     let split = args.iter().position(|word| word == "--").unwrap_or(args.len());
+    words.extend_from_slice(&args[..split]);
+    words.extend(after);
+    words.extend_from_slice(&args[split..]);
+    let executable = crate::executable(program);
     let saved = watch_since.and_then(|_| terminal::Saved::take());
-    let mut child = tokio::process::Command::new(program)
-        .args(before)
-        .args(&args[..split])
-        .args(after)
-        .args(&args[split..])
+    let mut child = tokio::process::Command::new(&executable)
+        .args(words)
         .envs(account.env())
         .spawn()
         .with_context(|| format!("starting `{program}`; is it installed and on PATH?"))?;
@@ -452,9 +489,9 @@ fn exit_code(status: ExitStatus) -> i32 {
     status.code().unwrap_or(1)
 }
 
-/// Keep this process alive through Ctrl-C and Ctrl-\ while the CLI runs:
-/// they are the CLI's to handle. A handler rather than an ignored signal, so
-/// the CLI still starts with the default disposition.
+/// Keep this process alive through Ctrl-C and Ctrl-\ (Ctrl-Break on Windows)
+/// while the CLI runs: they are the CLI's to handle. A handler rather than an
+/// ignored signal, so the CLI still starts with the default disposition.
 #[cfg(unix)]
 fn survive_interrupts() -> Vec<tokio::signal::unix::Signal> {
     use tokio::signal::unix::{signal, SignalKind};
@@ -465,9 +502,14 @@ fn survive_interrupts() -> Vec<tokio::signal::unix::Signal> {
 }
 
 #[cfg(windows)]
-fn survive_interrupts() -> Option<tokio::signal::windows::CtrlC> {
-    tokio::signal::windows::ctrl_c().ok()
+fn survive_interrupts() -> (Option<tokio::signal::windows::CtrlC>, Option<tokio::signal::windows::CtrlBreak>) {
+    (tokio::signal::windows::ctrl_c().ok(), tokio::signal::windows::ctrl_break().ok())
 }
+
+/// Switches off the modes a TUI turns on (alternate screen, hidden cursor,
+/// bracketed paste, mouse and focus reporting, keyboard enhancements), which
+/// a stopped one never did.
+const RESET_MODES: &str = "\x1b[?1049l\x1b[?25h\x1b[?2004l\x1b[?1000l\x1b[?1002l\x1b[?1003l\x1b[?1006l\x1b[?1004l\x1b[<u\r\n";
 
 /// Stopping a CLI that is drawing in the terminal, and handing the terminal
 /// back in the state it was in before.
@@ -487,14 +529,12 @@ mod terminal {
             out.status.success().then(|| Self(String::from_utf8_lossy(&out.stdout).trim().to_string()))
         }
 
-        /// Put the settings back and switch off the modes a TUI turns on
-        /// (alternate screen, hidden cursor, bracketed paste, mouse and focus
-        /// reporting, keyboard enhancements), which a stopped one never did.
+        /// Put the settings back and switch off the modes the TUI turned on.
         pub fn restore(&self) {
             if let Ok(tty) = std::fs::File::open("/dev/tty") {
                 let _ = std::process::Command::new("stty").arg(&self.0).stdin(tty).status();
             }
-            eprint!("\x1b[?1049l\x1b[?25h\x1b[?2004l\x1b[?1000l\x1b[?1002l\x1b[?1003l\x1b[?1006l\x1b[?1004l\x1b[<u\r\n");
+            eprint!("{}", super::RESET_MODES);
         }
     }
 
@@ -558,25 +598,84 @@ mod terminal {
     }
 }
 
-/// Windows has no transcript watch: the handoff waits for the CLI to exit.
+/// The same through the Windows console: its modes stand in for `stty`, a
+/// console Ctrl-C for SIGINT and `taskkill /T` for the process group.
 #[cfg(windows)]
 mod terminal {
-    use std::process::ExitStatus;
+    use std::io::Write;
+    use std::process::{ExitStatus, Stdio};
     use std::time::Duration;
 
-    pub struct Saved;
+    use windows_sys::Win32::System::Console::{
+        GenerateConsoleCtrlEvent, GetConsoleMode, GetStdHandle, SetConsoleMode, CONSOLE_MODE, CTRL_C_EVENT,
+        ENABLE_VIRTUAL_TERMINAL_PROCESSING, STD_HANDLE, STD_INPUT_HANDLE, STD_OUTPUT_HANDLE,
+    };
 
-    impl Saved {
-        pub fn take() -> Option<Self> {
-            None
-        }
-
-        pub fn restore(&self) {}
+    /// The console's input and output modes before the CLI started.
+    pub struct Saved {
+        input: CONSOLE_MODE,
+        output: CONSOLE_MODE,
     }
 
-    pub async fn stop(child: &mut tokio::process::Child, _grace: Duration) -> std::io::Result<ExitStatus> {
+    impl Saved {
+        /// `None` without a console, which means nothing to restore. A
+        /// terminal that is not a console, such as mintty, is not watched.
+        pub fn take() -> Option<Self> {
+            Some(Self { input: mode(STD_INPUT_HANDLE)?, output: mode(STD_OUTPUT_HANDLE)? })
+        }
+
+        /// Switch off the modes the TUI turned on, with escape sequences the
+        /// console reads only while it processes them, then put the saved
+        /// modes back.
+        pub fn restore(&self) {
+            // SAFETY: plain calls on this process's standard handles; a
+            // handle that is not a console makes them fail, which is ignored.
+            unsafe { SetConsoleMode(GetStdHandle(STD_OUTPUT_HANDLE), self.output | ENABLE_VIRTUAL_TERMINAL_PROCESSING) };
+            let mut out = std::io::stdout();
+            let _ = out.write_all(super::RESET_MODES.as_bytes()).and_then(|()| out.flush());
+            // SAFETY: as above.
+            unsafe {
+                SetConsoleMode(GetStdHandle(STD_OUTPUT_HANDLE), self.output);
+                SetConsoleMode(GetStdHandle(STD_INPUT_HANDLE), self.input);
+            }
+        }
+    }
+
+    fn mode(handle: STD_HANDLE) -> Option<CONSOLE_MODE> {
+        let mut mode: CONSOLE_MODE = 0;
+        // SAFETY: `mode` outlives the call; a handle that is not a console
+        // makes it fail.
+        (unsafe { GetConsoleMode(GetStdHandle(handle), &mut mode) } != 0).then_some(mode)
+    }
+
+    /// Ask the CLI to exit as Ctrl-C would, then insist, each after `grace`.
+    /// A console Ctrl-C reaches every process on the console, as the key
+    /// does; FubuKing survives it the way the shell does. Then `taskkill /T`
+    /// ends the CLI and everything it started, so a `claude.cmd` does not
+    /// leave the real CLI running.
+    pub async fn stop(child: &mut tokio::process::Child, grace: Duration) -> std::io::Result<ExitStatus> {
+        // SAFETY: no pointers; group 0 is this console.
+        unsafe { GenerateConsoleCtrlEvent(CTRL_C_EVENT, 0) };
+        if let Ok(status) = tokio::time::timeout(grace, child.wait()).await {
+            return status;
+        }
+        if let Some(pid) = child.id() {
+            kill_tree(pid);
+        }
+        if let Ok(status) = tokio::time::timeout(grace, child.wait()).await {
+            return status;
+        }
         child.kill().await?;
         child.wait().await
+    }
+
+    /// End `pid` and every process under it.
+    pub(super) fn kill_tree(pid: u32) {
+        let _ = atlas_process::command("taskkill")
+            .args(["/T", "/F", "/PID", &pid.to_string()])
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status();
     }
 }
 
@@ -625,6 +724,40 @@ mod tests {
         // child, 20 unrelated.
         let rows = [(10, 1, 10), (11, 10, 10), (12, 11, 10), (20, 1, 20)];
         assert_eq!(terminal::descendants(10, &rows), [10, 11, 12]);
+    }
+
+    #[test]
+    fn a_batch_file_gets_its_brief_through_a_file_and_anything_else_gets_it_as_is() {
+        let brief = "Take over.\n\n1. Fix it\r\n2. Test it 100%".to_string();
+        assert_eq!(brief_for(Path::new("/usr/local/bin/codex"), brief.clone()).unwrap(), brief);
+        let pointer = brief_for(Path::new(r"C:\npm\codex.CMD"), brief.clone()).unwrap();
+        assert!(!pointer.contains(['\r', '\n']));
+        let path = pointer
+            .strip_prefix("The brief of the session you are taking over is in ")
+            .and_then(|rest| rest.split(". Read it first").next())
+            .unwrap();
+        assert_eq!(std::fs::read_to_string(path).unwrap(), brief);
+        let _ = std::fs::remove_file(path);
+    }
+
+    /// `cmd` runs `ping`, which a `cmd` killed alone would leave running and
+    /// holding the output pipe open.
+    #[cfg(windows)]
+    #[test]
+    fn the_tree_under_a_process_is_ended() {
+        use std::io::Read;
+        let mut child = std::process::Command::new("cmd")
+            .args(["/c", "ping -n 60 127.0.0.1"])
+            .stdout(std::process::Stdio::piped())
+            .spawn()
+            .unwrap();
+        let mut out = child.stdout.take().unwrap();
+        std::thread::sleep(std::time::Duration::from_millis(500));
+        terminal::kill_tree(child.id());
+        let started = std::time::Instant::now();
+        let _ = out.read_to_end(&mut Vec::new());
+        assert!(started.elapsed() < std::time::Duration::from_secs(20), "ping outlived the kill");
+        assert!(!child.wait().unwrap().success());
     }
 
     #[test]

@@ -23,7 +23,7 @@ use fubuking::accounts::{slug, ACCOUNTS_DIR};
 use serde::Serialize;
 use tauri::{AppHandle, Manager};
 
-use super::agent_host::AgentHost;
+use super::agent_host::{AgentHost, AuthMethodWire};
 
 /// Which CLI an account belongs to. Shared with the `fubuking` CLI, which
 /// finds the same accounts by their profile directories.
@@ -93,12 +93,7 @@ fn create_profile_home(home: &Path) -> Result<(), String> {
 fn account_view(host: &AgentHost, id: &str, entry: &AgentServerSettings) -> Option<AccountView> {
     let label = entry.label()?.to_string();
     let base = entry.registry_id(id)?.to_string();
-    let provider = AccountProvider::for_base(&base)?;
-    let home = match provider {
-        AccountProvider::Claude => entry.env().get("CLAUDE_CONFIG_DIR"),
-        AccountProvider::Codex => entry.env().get("CODEX_HOME"),
-    }?
-    .clone();
+    let (provider, home) = profile_of(&base, entry)?;
     Some(AccountView {
         id: id.to_string(),
         base_agent_id: base,
@@ -107,6 +102,47 @@ fn account_view(host: &AgentHost, id: &str, entry: &AgentServerSettings) -> Opti
         profile_home: home,
         display_name: host.store().agent_display_name(&AgentId::new(id)),
     })
+}
+
+/// The provider of an entry based on `base` and the profile home its
+/// environment points the CLI at.
+fn profile_of(base: &str, entry: &AgentServerSettings) -> Option<(AccountProvider, String)> {
+    let provider = AccountProvider::for_base(base)?;
+    let home = match provider {
+        AccountProvider::Claude => entry.env().get("CLAUDE_CONFIG_DIR"),
+        AccountProvider::Codex => entry.env().get("CODEX_HOME"),
+    }?;
+    Some((provider, home.clone()))
+}
+
+/// The variables that select the profile of the account stored under `id`,
+/// for its sign-in line; none for an entry that is not an account. Only the
+/// profile variables, never the rest of the entry's environment: the line is
+/// shown, copied and typed into a shell.
+fn sign_in_vars(id: &str, entry: &AgentServerSettings) -> Vec<(String, String)> {
+    let profile = entry.label().and(entry.registry_id(id)).and_then(|base| profile_of(base, entry));
+    let Some((provider, home)) = profile else {
+        return Vec::new();
+    };
+    let mut vars: Vec<(String, String)> = provider.profile_env(Path::new(&home)).into_iter().collect();
+    vars.sort();
+    vars
+}
+
+/// Give an account's runnable sign-in methods the variables that select its
+/// profile. The login runs in the user's own shell, which has none of the
+/// agent's environment: without them it signs in the default profile, which
+/// leaves the account signed out and replaces the default login.
+pub(crate) fn carry_profile(host: &AgentHost, agent_id: &str, methods: &mut [AuthMethodWire]) {
+    let vars = host
+        .store()
+        .settings()
+        .get(agent_id)
+        .map(|entry| sign_in_vars(agent_id, entry))
+        .unwrap_or_default();
+    for method in methods.iter_mut().filter(|method| method.terminal_command.is_some()) {
+        method.terminal_env.extend(vars.iter().cloned());
+    }
 }
 
 /// Every account entry in the installed map, sorted by base agent, then
@@ -251,6 +287,30 @@ mod tests {
         let home = profile_home(Path::new("/cfg"), "claude-acp@work");
         assert!(home.starts_with("/cfg/accounts"));
         assert!(!home.to_string_lossy().contains(".."));
+    }
+
+    #[test]
+    fn an_accounts_sign_in_selects_its_profile_and_carries_nothing_else() {
+        let mut env = AccountProvider::Claude.profile_env(Path::new("/p/claude-acp-work"));
+        env.insert("HTTPS_PROXY".into(), "http://proxy".into());
+        let entry = AgentServerSettings::account("claude-acp", "work", env);
+        assert_eq!(
+            sign_in_vars("claude-acp@work", &entry),
+            [
+                ("ANTHROPIC_API_KEY".to_string(), String::new()),
+                ("CLAUDE_CONFIG_DIR".to_string(), "/p/claude-acp-work".to_string()),
+            ]
+        );
+        let codex = AgentServerSettings::account(
+            "codex-acp",
+            "side",
+            AccountProvider::Codex.profile_env(Path::new("/p/codex-acp-side")),
+        );
+        assert_eq!(
+            sign_in_vars("codex-acp@side", &codex),
+            [("CODEX_HOME".to_string(), "/p/codex-acp-side".to_string())]
+        );
+        assert!(sign_in_vars("claude-acp", &AgentServerSettings::registry()).is_empty());
     }
 
     #[cfg(unix)]

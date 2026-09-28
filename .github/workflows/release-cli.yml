@@ -1,0 +1,119 @@
+name: Release CLI
+
+# A `v<version>` tag builds the `fubuking` CLI for macOS, Linux and Windows,
+# signs a build provenance attestation for every archive (Sigstore, keyless,
+# bound to this workflow: `gh attestation verify <archive> -R FMsongX2/FubuKing
+# --signer-workflow FMsongX2/FubuKing/.github/workflows/release-cli.yml`)
+# and publishes the archives with a SHA256SUMS file as a GitHub release.
+# Started by hand, it builds and uploads the archives as run artifacts only.
+#
+# Archive names carry no version, so
+# `releases/latest/download/fubuking-<target>.tar.gz` stays a stable link.
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  CARGO_INCREMENTAL: 0
+
+jobs:
+  build:
+    name: ${{ matrix.target }}
+    runs-on: ${{ matrix.os }}
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: aarch64-apple-darwin
+            os: macos-latest
+          - target: x86_64-apple-darwin
+            os: macos-latest
+          # 22.04 for its older glibc (2.35), which newer distributions accept.
+          - target: x86_64-unknown-linux-gnu
+            os: ubuntu-22.04
+          - target: aarch64-unknown-linux-gnu
+            os: ubuntu-22.04-arm
+          - target: x86_64-pc-windows-msvc
+            os: windows-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - name: Build
+        run: cargo build --locked --release -p fubuking --target ${{ matrix.target }}
+      - name: Check the tag names the crate's version
+        if: startsWith(github.ref, 'refs/tags/') && matrix.target == 'x86_64-unknown-linux-gnu'
+        run: test "$(target/${{ matrix.target }}/release/fubuking --version)" = "fubuking ${GITHUB_REF_NAME#v}"
+      - name: Package
+        shell: bash
+        env:
+          TARGET: ${{ matrix.target }}
+        run: |
+          mkdir -p dist
+          name="fubuking-${TARGET}"
+          if [ "$RUNNER_OS" = "Windows" ]; then
+            cp "target/${TARGET}/release/fubuking.exe" LICENSE NOTICE dist/
+            (cd dist && 7z a -tzip "${name}.zip" fubuking.exe LICENSE NOTICE > /dev/null && rm fubuking.exe LICENSE NOTICE)
+          else
+            cp "target/${TARGET}/release/fubuking" LICENSE NOTICE dist/
+            tar -czf "dist/${name}.tar.gz" -C dist fubuking LICENSE NOTICE
+            rm dist/fubuking dist/LICENSE dist/NOTICE
+          fi
+          ls -l dist
+      - name: Attest build provenance
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: actions/attest-build-provenance@v4
+        with:
+          subject-path: dist/*
+      - uses: actions/upload-artifact@v7
+        with:
+          name: fubuking-${{ matrix.target }}
+          path: dist/*
+          if-no-files-found: error
+
+  release:
+    name: Publish
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          path: dist
+          merge-multiple: true
+      - name: Checksums
+        working-directory: dist
+        run: sha256sum fubuking-* > SHA256SUMS && cat SHA256SUMS
+      - name: Create the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          cat > notes.md <<EOF
+          Prebuilt \`fubuking\` CLI ${GITHUB_REF_NAME}. Pick the archive for your system, then check it before running it:
+
+          \`\`\`sh
+          gh attestation verify fubuking-<target>.tar.gz -R ${GITHUB_REPOSITORY} --signer-workflow ${GITHUB_REPOSITORY}/.github/workflows/release-cli.yml
+          shasum -a 256 -c SHA256SUMS --ignore-missing
+          \`\`\`
+
+          The attestation proves the archive was built by this repository's release workflow from tag ${GITHUB_REF_NAME}. The macOS binaries are not signed with an Apple Developer ID: after a browser download, clear the quarantine flag with \`xattr -d com.apple.quarantine fubuking\`.
+          EOF
+          gh release create "$GITHUB_REF_NAME" dist/* --title "FubuKing ${GITHUB_REF_NAME}" --notes-file notes.md --verify-tag

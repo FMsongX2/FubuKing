@@ -6811,11 +6811,15 @@ dependencies = [
  "chrono",
  "clap",
  "dirs",
+ "dunce",
  "rmcp",
  "serde",
  "serde_json",
  "tempfile",
  "tokio",
+ "toml 0.9.12+spec-1.1.0",
+ "which",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]

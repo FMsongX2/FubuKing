@@ -28,13 +28,21 @@ Agent workspaces such as Orca already run many agents side by side and switch ac
 
 ## Quick start
 
-Install the CLI (Rust stable via [rustup](https://rustup.rs/); the first build takes a few minutes):
+Install the CLI from a [release](https://github.com/FMsongX2/FubuKing/releases). Each archive comes with a signed build provenance attestation, which `gh attestation verify` checks against this repository's release workflow:
+
+```bash
+curl -fsSLO https://github.com/FMsongX2/FubuKing/releases/latest/download/fubuking-aarch64-apple-darwin.tar.gz
+gh attestation verify fubuking-aarch64-apple-darwin.tar.gz -R FMsongX2/FubuKing --signer-workflow FMsongX2/FubuKing/.github/workflows/release-cli.yml
+mkdir -p ~/.local/bin && tar -xzf fubuking-aarch64-apple-darwin.tar.gz -C ~/.local/bin fubuking
+```
+
+The other archives are `x86_64-apple-darwin`, `x86_64-unknown-linux-gnu`, `aarch64-unknown-linux-gnu` and `x86_64-pc-windows-msvc` (a `.zip`). The macOS binaries carry no Apple Developer ID signature, so one downloaded in a browser needs `xattr -d com.apple.quarantine fubuking` first. Or build it (Rust stable via [rustup](https://rustup.rs/); the first build takes a few minutes):
 
 ```bash
 cargo install --git https://github.com/FMsongX2/FubuKing fubuking --locked --root ~/.local --force
 ```
 
-`--root ~/.local` puts it at `~/.local/bin/fubuking`, where the desktop app's folder-opening helper would otherwise go; `--force` replaces that helper, and `fubuking open` does its job.
+Either way it lands at `~/.local/bin/fubuking`, where the desktop app's folder-opening helper would otherwise go; it replaces that helper (`--force` lets `cargo install` do so), and `fubuking open` does its job.
 
 Run your agents through it:
 
@@ -67,15 +75,16 @@ Codex asks before each tool call of a registered server; `default_tools_approval
 
 Memory. `fubuking mcp` serves seven tools: `memory_briefing`, `memory_changes`, `memory_search`, `memory_get`, `memory_list`, `memory_remember`, `memory_forget`. Agents record decisions, facts, failures and architecture notes; every later session, of any agent, starts from them. The record is one SQLite database per repository at `.atlas/memory/memory.sqlite`, shared by every worktree, redacted before anything is written, and the same record the desktop app uses.
 
-Handoff. Claude Code and Codex both write a limit hit into the session transcript, and FubuKing watches it while the CLI runs. When an account runs out, it stops the CLI, asks whether to continue, copies the transcript to the next account's profile and resumes the same session there with `claude --resume` or `codex resume`, keeping the options you started with. The next account is the one with the most room left, read from the CLIs' own status line and app server. When no account of that CLI has room, the other CLI takes over with a brief of the session: what you asked, its last replies, and a pointer to the shared memory. An account that has not trusted the folder yet asks first, as Claude always does, and FubuKing tells you before it starts; a newly signed-in account also asks its first-run questions once.
+Handoff. Claude Code and Codex both write a limit hit into the session transcript, and FubuKing watches it while the CLI runs. When an account runs out, it stops the CLI, asks whether to continue, copies the transcript to the next account's profile and resumes the same session there with `claude --resume` or `codex resume`, keeping the options you started with. The next account is the one with the most room left, read from the CLIs' own status line and app server. When no account of that CLI has room, the other CLI takes over with a brief of the session: what you asked, its last replies, and a pointer to the shared memory. An account that has not trusted the folder yet asks first, in either CLI, and FubuKing tells you which answer carries on before it starts; a newly signed-in account also asks its first-run questions once.
 
-Accounts. Every account other than your default login is a profile directory, a separate `CLAUDE_CONFIG_DIR` or `CODEX_HOME` under the app's config directory. Logins happen in the official CLIs, and the desktop app lists the same accounts.
+Accounts. Every account other than your default login is a profile directory, a separate `CLAUDE_CONFIG_DIR` or `CODEX_HOME` under the app's config directory. Logins happen in the official CLIs, inside that profile, whether they start from `fubuking login` or from the desktop app's sign-in terminal, and the app lists the same accounts.
 
 Limits of the current version:
 
 - The transcript layouts behind handoff are not documented by either CLI. Checked with Claude Code 2.1.273 and Codex 0.147.0 and 0.157.1. When a CLI cannot find a copied session, FubuKing starts that account over from a brief; when the limit record itself changes shape, the limit goes unnoticed and the run just ends.
 - A limit on one model, which Claude answers with "switch to another model", leaves the CLI open: the same account can go on with another model. Exit the CLI to hand off anyway.
-- Windows waits for the CLI to exit before handing off.
+- On Windows a running CLI is stopped with a console Ctrl-C, then ended with everything it started. A terminal that is not a Windows console, such as mintty, waits for the CLI to exit instead. An agent CLI that npm installed is a `.cmd` file, whose command line cannot hold a brief, so the brief goes into a temporary file the CLI is asked to read. CI compiles the Windows side and tests the process-tree kill; the console stop has not yet run on a real Windows console.
+- The desktop app's sign-in terminal types a POSIX shell line, which its Windows terminal (PowerShell) does not take. On Windows, add accounts with `fubuking login`.
 - FubuKing adds no status line when your own arguments decide the settings (`--settings`, `--setting-sources`, `--restricted`) or the project sets a status line; that run's Claude quota goes unread.
 
 ## Principles
@@ -109,7 +118,8 @@ bun run dev:app
 - [x] Hand off while the CLI is still open, keeping the first run's options
 - [x] The desktop app lists accounts made with the CLI
 - [ ] Managed CLIProxyAPI pool, and the native agent on your own subscriptions
-- [ ] Prebuilt, signed binaries
+- [x] Prebuilt binaries for macOS, Linux and Windows with signed build provenance
+- [ ] Apple Developer ID signing and notarization
 
 ## Credits
 

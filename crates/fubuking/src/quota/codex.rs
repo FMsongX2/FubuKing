@@ -8,7 +8,7 @@
 //! (MIT) uses.
 
 use std::collections::BTreeMap;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::time::Duration;
 
@@ -17,6 +17,7 @@ use serde_json::{json, Value};
 use tokio::io::{AsyncBufRead, AsyncBufReadExt, AsyncWrite, AsyncWriteExt, BufReader};
 
 use super::QuotaWindow;
+use crate::accounts::Account;
 
 /// Upper bound for one whole read: spawn, handshake and both requests.
 const READ_TIMEOUT: Duration = Duration::from_secs(20);
@@ -45,7 +46,7 @@ pub enum CodexError {
 /// Read one account's plan and windows. `profile_home` is `None` for the
 /// default login in `~/.codex`.
 pub async fn read(profile_home: Option<&Path>) -> Result<CodexReading, CodexError> {
-    let mut cmd = atlas_process::async_command("codex");
+    let mut cmd = atlas_process::async_command(crate::executable("codex"));
     cmd.args(["app-server", "--stdio"])
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
@@ -274,6 +275,76 @@ fn window_slug(minutes: Option<u64>, index: usize) -> String {
     }
 }
 
+/// The answer that carries on when the Codex CLI asks whether to trust `cwd`
+/// under `account`, or `None` when it will not ask or its config cannot be
+/// read. A folder never answered offers "Trust and continue"; one marked
+/// untrusted gets the restricted screen, where "Open restricted" carries on.
+pub fn trust_answer(account: &Account, cwd: &Path) -> Option<&'static str> {
+    match trust_level(account, cwd)?.as_deref() {
+        Some("trusted") => None,
+        Some("untrusted") => Some("Open restricted"),
+        _ => Some("Trust and continue"),
+    }
+}
+
+/// The `trust_level` Codex starts `cwd` with under `account`, looked up as
+/// Codex 0.157.1 does it: the folder's entry in `[projects]` of the account's
+/// `config.toml`, else its repository's; the first entry found decides, with
+/// or without a level. `Some(None)` for no level, `None` when the config
+/// cannot be read.
+fn trust_level(account: &Account, cwd: &Path) -> Option<Option<String>> {
+    let config: toml::Table = match std::fs::read_to_string(account.cli_home()?.join("config.toml")) {
+        Ok(raw) => raw.parse().ok()?,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Some(None),
+        Err(_) => return None,
+    };
+    let Some(projects) = config.get("projects").and_then(toml::Value::as_table) else {
+        return Some(None);
+    };
+    let level = [Some(cwd.to_path_buf()), repo_root(cwd)]
+        .into_iter()
+        .flatten()
+        .flat_map(|dir| [dunce::canonicalize(&dir).ok(), Some(dir)])
+        .flatten()
+        .find_map(|dir| {
+            let key = dir.to_string_lossy();
+            let (_, project) = projects.iter().find(|(name, _)| same_key(name, &key))?;
+            Some(project.get("trust_level").and_then(toml::Value::as_str).map(str::to_string))
+        });
+    Some(level.flatten())
+}
+
+/// The repository whose answer covers `cwd`, as Codex finds it: the nearest
+/// checkout above it, or for a linked worktree the main checkout. `None` for
+/// a submodule or any other `.git` file that does not point into
+/// `<main>/.git/worktrees/`.
+fn repo_root(cwd: &Path) -> Option<PathBuf> {
+    let checkout = cwd.ancestors().find(|dir| {
+        let git = dir.join(".git");
+        git.is_file() || git.join("HEAD").exists()
+    })?;
+    let git = checkout.join(".git");
+    if git.is_dir() {
+        return Some(checkout.to_path_buf());
+    }
+    let pointer = std::fs::read_to_string(&git).ok()?;
+    let git_dir = checkout.join(pointer.strip_prefix("gitdir:")?.trim());
+    let worktrees = git_dir.parent()?;
+    if worktrees.file_name()? != "worktrees" {
+        return None;
+    }
+    worktrees.parent()?.parent().map(Path::to_path_buf)
+}
+
+/// Codex compares project keys without case on Windows.
+fn same_key(stored: &str, key: &str) -> bool {
+    if cfg!(windows) {
+        stored.eq_ignore_ascii_case(key)
+    } else {
+        stored == key
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -393,6 +464,67 @@ mod tests {
             println!("{}: {}% used, resets {:?}", window.label, window.used_percent, window.resets_at);
         }
         assert!(!reading.windows.is_empty());
+    }
+
+    fn codex_account(home: &Path) -> Account {
+        Account {
+            id: "codex-acp-p".into(),
+            provider: crate::accounts::Provider::Codex,
+            label: "p".into(),
+            home: Some(home.to_path_buf()),
+        }
+    }
+
+    fn trust(home: &Path, entries: &[(&Path, &str)]) {
+        let body: String = entries
+            .iter()
+            .map(|(dir, level)| format!("[projects.{:?}]\ntrust_level = \"{level}\"\n", dunce::canonicalize(dir).unwrap()))
+            .collect();
+        std::fs::write(home.join("config.toml"), body).unwrap();
+    }
+
+    #[test]
+    fn the_answer_follows_the_accounts_own_config_and_a_new_home_has_none() {
+        let home = tempfile::tempdir().unwrap();
+        let folder = tempfile::tempdir().unwrap();
+        let account = codex_account(home.path());
+        assert_eq!(trust_answer(&account, folder.path()), Some("Trust and continue"));
+        trust(home.path(), &[(folder.path(), "trusted")]);
+        assert_eq!(trust_answer(&account, folder.path()), None);
+        trust(home.path(), &[(folder.path(), "untrusted")]);
+        assert_eq!(trust_answer(&account, folder.path()), Some("Open restricted"));
+        std::fs::write(home.path().join("config.toml"), "not = [toml").unwrap();
+        assert_eq!(trust_answer(&account, folder.path()), None);
+    }
+
+    #[test]
+    fn a_trusted_repository_covers_its_subfolders_and_linked_worktrees_but_not_submodules() {
+        let home = tempfile::tempdir().unwrap();
+        let root = tempfile::tempdir().unwrap();
+        let main = root.path().join("main");
+        std::fs::create_dir_all(main.join(".git/worktrees/side")).unwrap();
+        std::fs::create_dir_all(main.join(".git/modules/lib")).unwrap();
+        std::fs::write(main.join(".git/HEAD"), "ref: refs/heads/main\n").unwrap();
+        std::fs::create_dir_all(main.join("src/deep")).unwrap();
+        let side = root.path().join("side");
+        std::fs::create_dir_all(&side).unwrap();
+        std::fs::write(side.join(".git"), format!("gitdir: {}\n", main.join(".git/worktrees/side").display())).unwrap();
+        let lib = main.join("lib");
+        std::fs::create_dir_all(lib.join("src")).unwrap();
+        std::fs::write(lib.join(".git"), "gitdir: ../.git/modules/lib\n").unwrap();
+        let account = codex_account(home.path());
+
+        trust(home.path(), &[(&main, "trusted")]);
+        assert_eq!(trust_answer(&account, &main.join("src/deep")), None);
+        assert_eq!(trust_answer(&account, &side), None);
+        // A submodule is its own project to Codex.
+        trust(home.path(), &[(&lib, "trusted")]);
+        assert_eq!(trust_answer(&account, &lib), None);
+        assert_eq!(trust_answer(&account, &lib.join("src")), Some("Trust and continue"));
+
+        // The folder's own answer comes first.
+        trust(home.path(), &[(&main.join("src"), "untrusted"), (&main, "trusted")]);
+        assert_eq!(trust_answer(&account, &main.join("src")), Some("Open restricted"));
     }
 
     #[tokio::test]

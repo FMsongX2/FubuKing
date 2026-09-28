@@ -56,7 +56,7 @@ impl Options {
     /// The options `program` (or its `subcommand`) lists in its help; empty
     /// when the help cannot be read.
     pub fn of(program: &str, subcommand: Option<&str>) -> Self {
-        atlas_process::command(program)
+        atlas_process::command(crate::executable(program))
             .args(subcommand)
             .arg("--help")
             .output()

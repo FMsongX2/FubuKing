@@ -169,7 +169,8 @@ pub fn install_statusline(profile_home: &Path) -> io::Result<()> {
 
 /// Whether Claude Code has been told to trust `cwd` under `account`: each
 /// login keeps its own answers, in `.claude.json` beside its settings (in the
-/// home directory for the default login). `None` when that file cannot be read.
+/// home directory for the default login), and a folder's answer covers the
+/// folders under it. `None` when that file cannot be read.
 pub fn trusts_folder(account: &Account, cwd: &Path) -> Option<bool> {
     let config = match (&account.home, std::env::var_os("CLAUDE_CONFIG_DIR")) {
         (Some(home), _) => home.join(".claude.json"),
@@ -177,8 +178,11 @@ pub fn trusts_folder(account: &Account, cwd: &Path) -> Option<bool> {
         (None, _) => dirs::home_dir()?.join(".claude.json"),
     };
     let settings: Value = serde_json::from_str(&std::fs::read_to_string(config).ok()?).ok()?;
-    let key = cwd.to_string_lossy();
-    Some(settings.pointer("/projects").and_then(|projects| projects.get(key.as_ref())).and_then(|p| p.get("hasTrustDialogAccepted")) == Some(&Value::Bool(true)))
+    let projects = settings.get("projects");
+    Some(cwd.ancestors().any(|dir| {
+        let project = projects.and_then(|projects| projects.get(dir.to_string_lossy().as_ref()));
+        project.and_then(|p| p.get("hasTrustDialogAccepted")) == Some(&Value::Bool(true))
+    }))
 }
 
 /// Write via a sibling temp file and a rename.
@@ -348,6 +352,7 @@ mod tests {
         assert_eq!(trusts_folder(&account, Path::new("/w")), None);
         std::fs::write(home.path().join(".claude.json"), json!({ "projects": { "/w": { "hasTrustDialogAccepted": true }, "/x": {} } }).to_string()).unwrap();
         assert_eq!(trusts_folder(&account, Path::new("/w")), Some(true));
+        assert_eq!(trusts_folder(&account, Path::new("/w/src/deep")), Some(true));
         assert_eq!(trusts_folder(&account, Path::new("/x")), Some(false));
         assert_eq!(trusts_folder(&account, Path::new("/y")), Some(false));
     }

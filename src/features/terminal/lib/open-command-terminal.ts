@@ -1,3 +1,4 @@
+// Modified by FubuKing from upstream Atlas (Apache-2.0).
 // Open a terminal tab that runs a command.
 //
 // Zed hands an agent's terminal-auth command to the workspace terminal
@@ -34,6 +35,8 @@ const ENV_NAME = /^[A-Za-z_][A-Za-z0-9_]*$/;
  *  the environment the agent is spawned with — that one carries the user's
  *  whole environment and their BYOK keys, and this string is displayed, copied
  *  and typed into a shell that records its history. See `TerminalAuthCommand`.
+ *  FubuKing adds one thing for an account: the variables that select its
+ *  profile home, without which the login lands in the default profile.
  */
 export function shellLine(
   command: string,

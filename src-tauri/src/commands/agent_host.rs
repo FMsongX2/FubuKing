@@ -1,3 +1,4 @@
+// Modified by FubuKing from upstream Atlas (Apache-2.0).
 //! The seam between the ported ACP stack and the `agents_*` command surface.
 //!
 //! [`AgentHost`] is what `commands/agents.rs` talks to. It owns the ported
@@ -2130,6 +2131,9 @@ impl AgentHost {
             };
             out.push(wire.with_runnable(resolved.as_ref()));
         }
+        // FubuKing: an account signs in to its own profile home, so its
+        // profile variables join what the agent declared (ADR Q-0002).
+        super::accounts::carry_profile(self, &record.plugin_id, &mut out);
         Ok(out)
     }
 

@@ -149,6 +149,29 @@ jobs:
         working-directory: src-tauri
         run: cargo clippy --locked --all-targets
 
+  fubuking-windows:
+    # The `fubuking` CLI on Windows. Its console handoff (the Windows
+    # `terminal` module in `run.rs`) and the PATHEXT lookup compile only
+    # here, and the process-tree kill is tested only here. No sccache: this is
+    # the one Windows job, and rust-cache covers the registry and git deps.
+    name: fubuking (Windows)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: .
+          save-if: ${{ github.event_name == 'push' }}
+      - name: Test
+        working-directory: crates/fubuking
+        run: cargo test --locked
+      - name: Clippy (-D warnings)
+        working-directory: crates/fubuking
+        run: cargo clippy --locked --all-targets -- -D warnings
+
   engine-dialect:
     # The Atlas-authored gateway dialect (~2,700 lines under
     # vendor/atlas-engine/atlas-engine-api/src/atlas_chat/) is first-party code that happens
