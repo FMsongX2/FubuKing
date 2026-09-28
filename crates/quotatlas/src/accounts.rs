@@ -51,7 +51,7 @@ impl Provider {
     }
 
     /// The registry id the desktop app bases this provider's accounts on.
-    fn base(self) -> &'static str {
+    pub fn base(self) -> &'static str {
         match self {
             Self::Claude => "claude-acp",
             Self::Codex => "codex-acp",
@@ -157,7 +157,8 @@ pub fn list(provider: Provider) -> Vec<Account> {
     list_in(accounts_dir().as_deref(), provider)
 }
 
-fn list_in(dir: Option<&Path>, provider: Provider) -> Vec<Account> {
+/// [`list`] over the accounts directory `dir`.
+pub fn list_in(dir: Option<&Path>, provider: Provider) -> Vec<Account> {
     let mut profiles: Vec<Account> = dir
         .and_then(|dir| std::fs::read_dir(dir).ok())
         .into_iter()

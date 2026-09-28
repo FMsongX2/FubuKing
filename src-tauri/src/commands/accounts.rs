@@ -125,11 +125,42 @@ pub(crate) fn installed_accounts(host: &AgentHost) -> Vec<AccountView> {
     accounts
 }
 
-/// Every account entry in the installed map.
+/// Every account entry in the installed map, after adopting the profiles
+/// `quotatlas login` made.
 #[tauri::command]
-pub fn accounts_list(app: AppHandle) -> Vec<AccountView> {
+pub async fn accounts_list(app: AppHandle) -> Vec<AccountView> {
     let host = app.state::<Arc<AgentHost>>().inner().clone();
+    adopt_cli_profiles(&app, &host).await;
     installed_accounts(&host)
+}
+
+/// Give each profile directory that has no entry one, so an account made with
+/// `quotatlas login` is an agent here too. A provider whose base agent the
+/// registry does not list yet is left for a later call.
+pub(crate) async fn adopt_cli_profiles(app: &AppHandle, host: &Arc<AgentHost>) {
+    let Ok(config_dir) = app.path().app_config_dir() else { return };
+    let dir = config_dir.join(ACCOUNTS_DIR);
+    let known: Vec<String> = installed_accounts(host).into_iter().map(|account| account.profile_home).collect();
+    let mut adopted = false;
+    for provider in AccountProvider::ALL {
+        let base = provider.base();
+        for profile in quotatlas::accounts::list_in(Some(&dir), provider) {
+            let Some(home) = profile.home else { continue };
+            if known.contains(&home.to_string_lossy().into_owned()) || host.registry().agent(base).is_none() {
+                continue;
+            }
+            let id = unique_account_id(base, &profile.label, &host.store().settings());
+            let entry = AgentServerSettings::account(base, &profile.label, provider.profile_env(&home));
+            let settings = super::registry::with_entry(host, &id, entry);
+            match super::registry::persist(host, &super::registry::app_data_dir(app), settings).await {
+                Ok(()) => adopted = true,
+                Err(e) => tracing::warn!(target: "quotatlas::accounts", "adopting {}: {e}", home.display()),
+            }
+        }
+    }
+    if adopted {
+        super::catalog::emit_catalog_changed(app, "install");
+    }
 }
 
 /// Install a new account of `base_agent_id` named `label`.

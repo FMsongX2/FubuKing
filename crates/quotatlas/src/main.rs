@@ -105,12 +105,7 @@ async fn print_quota() {
             let windows = match windows_of(&account).await {
                 Ok(windows) if !windows.is_empty() => windows,
                 Ok(_) => {
-                    let own_status_line = account.home.is_none()
-                        && account.cli_home().is_some_and(|home| claude::sets_status_line(&home.join("settings.json")));
                     let hint = match provider {
-                        Provider::Claude if own_status_line => {
-                            "unknown: your own status line is set, and Quotatlas leaves it alone".to_string()
-                        }
                         Provider::Claude if account.home.is_none() => {
                             "no reading yet: use it once through `quotatlas claude`".to_string()
                         }
@@ -170,16 +165,23 @@ fn open(path: Option<PathBuf>) -> anyhow::Result<i32> {
     let path = path.unwrap_or_else(|| PathBuf::from("."));
     let folder = std::fs::canonicalize(&path).with_context(|| format!("no folder at {}", path.display()))?;
     anyhow::ensure!(folder.is_dir(), "{} is not a folder", folder.display());
-    if cfg!(target_os = "macos") {
-        // `-n` starts a fresh instance so the folder arrives as an argument;
-        // the app's single-instance handler forwards it to the running one.
-        let status = std::process::Command::new("open")
-            .args(["-na", "Quotatlas", "--args"])
-            .arg(&folder)
-            .status()
-            .context("running `open`")?;
-        return Ok(status.code().unwrap_or(1));
-    }
+    open_in_app(&folder)
+}
+
+/// `-n` starts a fresh instance so the folder arrives as an argument; the
+/// app's single-instance handler forwards it to the running one.
+#[cfg(target_os = "macos")]
+fn open_in_app(folder: &std::path::Path) -> anyhow::Result<i32> {
+    let status = std::process::Command::new("open")
+        .args(["-na", "Quotatlas", "--args"])
+        .arg(folder)
+        .status()
+        .context("running `open`")?;
+    Ok(status.code().unwrap_or(1))
+}
+
+#[cfg(not(target_os = "macos"))]
+fn open_in_app(_folder: &std::path::Path) -> anyhow::Result<i32> {
     anyhow::bail!("opening folders in the desktop app is macOS-only for now")
 }
 

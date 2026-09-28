@@ -26,7 +26,7 @@
 //! is what remembers every repository a content hash was seen in, so the second
 //! repository to record a Fact is the one that promotes it.
 //!
-//! ## Layout (`~/.atlas/memory/`)
+//! ## Layout (`~/.quotatlas/memory/`)
 //!
 //! - `MEMORY.md` — the human-readable promoted list, kept **< 200 lines**,
 //!   newest-first: `- **[fact]** <content> *(confidence: NN%)*`.
@@ -47,7 +47,7 @@
 //!
 //! We avoid pulling a new `home`/`dirs` dependency: the dir is resolved from the
 //! `ATLAS_GLOBAL_MEMORY_DIR` env override first (used by tests so the real
-//! `~/.atlas` is never touched), otherwise `$HOME/.atlas/memory`. All public
+//! `~/.quotatlas` is never touched), otherwise `$HOME/.quotatlas/memory`. All public
 //! functions have an explicit-`dir` `*_in` sibling so tests can inject a temp dir
 //! without racing on the process-global env var.
 //!
@@ -109,7 +109,7 @@ pub struct Candidate {
 
 /// Resolve the global memory dir: `ATLAS_GLOBAL_MEMORY_DIR` if set, else
 /// `$HOME/.quotatlas/memory` (`%USERPROFILE%` on Windows, where `HOME` is normally
-/// unset; falling back to `./.atlas/memory` if neither is set).
+/// unset; falling back to `./.quotatlas/memory` if neither is set).
 pub fn global_dir() -> PathBuf {
     if let Ok(d) = std::env::var(GLOBAL_DIR_ENV) {
         if !d.is_empty() {

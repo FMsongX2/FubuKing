@@ -1,3 +1,4 @@
+<!-- Modified by Quotatlas from upstream Atlas (Apache-2.0). -->
 # atlas-memory — Atlas's RAG / memory engine
 
 Atlas's on-device retrieval-augmented memory. It turns a project's files, chat
@@ -168,7 +169,7 @@ Left behind by older versions and no longer read (safe to delete): `graph/`
 (the grafeo store), `.shared-memory-imported`, `.consolidation_state.json`,
 `.consolidation_lock`.
 
-Global, under `~/.atlas/memory/` (override `ATLAS_GLOBAL_MEMORY_DIR`):
+Global, under `~/.quotatlas/memory/` (override `ATLAS_GLOBAL_MEMORY_DIR`):
 
 | File | What |
 |---|---|
@@ -191,7 +192,7 @@ repositories. Everything else stays repository-local.
 | Flag | Default | Effect |
 |---|---|---|
 | `ATLAS_MINILM_DIR` | unset | Override the MiniLM model directory (otherwise Atlas's standard app-data model path). Used by tests + custom setups. |
-| `ATLAS_GLOBAL_MEMORY_DIR` | `~/.atlas/memory` | Override the global memory dir (tests inject a temp dir so they never touch the real one). |
+| `ATLAS_GLOBAL_MEMORY_DIR` | `~/.quotatlas/memory` | Override the global memory dir (tests inject a temp dir so they never touch the real one). |
 | `ENABLE_HYDE_EXPANSION` | off | Enables HyDE/lexical query expansion (the full "Hybrid" mode — higher recall on multi-session questions but much slower; off by default). |
 
 ---

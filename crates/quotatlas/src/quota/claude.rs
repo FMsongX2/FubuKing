@@ -26,8 +26,10 @@ const SCRIPT_FILE: &str = "quotatlas-statusline.sh";
 const SETTINGS_FILE: &str = "settings.json";
 
 /// Writes stdin to a temporary file and renames it over the saved copy, so
-/// Quotatlas never reads a half-written file. It prints a fixed status text:
-/// nothing user-controlled is ever interpolated into the script.
+/// Quotatlas never reads a half-written file. Given an argument, it runs that
+/// as the user's own status line on the same JSON and prints what it prints;
+/// otherwise a fixed status text. Nothing user-controlled is interpolated into
+/// the script: the user's command arrives as an argument.
 const SCRIPT: &str = r#"#!/bin/sh
 # Written by Quotatlas for this Claude Code account. Claude Code pipes its
 # status JSON to this script; Quotatlas reads the rate_limits in the saved
@@ -36,11 +38,15 @@ dir=$(dirname "$0")
 tmp="$dir/.quotatlas-rate-limits.$$"
 umask 077
 if cat > "$tmp"; then
+  if [ -n "$1" ]; then
+    sh -c "$1" < "$tmp"
+  else
+    printf 'Quotatlas\n'
+  fi
   mv -f "$tmp" "$dir/quotatlas-rate-limits.json"
 else
   rm -f "$tmp"
 fi
-printf 'Quotatlas\n'
 "#;
 
 /// A saved reading: the windows and when Claude Code produced them.
@@ -80,18 +86,38 @@ pub fn write_script(dir: &Path) -> io::Result<PathBuf> {
     Ok(script)
 }
 
-/// A settings object pointing the status line at `script`, for Claude Code's
-/// `--settings` flag.
-pub fn status_line_settings(script: &Path) -> Value {
-    json!({ "statusLine": { "type": "command", "command": shell_quote(script) } })
+/// A settings object for Claude Code's `--settings` flag that points the
+/// status line at `script`. With `theirs`, the user's own status line, the
+/// script runs their command after saving the JSON, and their other fields
+/// (such as `padding`) are kept.
+pub fn status_line_settings(script: &Path, theirs: Option<&Value>) -> Value {
+    let mut command = shell_quote(script);
+    let mut line = json!({ "type": "command" });
+    if let Some(theirs) = theirs {
+        if let Some(own) = theirs.get("command").and_then(Value::as_str) {
+            command = format!("{command} {}", shell_quote(Path::new(own)));
+        }
+        if let (Some(line), Some(fields)) = (line.as_object_mut(), theirs.as_object()) {
+            for (key, value) in fields {
+                line.insert(key.clone(), value.clone());
+            }
+        }
+    }
+    line["command"] = Value::String(command);
+    json!({ "statusLine": line })
 }
 
-/// Whether a settings file sets a status line.
-pub fn sets_status_line(settings_file: &Path) -> bool {
-    std::fs::read_to_string(settings_file)
-        .ok()
-        .and_then(|raw| serde_json::from_str::<Value>(&raw).ok())
-        .is_some_and(|settings| settings.get("statusLine").is_some())
+/// The status line Claude Code would run for `cwd` without Quotatlas: the
+/// first of the local, project and user settings that sets one, unless it is
+/// the script Quotatlas installed in that profile.
+pub fn their_status_line(cwd: &Path, user_settings: &Path) -> Option<Value> {
+    let files = [cwd.join(".claude/settings.local.json"), cwd.join(".claude/settings.json"), user_settings.to_path_buf()];
+    let line = files.iter().find_map(|file| {
+        let raw = std::fs::read_to_string(file).ok()?;
+        serde_json::from_str::<Value>(&raw).ok()?.get("statusLine").cloned()
+    })?;
+    let ours = user_settings.parent().map(|home| shell_quote(&script_path(home)));
+    (line.get("command").and_then(Value::as_str) != ours.as_deref()).then_some(line)
 }
 
 /// Quote a path for the shell that runs the statusLine command. The app
@@ -246,6 +272,46 @@ mod tests {
                 .unwrap();
         assert_eq!(settings["theme"], "dark");
         assert!(settings.get("statusLine").is_some());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn the_script_runs_the_users_own_status_line_on_the_same_json() {
+        let home = tempfile::tempdir().unwrap();
+        let script = write_script(home.path()).unwrap();
+        let output = std::process::Command::new(&script)
+            .arg("cat; printf ' | mine'")
+            .stdin(std::process::Stdio::piped())
+            .stdout(std::process::Stdio::piped())
+            .spawn()
+            .and_then(|mut child| {
+                use std::io::Write;
+                child.stdin.take().unwrap().write_all(br#"{"rate_limits":{}}"#)?;
+                child.wait_with_output()
+            })
+            .unwrap();
+        assert_eq!(String::from_utf8_lossy(&output.stdout), r#"{"rate_limits":{}} | mine"#);
+        assert!(home.path().join(RATE_LIMITS_FILE).exists());
+    }
+
+    #[test]
+    fn a_status_line_of_their_own_is_chained_and_ours_is_not_theirs() {
+        let home = tempfile::tempdir().unwrap();
+        let project = tempfile::tempdir().unwrap();
+        let user = home.path().join(SETTINGS_FILE);
+        assert_eq!(their_status_line(project.path(), &user), None);
+
+        install_statusline(home.path()).unwrap();
+        assert_eq!(their_status_line(project.path(), &user), None);
+
+        std::fs::create_dir_all(project.path().join(".claude")).unwrap();
+        let mine = json!({ "type": "command", "command": "~/bin/line", "padding": 0 });
+        std::fs::write(project.path().join(".claude/settings.json"), json!({ "statusLine": mine }).to_string()).unwrap();
+        let theirs = their_status_line(project.path(), &user).unwrap();
+        let settings = status_line_settings(Path::new("/q/s.sh"), Some(&theirs));
+        assert_eq!(settings["statusLine"]["command"], "'/q/s.sh' '~/bin/line'");
+        assert_eq!(settings["statusLine"]["padding"], 0);
+        assert_eq!(status_line_settings(Path::new("/q/s.sh"), None)["statusLine"]["command"], "'/q/s.sh'");
     }
 
     #[cfg(unix)]

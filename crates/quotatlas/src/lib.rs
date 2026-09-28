@@ -2,6 +2,7 @@
 //! any MCP agent. The `quotatlas` binary and the desktop app share this crate.
 
 pub mod accounts;
+pub mod args;
 pub mod mcp;
 pub mod quota;
 pub mod run;

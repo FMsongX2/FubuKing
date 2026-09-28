@@ -13,11 +13,13 @@
 //! `<CODEX_HOME>/sessions/<yyyy>/<mm>/<dd>/rollout-<time>-<id>.jsonl`. Checked
 //! against Claude Code 2.1.273 and Codex 0.147.0; neither documents it.
 
+use std::collections::VecDeque;
 use std::fs::File;
 use std::io::{self, BufRead, BufReader, Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
 use std::time::SystemTime;
 
+use atlas_agent_transcript::{is_injected_user_text, strip_injected_context};
 use serde_json::Value;
 
 use crate::accounts::{Account, Provider};
@@ -185,6 +187,164 @@ fn read_tail(path: &Path, max: u64) -> io::Result<String> {
     })
 }
 
+/// Whether a limit message means the whole account is out, rather than one
+/// model: Claude's model limits say to switch to another model, which the
+/// same account can still do.
+pub fn is_account_limit(provider: Provider, message: &str) -> bool {
+    match provider {
+        Provider::Claude => !message.contains("another model"),
+        Provider::Codex => true,
+    }
+}
+
+/// How many of the session's requests and replies a brief quotes, and how
+/// long each may be.
+const BRIEF_REQUESTS: usize = 8;
+const BRIEF_REPLIES: usize = 2;
+const REQUEST_CHARS: usize = 1_500;
+const REPLY_CHARS: usize = 2_500;
+
+/// What the user asked in a session and what the agent last answered.
+#[derive(Debug, Default, PartialEq, Eq)]
+pub struct Conversation {
+    /// The first request, then the latest ones.
+    pub requests: Vec<String>,
+    /// Requests between the first and the latest that were left out.
+    pub skipped: usize,
+    /// The latest replies, oldest first.
+    pub replies: Vec<String>,
+}
+
+/// Read a session start to end, keeping only what a brief quotes.
+pub fn conversation(session: &Session) -> io::Result<Conversation> {
+    let reader = BufReader::new(File::open(&session.path)?);
+    let mut first: Option<String> = None;
+    let mut latest: VecDeque<String> = VecDeque::new();
+    let mut replies: VecDeque<String> = VecDeque::new();
+    let mut total = 0usize;
+    for line in reader.lines() {
+        let Ok(value) = serde_json::from_str::<Value>(&line?) else { continue };
+        let turn = match session.provider {
+            Provider::Claude => claude_turn(&value),
+            Provider::Codex => codex_turn(&value),
+        };
+        match turn {
+            Some((true, text)) => {
+                total += 1;
+                if first.is_none() {
+                    first = Some(text);
+                } else {
+                    latest.push_back(text);
+                    if latest.len() > BRIEF_REQUESTS - 1 {
+                        latest.pop_front();
+                    }
+                }
+            }
+            Some((false, text)) => {
+                replies.push_back(text);
+                if replies.len() > BRIEF_REPLIES {
+                    replies.pop_front();
+                }
+            }
+            None => {}
+        }
+    }
+    let requests: Vec<String> = first.into_iter().chain(latest).collect();
+    Ok(Conversation { skipped: total.saturating_sub(requests.len()), requests, replies: replies.into() })
+}
+
+/// `(is the user, text)` for a Claude Code entry that is a request or a reply.
+fn claude_turn(line: &Value) -> Option<(bool, String)> {
+    if line["isSidechain"] == true || line["isMeta"] == true || line["isApiErrorMessage"] == true {
+        return None;
+    }
+    let user = match line["type"].as_str()? {
+        "user" => true,
+        "assistant" => false,
+        _ => return None,
+    };
+    let text = match &line["message"]["content"] {
+        Value::String(text) => text.clone(),
+        Value::Array(blocks) => blocks
+            .iter()
+            .filter(|block| block["type"] == "text")
+            .filter_map(|block| block["text"].as_str())
+            .collect::<Vec<_>>()
+            .join("\n"),
+        _ => return None,
+    };
+    let text = if user { strip_injected_context(&text) } else { text };
+    let text = text.trim();
+    if text.is_empty() || (user && is_injected_user_text(text)) {
+        return None;
+    }
+    Some((user, text.to_string()))
+}
+
+/// The same for a Codex rollout line. Codex sends its instructions and
+/// environment as user messages too; those are left out.
+fn codex_turn(line: &Value) -> Option<(bool, String)> {
+    let payload = &line["payload"];
+    if line["type"] != "response_item" || payload["type"] != "message" {
+        return None;
+    }
+    let user = match payload["role"].as_str()? {
+        "user" => true,
+        "assistant" => false,
+        _ => return None,
+    };
+    let text = payload["content"]
+        .as_array()?
+        .iter()
+        .filter_map(|item| item["text"].as_str())
+        .map(str::trim)
+        .filter(|text| !user || !(is_injected_user_text(text) || text.starts_with("# AGENTS.md instructions")))
+        .collect::<Vec<_>>()
+        .join("\n");
+    (!text.is_empty()).then_some((user, text))
+}
+
+/// A prompt that lets another agent, or another session of the same one,
+/// take over `session`: what was asked, the last answers, and where to look.
+pub fn brief(session: &Session, from: &Account) -> io::Result<String> {
+    let conversation = conversation(session)?;
+    let agent = match session.provider {
+        Provider::Claude => "Claude Code",
+        Provider::Codex => "Codex",
+    };
+    let mut out = format!(
+        "You are taking over a coding task in this repository from another session. It ran in {agent} \
+         ({from}) and stopped because that account hit its usage limit.\n\nThe user's requests in that \
+         session, oldest first:\n"
+    );
+    for (index, request) in conversation.requests.iter().enumerate() {
+        if index == 1 && conversation.skipped > 0 {
+            out.push_str(&format!("(… {} more requests)\n", conversation.skipped));
+        }
+        out.push_str(&format!("{}. {}\n", index + 1, clip(request, REQUEST_CHARS)));
+    }
+    if !conversation.replies.is_empty() {
+        out.push_str("\nIts last replies:\n");
+        for reply in &conversation.replies {
+            out.push_str(&format!("---\n{}\n", clip(reply, REPLY_CHARS)));
+        }
+        out.push_str("---\n");
+    }
+    out.push_str(
+        "\nBefore changing anything, run `git status` and `git diff` to see the work in progress, and call \
+         memory_briefing for what earlier sessions recorded. Then continue the task from where it stopped.",
+    );
+    Ok(out)
+}
+
+/// At most `max` characters, marked when cut.
+fn clip(text: &str, max: usize) -> String {
+    match text.char_indices().nth(max) {
+        Some((cut, _)) => format!("{} […]", &text[..cut]),
+        None => text.to_string(),
+    }
+}
+
 /// Copy the transcript to the same place under `to`'s CLI home, where that
 /// account's CLI looks it up by id. An older copy there is replaced.
 pub fn copy_to(session: &Session, to: &Account) -> io::Result<PathBuf> {
@@ -198,15 +358,6 @@ pub fn copy_to(session: &Session, to: &Account) -> io::Result<PathBuf> {
     }
     std::fs::copy(&session.path, &dest)?;
     Ok(dest)
-}
-
-/// The CLI arguments that resume `session` and send `prompt` as the next message.
-pub fn resume_args(session: &Session, prompt: &str) -> Vec<String> {
-    let id = session.id.clone();
-    match session.provider {
-        Provider::Claude => vec!["--resume".into(), id, prompt.into()],
-        Provider::Codex => vec!["resume".into(), id, prompt.into()],
-    }
 }
 
 #[cfg(test)]
@@ -282,7 +433,6 @@ mod tests {
 
         let copy = copy_to(&found, &account(Provider::Claude, to.path())).unwrap();
         assert_eq!(copy, to.path().join("projects/-work-my-repo/0b6f-id.jsonl"));
-        assert_eq!(resume_args(&found, "go on"), ["--resume", "0b6f-id", "go on"]);
 
         let later = SystemTime::now() + std::time::Duration::from_secs(60);
         assert_eq!(latest(&account(Provider::Claude, from.path()), cwd, later), None);
@@ -301,7 +451,73 @@ mod tests {
         let found = latest(&account(Provider::Codex, home.path()), Path::new("/work/a"), since).unwrap();
         assert_eq!(found.id, id);
         assert_eq!(found.relative, PathBuf::from(format!("sessions/2026/09/27/rollout-2026-09-27T22-01-12-{id}.jsonl")));
-        assert_eq!(resume_args(&found, "go on"), ["resume", id, "go on"]);
+    }
+
+    #[test]
+    fn only_a_model_limit_leaves_the_account_usable() {
+        assert!(is_account_limit(Provider::Claude, "You've hit your session limit · resets 3:10am"));
+        assert!(!is_account_limit(
+            Provider::Claude,
+            "You've reached your Fable limit. Switch to another model, or manage usage credits"
+        ));
+        assert!(is_account_limit(Provider::Codex, "You've hit your usage limit."));
+    }
+
+    #[test]
+    fn a_claude_brief_quotes_requests_and_the_last_reply_without_injected_text() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("projects/-w/s.jsonl");
+        let mut lines = vec![
+            json!({ "type": "user", "message": { "role": "user", "content": "<command-name>/clear</command-name>" } }),
+            json!({ "type": "user", "message": { "role": "user", "content": "Port the parser to Rust" } }),
+            json!({ "type": "user", "message": { "role": "user", "content": [{ "type": "tool_result", "content": "ok" }] } }),
+            claude_reply("Parser ported; tests next."),
+        ];
+        for n in 0..10 {
+            lines.push(json!({ "type": "user", "message": { "role": "user", "content": format!("step {n}") } }));
+        }
+        lines.push(claude_error("rate_limit", "You've hit your session limit"));
+        write_lines(&path, &lines);
+        let session = Session { provider: Provider::Claude, id: "s".into(), path, relative: PathBuf::new() };
+
+        let talk = conversation(&session).unwrap();
+        assert_eq!(talk.requests.first().map(String::as_str), Some("Port the parser to Rust"));
+        assert_eq!(talk.requests.last().map(String::as_str), Some("step 9"));
+        assert_eq!(talk.requests.len(), BRIEF_REQUESTS);
+        assert_eq!(talk.skipped, 11 - BRIEF_REQUESTS);
+        assert_eq!(talk.replies, ["Parser ported; tests next."]);
+
+        let brief = brief(&session, &account(Provider::Claude, dir.path())).unwrap();
+        assert!(brief.contains("ran in Claude Code (claude account `p`)"));
+        assert!(brief.contains("1. Port the parser to Rust"));
+        assert!(brief.contains("(… 3 more requests)"));
+        assert!(!brief.contains("/clear") && !brief.contains("session limit"));
+    }
+
+    #[test]
+    fn a_codex_brief_leaves_out_instructions_and_environment() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("sessions/r.jsonl");
+        let message = |role: &str, kind: &str, texts: &[&str]| {
+            json!({ "type": "response_item", "payload": { "type": "message", "role": role,
+                "content": texts.iter().map(|t| json!({ "type": kind, "text": t })).collect::<Vec<_>>() } })
+        };
+        write_lines(&path, &[
+            message("developer", "input_text", &["system rules"]),
+            message("user", "input_text", &["# AGENTS.md instructions\n<INSTRUCTIONS>…", "<environment_context>…</environment_context>"]),
+            message("user", "input_text", &["Add a retry to the uploader"]),
+            message("assistant", "output_text", &["Retry added with backoff."]),
+        ]);
+        let session = Session { provider: Provider::Codex, id: "r".into(), path, relative: PathBuf::new() };
+        let talk = conversation(&session).unwrap();
+        assert_eq!(talk.requests, ["Add a retry to the uploader"]);
+        assert_eq!(talk.replies, ["Retry added with backoff."]);
+    }
+
+    #[test]
+    fn clipping_marks_the_cut_and_respects_characters() {
+        assert_eq!(clip("한글 문장입니다", 4), "한글 문 […]");
+        assert_eq!(clip("short", 10), "short");
     }
 
     #[test]

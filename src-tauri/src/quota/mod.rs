@@ -246,6 +246,9 @@ impl QuotaService {
             return self.snapshot();
         }
         let _in_flight = RefreshInFlight(&self.refreshing);
+        if let Some(host) = app.try_state::<Arc<AgentHost>>() {
+            crate::commands::accounts::adopt_cli_profiles(app, host.inner()).await;
+        }
         let mut reads = tokio::task::JoinSet::new();
         for (index, target) in targets(app).into_iter().enumerate() {
             reads.spawn(async move { (index, read_target(target).await) });

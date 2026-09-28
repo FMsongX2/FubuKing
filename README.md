@@ -67,23 +67,21 @@ Codex asks before each tool call of a registered server; `default_tools_approval
 
 Memory. `quotatlas mcp` serves seven tools: `memory_briefing`, `memory_changes`, `memory_search`, `memory_get`, `memory_list`, `memory_remember`, `memory_forget`. Agents record decisions, facts, failures and architecture notes; every later session, of any agent, starts from them. The record is one SQLite database per repository at `.atlas/memory/memory.sqlite`, shared by every worktree, redacted before anything is written, and the same record the desktop app uses.
 
-Handoff. Claude Code and Codex both write a limit hit into the session transcript. When the CLI exits on one, Quotatlas asks whether to continue, copies the transcript to the next account's profile and resumes the same session there with `claude --resume` or `codex resume`. The next account is the one with the most room left, read from the CLIs' own status line and app server.
+Handoff. Claude Code and Codex both write a limit hit into the session transcript, and Quotatlas watches it while the CLI runs. When an account runs out, it stops the CLI, asks whether to continue, copies the transcript to the next account's profile and resumes the same session there with `claude --resume` or `codex resume`, keeping the options you started with. The next account is the one with the most room left, read from the CLIs' own status line and app server. When no account of that CLI has room, the other CLI takes over with a brief of the session: what you asked, its last replies, and a pointer to the shared memory.
 
-Accounts. Every account other than your default login is a profile directory, a separate `CLAUDE_CONFIG_DIR` or `CODEX_HOME` under the app's config directory. Logins happen in the official CLIs.
+Accounts. Every account other than your default login is a profile directory, a separate `CLAUDE_CONFIG_DIR` or `CODEX_HOME` under the app's config directory. Logins happen in the official CLIs, and the desktop app lists the same accounts.
 
 Limits of the current version:
 
-- The transcript layouts behind handoff are not documented by either CLI. Checked with Claude Code 2.1.273 and Codex 0.147.0; when a layout changes, a limit goes unnoticed and the run just ends.
-- The handoff happens when the CLI exits. After the limit message, exit the CLI to continue.
-- A resumed session starts without the flags you passed the first time. Keep lasting choices such as the model in the CLI's settings.
-- Quota for your default Claude login is read through a status line Quotatlas adds for the run. If you set a status line of your own, that account's quota shows as unknown.
-- Accounts made with `quotatlas login` do not appear in the desktop app yet.
+- The transcript layouts behind handoff are not documented by either CLI. Checked with Claude Code 2.1.273 and Codex 0.147.0 and 0.157.1. When a CLI cannot find a copied session, Quotatlas starts that account over from a brief; when the limit record itself changes shape, the limit goes unnoticed and the run just ends.
+- A limit on one model, which Claude answers with "switch to another model", leaves the CLI open: the same account can go on with another model. Exit the CLI to hand off anyway.
+- Windows waits for the CLI to exit before handing off.
 
 ## Principles
 
 - No telemetry. Builds ship without an analytics key and the setting defaults to off.
 - No hosted services. Quotatlas never signs in to, syncs with or routes through Atlas's servers or any server of its own.
-- Hands off your credentials. Logins happen in the official Claude Code and Codex CLIs. Quotatlas never reads, copies or stores their tokens and never edits `~/.claude` or `~/.codex`; what it adds to a run, it passes as flags for that run.
+- Hands off your credentials. Logins happen in the official Claude Code and Codex CLIs. Quotatlas never reads, copies or stores their tokens and never edits `~/.claude` or `~/.codex`; what it adds to a run, it passes as flags for that run, and your own status line runs as before.
 - No silent account rotation. A handoff asks first. Pooling subscription accounts can conflict with provider terms; Quotatlas labels that risk instead of hiding it.
 
 ## The desktop app
@@ -106,9 +104,9 @@ bun run dev:app
 - [x] Fork Atlas, rebrand, remove telemetry and hosted services
 - [x] Accounts as profiles (`CLAUDE_CONFIG_DIR`, `CODEX_HOME`) and quota for each, read from the CLIs' own channels
 - [x] `quotatlas` CLI: shared memory over stdio MCP, limit detection and handoff to the next account
-- [ ] Handoff across agents: continue a Claude Code session in Codex with a brief built from the transcript and the memory
-- [ ] Hand off while the CLI is still open, and keep the first run's flags
-- [ ] The desktop app lists accounts made with the CLI
+- [x] Handoff across agents: continue a Claude Code session in Codex, or the reverse, with a brief of the session
+- [x] Hand off while the CLI is still open, keeping the first run's options
+- [x] The desktop app lists accounts made with the CLI
 - [ ] Managed CLIProxyAPI pool, and the native agent on your own subscriptions
 - [ ] Prebuilt, signed binaries
 

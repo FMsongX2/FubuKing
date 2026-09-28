@@ -1,3 +1,4 @@
+<!-- Modified by Quotatlas from upstream Atlas (Apache-2.0). -->
 # `atlas-memory` — Migration & Operations
 
 How Atlas's RAG/memory moved from the in-Tauri **brute-force O(n) cosine** over a
@@ -40,7 +41,7 @@ its content — the legacy shared log — lives in the record store),
 `.consolidation_state.json` (the dream gates' lock and state; the memdir they
 pruned is no longer written, and the record store caps what it shows per kind).
 
-### Global (cross-project) — `~/.atlas/memory/`
+### Global (cross-project) — `~/.quotatlas/memory/`
 
 | Path | Purpose |
 |---|---|
@@ -56,7 +57,7 @@ promotions — except any the list's 200-line cap had already trimmed. Ledger
 rows written before #89 (`preference` / `constraint`, keyed by an older hash)
 are kept as they are.
 
-The global dir resolves to `~/.atlas/memory/` by default, or the
+The global dir resolves to `~/.quotatlas/memory/` by default, or the
 `ATLAS_GLOBAL_MEMORY_DIR` override (see §3).
 
 ---
@@ -81,7 +82,7 @@ by `record::legacy` (guarded by `.record-store-migrated`), not by the engine.
 | Env var | Default | Effect |
 |---|---|---|
 | `ATLAS_NATIVE_EXTRACTION` | **OFF** | A/B gate for native session extraction (see below). |
-| `ATLAS_GLOBAL_MEMORY_DIR` | unset → `~/.atlas/memory/` | Overrides the global memory dir. Used by tests so they never touch the real home dir. |
+| `ATLAS_GLOBAL_MEMORY_DIR` | unset → `~/.quotatlas/memory/` | Overrides the global memory dir. Used by tests so they never touch the real home dir. |
 | `ATLAS_MINILM_DIR` | unset | Points tests at an installed MiniLM model dir (contains `model.safetensors`). Model-gated tests are `#[ignore = "needs ATLAS_MINILM_DIR"]`; run them with `-- --ignored`. They never download a model. |
 
 ### `ATLAS_NATIVE_EXTRACTION` (default OFF) — the A/B plan
