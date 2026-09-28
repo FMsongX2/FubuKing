@@ -1,7 +1,7 @@
 {
-  "default": "dark",
+  "default": "light",
   "icons": [
-    { "id": "dark", "label": "Dark" },
-    { "id": "light", "label": "Light" }
+    { "id": "light", "label": "Light" },
+    { "id": "dark", "label": "Dark" }
   ]
 }

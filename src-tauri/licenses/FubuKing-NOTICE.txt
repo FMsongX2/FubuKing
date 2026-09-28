@@ -14,3 +14,8 @@ unchanged and are bundled in the application's licenses directory.
 
 FubuKing is not affiliated with or endorsed by the Atlas project.
 "Atlas" is used only to credit the upstream work.
+
+The FubuKing icon artwork (the rice grains in src-tauri/icons and
+src/assets/atlas-icon.svg) was drawn for the Hanabi project by its
+illustrator. It is not licensed under the Apache License, Version 2.0;
+all rights to it are reserved.
