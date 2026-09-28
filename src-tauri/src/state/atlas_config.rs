@@ -2259,7 +2259,7 @@ someFutureKey = \"left alone\"
                 )]),
             }),
             icon_theme: Some(atlas_icon_theme::MINIMAL_ICON_THEME_ID.to_string()),
-            app_icon: Some("light".to_string()),
+            app_icon: Some("dark".to_string()),
             adaptive_suggestions: Some(AdaptiveSuggestions::Off),
             git_blame_inline: Some(!defaults.git_blame_inline),
             auto_update: Some(!defaults.auto_update),
