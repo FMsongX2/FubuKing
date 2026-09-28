@@ -1,6 +1,6 @@
 # Q-0001: FubuKing is a branded fork of Atlas with a quota layer
 
-Status: Accepted (2026-09-27)
+Status: Accepted (2026-09-27), amended 2026-09-28 to drop the account pool
 
 Q-numbered ADRs belong to FubuKing. Plain-numbered ADRs are inherited from upstream Atlas and keep their numbers so upstream merges stay clean.
 
@@ -24,19 +24,17 @@ Q-numbered ADRs belong to FubuKing. Plain-numbered ADRs are inherited from upstr
 - The fork stays Apache-2.0. Upstream `LICENSE`, `NOTICE` files and copyright lines are kept; a FubuKing copyright line is added beside them, never in place of them.
 - Every upstream file FubuKing modifies carries a first-line notice: `Modified by FubuKing from upstream Atlas (Apache-2.0).` A test enforces it against the fork base.
 - Code ported from Quotio keeps its MIT notice in the file header and in `NOTICE`.
-- CLIProxyAPI is not vendored. It is downloaded at runtime from its GitHub releases and verified against the published SHA-256 digest.
 - "Atlas" is not used as a product name. FubuKing credits Atlas as its upstream in the README and About screen.
 
 ## Product rules
 
 - Agent routing is per session. FubuKing injects account selection into the agent process environment it spawns; it never edits `~/.claude/settings.json` or `~/.codex/config.toml`.
-- Account profiles use each agent's own login (`CLAUDE_CONFIG_DIR`, `CODEX_HOME`). The CLIProxyAPI pool is an opt-in mode.
+- Account profiles use each agent's own login (`CLAUDE_CONFIG_DIR`, `CODEX_HOME`).
 - FubuKing never reads, copies or stores provider credentials. Login and token storage stay inside the official CLIs; quota data comes only from channels those CLIs expose (for example `codex app-server` rate-limit reads). FubuKing does not reuse official OAuth client ids.
-- In pool mode the credentials belong to CLIProxyAPI's own auth directory. FubuKing manages the process, not the tokens.
+- No account pool. Claude Code's terms do not permit a third-party app to route requests through Free, Pro or Max plan credentials or to intermediate their session tokens ([legal and compliance](https://code.claude.com/docs/en/legal-and-compliance), read 2026-09-28). A CLIProxyAPI pool does both, so the opt-in pool mode first planned here is dropped.
 - Automatic rotation across subscription accounts is off by default and labelled with the provider terms risk.
 
 ## Consequences
 
 - Upstream merges conflict only at registration points and branded strings.
 - Internal names still read `atlas`; contributors see both names.
-- The quota layer works without the proxy, so a broken CLIProxyAPI release does not break agents.

@@ -92,7 +92,8 @@ Limits of the current version:
 - No telemetry. Builds ship without an analytics key and the setting defaults to off.
 - No hosted services. FubuKing never signs in to, syncs with or routes through Atlas's servers or any server of its own.
 - Hands off your credentials. Logins happen in the official Claude Code and Codex CLIs. FubuKing never reads, copies or stores their tokens and never edits `~/.claude` or `~/.codex`; what it adds to a run, it passes as flags for that run, and your own status line runs as before.
-- No silent account rotation. A handoff asks first. Pooling subscription accounts can conflict with provider terms; FubuKing labels that risk instead of hiding it.
+- No silent account rotation. A handoff asks first.
+- No account pool. Claude Code's [terms](https://code.claude.com/docs/en/legal-and-compliance) do not permit a third-party app to route requests through Free, Pro or Max plan credentials, so every account runs only in its own official CLI.
 
 ## The desktop app
 
@@ -117,7 +118,6 @@ bun run dev:app
 - [x] Handoff across agents: continue a Claude Code session in Codex, or the reverse, with a brief of the session
 - [x] Hand off while the CLI is still open, keeping the first run's options
 - [x] The desktop app lists accounts made with the CLI
-- [ ] Managed CLIProxyAPI pool, and the native agent on your own subscriptions
 - [x] Prebuilt binaries for macOS, Linux and Windows with signed build provenance
 - [ ] Apple Developer ID signing and notarization
 
@@ -126,8 +126,7 @@ bun run dev:app
 FubuKing stands on:
 
 - [Atlas](https://github.com/pacifio/atlas) by Adib Mohsin, Apache-2.0. FubuKing is a modified version of it; see [NOTICE](NOTICE).
-- [Quotio](https://github.com/nguyenphutrong/quotio), MIT, whose quota model, CLIProxyAPI lifecycle and quota screens informed the quota layer and its UI.
-- [CLIProxyAPI](https://github.com/router-for-me/CLIProxyAPI), MIT, which the planned account pool will download at runtime and verify against its published checksum.
+- [Quotio](https://github.com/nguyenphutrong/quotio), MIT, whose quota model and quota screens informed the quota layer and its UI.
 
 FubuKing is not affiliated with or endorsed by Atlas, Anthropic or OpenAI.
 
