@@ -105,8 +105,6 @@
     }
   },
   "guidelinesGlob": [],
-  "extraFonts": [
-    ".design-sync/fonts/jetbrains-mono.css"
-  ],
+  "extraFonts": [],
   "readmeHeader": ".design-sync/conventions.md"
 }
