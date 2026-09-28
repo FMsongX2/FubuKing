@@ -60,6 +60,17 @@ jobs:
       - name: Check the tag names the crate's version
         if: startsWith(github.ref, 'refs/tags/') && matrix.target == 'x86_64-unknown-linux-gnu'
         run: test "$(target/${{ matrix.target }}/release/fubuking --version)" = "fubuking ${GITHUB_REF_NAME#v}"
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-about@0.9.2
+      # The licenses of every crate linked into this target's binary
+      # (crates/fubuking/about.toml), fetched first so the run is offline.
+      - name: Third-party licenses
+        shell: bash
+        run: |
+          cargo fetch --locked
+          cargo about generate --frozen --target ${{ matrix.target }} -m crates/fubuking/Cargo.toml \
+            -c crates/fubuking/about.toml -o THIRD-PARTY-LICENSES.txt crates/fubuking/about.hbs
       - name: Package
         shell: bash
         env:
@@ -67,13 +78,14 @@ jobs:
         run: |
           mkdir -p dist
           name="fubuking-${TARGET}"
+          docs="LICENSE NOTICE THIRD-PARTY-LICENSES.txt"
           if [ "$RUNNER_OS" = "Windows" ]; then
-            cp "target/${TARGET}/release/fubuking.exe" LICENSE NOTICE dist/
-            (cd dist && 7z a -tzip "${name}.zip" fubuking.exe LICENSE NOTICE > /dev/null && rm fubuking.exe LICENSE NOTICE)
+            cp "target/${TARGET}/release/fubuking.exe" $docs dist/
+            (cd dist && 7z a -tzip "${name}.zip" fubuking.exe $docs > /dev/null && rm fubuking.exe $docs)
           else
-            cp "target/${TARGET}/release/fubuking" LICENSE NOTICE dist/
-            tar -czf "dist/${name}.tar.gz" -C dist fubuking LICENSE NOTICE
-            rm dist/fubuking dist/LICENSE dist/NOTICE
+            cp "target/${TARGET}/release/fubuking" $docs dist/
+            tar -czf "dist/${name}.tar.gz" -C dist fubuking $docs
+            (cd dist && rm fubuking $docs)
           fi
           ls -l dist
       - name: Attest build provenance

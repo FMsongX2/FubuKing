@@ -23,7 +23,6 @@ Q-numbered ADRs belong to FubuKing. Plain-numbered ADRs are inherited from upstr
 
 - The fork stays Apache-2.0. Upstream `LICENSE`, `NOTICE` files and copyright lines are kept; a FubuKing copyright line is added beside them, never in place of them.
 - Every upstream file FubuKing modifies carries a first-line notice: `Modified by FubuKing from upstream Atlas (Apache-2.0).` A test enforces it against the fork base.
-- Code ported from Quotio keeps its MIT notice in the file header and in `NOTICE`.
 - "Atlas" is not used as a product name. FubuKing credits Atlas as its upstream in the README and About screen.
 
 ## Product rules

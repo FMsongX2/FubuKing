@@ -1,0 +1,17 @@
+Third-party software in the fubuking CLI
+
+The fubuking binary is built from FubuKing (Apache-2.0, see LICENSE and
+NOTICE) and links the crates below. Each license text follows the crates it
+covers; texts that differ only in their copyright lines are listed apart.
+{{#each licenses}}
+
+================================================================================
+{{{name}}}
+
+Used by:
+{{#each used_by}}
+  {{crate.name}} {{crate.version}} {{#if crate.repository}}{{crate.repository}}{{else}}https://crates.io/crates/{{crate.name}}{{/if}}
+{{/each}}
+
+{{{text}}}
+{{/each}}

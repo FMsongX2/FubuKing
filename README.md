@@ -36,7 +36,7 @@ gh attestation verify fubuking-aarch64-apple-darwin.tar.gz -R FMsongX2/FubuKing 
 mkdir -p ~/.local/bin && tar -xzf fubuking-aarch64-apple-darwin.tar.gz -C ~/.local/bin fubuking
 ```
 
-The other archives are `x86_64-apple-darwin`, `x86_64-unknown-linux-gnu`, `aarch64-unknown-linux-gnu` and `x86_64-pc-windows-msvc` (a `.zip`). The macOS binaries carry no Apple Developer ID signature, so one downloaded in a browser needs `xattr -d com.apple.quarantine fubuking` first. Or build it (Rust stable via [rustup](https://rustup.rs/); the first build takes a few minutes):
+The other archives are `x86_64-apple-darwin`, `x86_64-unknown-linux-gnu`, `aarch64-unknown-linux-gnu` and `x86_64-pc-windows-msvc` (a `.zip`), and every archive holds `LICENSE`, `NOTICE` and `THIRD-PARTY-LICENSES.txt` beside the binary. The Linux ones need glibc 2.39 or newer (Ubuntu 24.04, Debian 13, Fedora 40); building on an older system takes GCC 13 or newer, for the vector kernels under usearch. The macOS binaries carry no Apple Developer ID signature, so one downloaded in a browser needs `xattr -d com.apple.quarantine fubuking` first. Or build it (Rust stable via [rustup](https://rustup.rs/); the first build takes a few minutes):
 
 ```bash
 cargo install --git https://github.com/FMsongX2/FubuKing fubuking --locked --root ~/.local --force
@@ -126,7 +126,6 @@ bun run dev:app
 FubuKing stands on:
 
 - [Atlas](https://github.com/pacifio/atlas) by Adib Mohsin, Apache-2.0. FubuKing is a modified version of it; see [NOTICE](NOTICE).
-- [Quotio](https://github.com/nguyenphutrong/quotio), MIT, whose quota model and quota screens informed the quota layer and its UI.
 
 FubuKing is not affiliated with or endorsed by Atlas, Anthropic or OpenAI.
 
