@@ -42,11 +42,12 @@ jobs:
             os: macos-latest
           - target: x86_64-apple-darwin
             os: macos-latest
-          # 22.04 for its older glibc (2.35), which newer distributions accept.
+          # 24.04: numkong, the C kernels under usearch, needs GCC 13; 22.04's
+          # GCC 11 cannot compile it.
           - target: x86_64-unknown-linux-gnu
-            os: ubuntu-22.04
+            os: ubuntu-24.04
           - target: aarch64-unknown-linux-gnu
-            os: ubuntu-22.04-arm
+            os: ubuntu-24.04-arm
           - target: x86_64-pc-windows-msvc
             os: windows-latest
     steps:
