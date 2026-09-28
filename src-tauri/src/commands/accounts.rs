@@ -138,11 +138,23 @@ pub async fn accounts_list(app: AppHandle) -> Vec<AccountView> {
 /// in the CLI is an agent here too. Only a profile still carrying the CLI's
 /// adoption marker counts: an account removed here keeps its profile home and
 /// must stay removed. One adoption runs at a time, so the settings list and a
-/// quota refresh cannot both adopt a profile. A provider whose base agent the
-/// registry does not list yet is left for a later call.
+/// quota refresh cannot both adopt a profile; a call that finds one running
+/// leaves the work to it. A provider whose base agent the registry does not
+/// list yet is left for a later call.
 pub(crate) async fn adopt_cli_profiles(app: &AppHandle, host: &Arc<AgentHost>) {
-    static ADOPTING: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
-    let _one_at_a_time = ADOPTING.lock().await;
+    use std::sync::atomic::{AtomicBool, Ordering};
+    static ADOPTING: AtomicBool = AtomicBool::new(false);
+    /// Clears the flag however adoption ends.
+    struct Running;
+    impl Drop for Running {
+        fn drop(&mut self) {
+            ADOPTING.store(false, Ordering::Release);
+        }
+    }
+    if ADOPTING.compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire).is_err() {
+        return;
+    }
+    let _running = Running;
     let Ok(config_dir) = app.path().app_config_dir() else { return };
     let dir = config_dir.join(ACCOUNTS_DIR);
     let known: Vec<String> = installed_accounts(host).into_iter().map(|account| account.profile_home).collect();
