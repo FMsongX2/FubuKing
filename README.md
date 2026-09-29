@@ -36,7 +36,7 @@ gh attestation verify fubuking-aarch64-apple-darwin.tar.gz -R FMsongX2/FubuKing 
 mkdir -p ~/.local/bin && tar -xzf fubuking-aarch64-apple-darwin.tar.gz -C ~/.local/bin fubuking
 ```
 
-The other archives are `x86_64-apple-darwin`, `x86_64-unknown-linux-gnu`, `aarch64-unknown-linux-gnu` and `x86_64-pc-windows-msvc` (a `.zip`), and every archive holds `LICENSE`, `NOTICE` and `THIRD-PARTY-LICENSES.txt` beside the binary. The Linux ones need glibc 2.39 or newer (Ubuntu 24.04, Debian 13, Fedora 40); building on an older system takes GCC 13 or newer, for the vector kernels under usearch. The macOS binaries carry no Apple Developer ID signature, so one downloaded in a browser needs `xattr -d com.apple.quarantine fubuking` first. Or build it (Rust stable via [rustup](https://rustup.rs/); the first build takes a few minutes):
+The other archives are `x86_64-apple-darwin`, `x86_64-unknown-linux-gnu`, `aarch64-unknown-linux-gnu` and `x86_64-pc-windows-msvc` (a `.zip`), and every archive holds `LICENSE`, `NOTICE` and `THIRD-PARTY-LICENSES.txt` beside the binary. The Linux ones need glibc 2.28 or newer (Ubuntu 20.04, Debian 10, RHEL 8 and later); building from source takes GCC 13 or newer, for the vector kernels under usearch. The macOS binaries carry no Apple Developer ID signature, so one downloaded in a browser needs `xattr -d com.apple.quarantine fubuking` first. Or build it (Rust stable via [rustup](https://rustup.rs/); the first build takes a few minutes):
 
 ```bash
 cargo install --git https://github.com/FMsongX2/FubuKing fubuking --locked --root ~/.local --force
