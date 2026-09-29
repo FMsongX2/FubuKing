@@ -32,11 +32,14 @@ mod unix {
 
     use fubuking::run::CONTINUE_PROMPT;
 
-    use crate::fake::{self, LIMIT, LOST, WORKING};
+    use fubuking::accounts::Provider;
+    use fubuking::doctor::tested;
+
+    use crate::fake::{self, LIMIT, LOST, MOVED, RENAMED, WORKING};
     use crate::world::World;
 
     const TASK: &str = "Fix the flaky retry test";
-    const TESTS: [(&str, fn()); 7] = [
+    const TESTS: [(&str, fn()); 12] = [
         ("claude_moves_a_stopped_session_to_the_next_account", claude_moves_a_stopped_session_to_the_next_account),
         ("claude_print_mode_resumes_in_print_mode", claude_print_mode_resumes_in_print_mode),
         ("claude_with_no_account_left_goes_on_in_codex_from_a_brief", claude_with_no_account_left_goes_on_in_codex_from_a_brief),
@@ -44,6 +47,11 @@ mod unix {
         ("codex_with_no_account_left_goes_on_in_claude_from_a_brief", codex_with_no_account_left_goes_on_in_claude_from_a_brief),
         ("a_session_the_next_account_cannot_find_starts_there_from_a_brief", a_session_the_next_account_cannot_find_starts_there_from_a_brief),
         ("declining_leaves_the_session_where_it_stopped", declining_leaves_the_session_where_it_stopped),
+        ("a_limit_in_a_form_fubuking_does_not_read_is_reported", a_limit_in_a_form_fubuking_does_not_read_is_reported),
+        ("a_session_saved_where_fubuking_does_not_look_is_reported", a_session_saved_where_fubuking_does_not_look_is_reported),
+        ("an_untested_cli_version_is_announced_once", an_untested_cli_version_is_announced_once),
+        ("without_a_terminal_nothing_is_handed_off_and_it_says_why", without_a_terminal_nothing_is_handed_off_and_it_says_why),
+        ("doctor_shows_the_clis_and_how_each_session_ended", doctor_shows_the_clis_and_how_each_session_ended),
     ];
 
     pub fn main() {
@@ -262,6 +270,79 @@ mod unix {
         assert_ne!(code, 0, "{screen}");
         assert_eq!(world.calls().len(), 1);
         assert!(!second.join("projects").exists(), "nothing is copied");
+    }
+
+    /// A CLI release that renamed the limit's error: nothing is handed off,
+    /// and FubuKing says what it could not read instead of ending silently.
+    fn a_limit_in_a_form_fubuking_does_not_read_is_reported() {
+        let world = World::new();
+        world.login("claude", "second");
+        world.plan(&world.claude_home(), RENAMED);
+        let (code, screen) = world.run(&["claude", "-p", TASK]).finish();
+        assert_eq!(code, 1, "{screen}");
+        assert!(screen.contains("in a form FubuKing does not read"), "{screen}");
+        assert!(screen.contains("rate_limit_exceeded: You've hit your session limit"), "{screen}");
+        assert!(!screen.contains("resume this session"), "{screen}");
+        assert_eq!(world.calls().len(), 1);
+    }
+
+    /// A CLI release that keeps sessions in another folder: FubuKing cannot
+    /// watch them, and says where it found this one.
+    fn a_session_saved_where_fubuking_does_not_look_is_reported() {
+        let world = World::new();
+        world.plan(&world.claude_home(), MOVED);
+        let (code, screen) = world.run(&["claude", "-p", TASK]).finish();
+        assert_eq!(code, 0, "{screen}");
+        assert!(screen.contains("where FubuKing does not look for it"), "{screen}");
+        assert!(screen.contains("/projects/moved"), "{screen}");
+    }
+
+    /// A CLI newer than the tested versions is announced, once per version.
+    fn an_untested_cli_version_is_announced_once() {
+        let world = World::new();
+        world.set_version("claude", "2.1.999");
+        let newest = tested(Provider::Claude).1;
+        let (code, first) = world.run(&["claude", "-p", TASK]).finish();
+        assert_eq!(code, 0, "{first}");
+        assert!(first.contains(&format!("Claude Code 2.1.999 is newer than {newest}")), "{first}");
+        let (_, again) = world.run(&["claude", "-p", TASK]).finish();
+        assert!(!again.contains("is newer than"), "{again}");
+        world.set_version("claude", &newest.to_string());
+        let (_, tested_one) = world.run(&["claude", "-p", TASK]).finish();
+        assert!(!tested_one.contains("is newer than"), "{tested_one}");
+    }
+
+    /// A script's run is never turned into a session on another account, and
+    /// it says why.
+    fn without_a_terminal_nothing_is_handed_off_and_it_says_why() {
+        let world = World::new();
+        world.login("claude", "second");
+        world.plan(&world.claude_home(), LIMIT);
+        let (code, _, errors) = world.output(&["claude", "-p", TASK]);
+        assert_eq!(code, 1, "{errors}");
+        assert!(errors.contains("stopped on its usage limit"), "{errors}");
+        assert!(errors.contains("there is no terminal to ask on"), "{errors}");
+        assert_eq!(world.calls().len(), 1);
+    }
+
+    /// `fubuking doctor` reads the real formats the way a handoff does.
+    fn doctor_shows_the_clis_and_how_each_session_ended() {
+        let world = World::new();
+        world.plan(&world.claude_home(), LIMIT);
+        world.output(&["claude", "-p", TASK]);
+        let (code, report, errors) = world.output(&["doctor"]);
+        assert_eq!(code, 0, "{errors}");
+        let (oldest, newest) = tested(Provider::Claude);
+        let lines = [
+            format!("claude  {newest} at "),
+            format!("(handoff tested with {oldest} to {newest})"),
+            "ended on a usage limit (You've hit your session limit".to_string(),
+            "codex   default          no session here yet".to_string(),
+            "No terminal".to_string(),
+        ];
+        for line in lines {
+            assert!(report.contains(&line), "{line:?} missing from:\n{report}");
+        }
     }
 
     /// Whether `words` holds `run` in a row.

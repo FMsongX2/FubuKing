@@ -48,6 +48,14 @@ impl Provider {
         }
     }
 
+    /// The CLI's product name.
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::Claude => "Claude Code",
+            Self::Codex => "Codex",
+        }
+    }
+
     /// The base agent id new profile directories of this provider start with.
     pub fn base(self) -> &'static str {
         match self {

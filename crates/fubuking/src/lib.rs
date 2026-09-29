@@ -3,6 +3,7 @@
 
 pub mod accounts;
 pub mod args;
+pub mod doctor;
 pub mod mcp;
 pub mod quota;
 pub mod run;

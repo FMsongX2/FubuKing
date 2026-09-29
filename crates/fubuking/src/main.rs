@@ -1,6 +1,7 @@
 //! The `fubuking` command: run Claude Code or Codex with shared memory and
 //! with a usage limit turned into a handoff to another account, serve that
-//! memory to any MCP agent, and show every account's quota.
+//! memory to any MCP agent, show every account's quota, and show what
+//! FubuKing reads when a handoff did not happen.
 
 use std::ffi::OsString;
 
@@ -38,6 +39,8 @@ enum Command {
         #[arg(long, default_value = "mcp")]
         agent: String,
     },
+    /// Show what FubuKing reads here: the agent CLIs, and each account's latest session in this folder.
+    Doctor,
 }
 
 #[derive(clap::Args)]
@@ -101,6 +104,11 @@ async fn dispatch(command: Command) -> anyhow::Result<i32> {
         Command::Mcp { agent } => {
             let cwd = std::env::current_dir().context("reading the current directory")?;
             fubuking::mcp::serve(&cwd, &agent).await?;
+            Ok(0)
+        }
+        Command::Doctor => {
+            let cwd = std::env::current_dir().context("reading the current directory")?;
+            print!("{}", fubuking::doctor::report(&cwd));
             Ok(0)
         }
     }

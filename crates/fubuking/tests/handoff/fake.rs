@@ -5,14 +5,19 @@
 //!
 //! An account's CLI home says how its runs end: a `fake-plan` file reading
 //! `limit` stops them on the usage limit, `lost` makes a resume find no
-//! session, and without one they finish. After a limit an interactive run
-//! stays open, as the real CLIs do, until it is stopped.
+//! session, and without one they finish. Two plans play a CLI release that
+//! changed what FubuKing reads: `renamed` stops on a limit whose entry names
+//! its error differently, `moved` keeps the session in another folder. After
+//! a limit an interactive run stays open, as the real CLIs do, until it is
+//! stopped. `--version` answers the newest version FubuKing is tested with,
+//! or the one in `<state>/<program>-version`.
 
 use std::fs::OpenOptions;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
+use fubuking::accounts::Provider;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
@@ -22,6 +27,8 @@ pub const STATE: &str = "FUBUKING_FAKE_STATE";
 pub const PLAN: &str = "fake-plan";
 pub const LIMIT: &str = "limit";
 pub const LOST: &str = "lost";
+pub const RENAMED: &str = "renamed";
+pub const MOVED: &str = "moved";
 
 /// The reply a new session gets before anything else happens, and the one a
 /// session ends with when it finishes.
@@ -56,6 +63,10 @@ pub fn claude() -> i32 {
         print!("{CLAUDE_HELP}");
         return 0;
     }
+    if args.iter().any(|word| word == "--version" || word == "-v") {
+        println!("{} (Claude Code)", version("claude", Provider::Claude));
+        return 0;
+    }
     let home = home_of("CLAUDE_CONFIG_DIR", ".claude");
     record("claude", &home, &args);
     let options = &args[..args.iter().position(|word| word == "--").unwrap_or(args.len())];
@@ -67,10 +78,12 @@ pub fn claude() -> i32 {
         .cloned();
     let prompt = positionals(&args, CLAUDE_ONE, CLAUDE_MANY).join(" ");
     let cwd = cwd();
-    let dir = home.join("projects").join(encode(&cwd));
+    let plan = plan(&home);
+    let folder = if plan == MOVED { format!("moved{}", encode(&cwd)) } else { encode(&cwd) };
+    let dir = home.join("projects").join(folder);
     let fresh = resume.is_none();
     let id = match resume {
-        Some(id) if plan(&home) != LOST && dir.join(format!("{id}.jsonl")).exists() => id,
+        Some(id) if plan != LOST && dir.join(format!("{id}.jsonl")).exists() => id,
         Some(id) => {
             eprintln!("No conversation found with session ID: {id}");
             return 1;
@@ -84,8 +97,8 @@ pub fn claude() -> i32 {
     if fresh {
         session.write("reply", WORKING);
     }
-    if plan(&home) == LIMIT {
-        session.write("limit", "");
+    if plan == LIMIT || plan == RENAMED {
+        session.limit(if plan == RENAMED { "rate_limit_exceeded" } else { "rate_limit" });
         return if print { 1 } else { wait_to_be_stopped() };
     }
     session.write("reply", DONE);
@@ -100,6 +113,10 @@ pub fn codex() -> i32 {
     let subcommand = words.first().map(String::as_str);
     if args.iter().any(|word| word == "--help" || word == "-h") {
         print!("{}", if subcommand == Some("exec") { CODEX_EXEC_HELP } else { CODEX_HELP });
+        return 0;
+    }
+    if args.iter().any(|word| word == "--version" || word == "-V") {
+        println!("codex-cli {}", version("codex", Provider::Codex));
         return 0;
     }
     // FubuKing reads each account's room from the app server; with nothing
@@ -159,21 +176,30 @@ impl ClaudeSession {
         Self { path, id, cwd, records, last: None }
     }
 
-    /// Append the `request`, `reply` or `limit` entry, with `text` as the
-    /// request's or reply's words.
+    /// Append the `request` or `reply` entry with `text` as its words.
     fn write(&mut self, kind: &str, text: &str) {
         let mut entry = self.records[kind].clone();
+        match kind {
+            "request" => entry["message"]["content"] = text.into(),
+            _ => entry["message"]["content"][0]["text"] = text.into(),
+        }
+        self.put(entry);
+    }
+
+    /// Append the limit entry, its `error` named `error`.
+    fn limit(&mut self, error: &str) {
+        let mut entry = self.records["limit"].clone();
+        entry["error"] = error.into();
+        self.put(entry);
+    }
+
+    fn put(&mut self, mut entry: Value) {
         let uuid = next_id();
         entry["parentUuid"] = self.last.replace(uuid.clone()).into();
         entry["uuid"] = uuid.into();
         entry["sessionId"] = self.id.clone().into();
         entry["cwd"] = self.cwd.clone().into();
         entry["timestamp"] = now().into();
-        match kind {
-            "request" => entry["message"]["content"] = text.into(),
-            "reply" => entry["message"]["content"][0]["text"] = text.into(),
-            _ => {}
-        }
         append(&self.path, &entry);
     }
 }
@@ -290,6 +316,14 @@ fn home_of(variable: &str, default: &str) -> PathBuf {
     std::env::var_os(variable)
         .map(PathBuf::from)
         .unwrap_or_else(|| PathBuf::from(std::env::var_os("HOME").expect("HOME")).join(default))
+}
+
+/// What `--version` says: `<state>/<program>-version`, or the newest version
+/// FubuKing's handoff is tested with.
+fn version(program: &str, provider: Provider) -> String {
+    std::fs::read_to_string(state().join(format!("{program}-version")))
+        .map(|version| version.trim().to_string())
+        .unwrap_or_else(|_| fubuking::doctor::tested(provider).1.to_string())
 }
 
 fn plan(home: &Path) -> String {

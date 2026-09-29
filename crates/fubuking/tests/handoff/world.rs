@@ -81,6 +81,19 @@ impl World {
         Terminal::start(self.command(args))
     }
 
+    /// `fubuking <args>` with no terminal, as a script runs it: its exit
+    /// code, what it printed and what it said on stderr.
+    pub fn output(&self, args: &[&str]) -> (i32, String, String) {
+        let out = self.command(args).stdin(Stdio::null()).output().expect("running fubuking");
+        let text = |bytes: &[u8]| String::from_utf8_lossy(bytes).into_owned();
+        (out.status.code().unwrap_or(-1), text(&out.stdout), text(&out.stderr))
+    }
+
+    /// Make `program --version` say `version`.
+    pub fn set_version(&self, program: &str, version: &str) {
+        std::fs::write(self.state.join(format!("{program}-version")), version).expect("version");
+    }
+
     /// Every run of a fake CLI so far, in order.
     pub fn calls(&self) -> Vec<Call> {
         std::fs::read_to_string(self.state.join("calls.jsonl"))

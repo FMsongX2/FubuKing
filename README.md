@@ -58,6 +58,7 @@ Add more accounts, each a separate official login:
 fubuking login claude work      # opens Claude Code in a new profile: run /login there
 fubuking login codex side       # runs `codex login` in a new profile
 fubuking quota                  # what every account has left
+fubuking doctor                 # what FubuKing reads here, when a handoff did not happen
 ```
 
 ### Memory in any MCP client
@@ -81,7 +82,7 @@ Accounts. Every account other than your default login is a profile directory, a 
 
 Limits of the current version:
 
-- The transcript layouts behind handoff are not documented by either CLI. Checked with Claude Code 2.1.273 and Codex 0.147.0 and 0.157.1. When a CLI cannot find a copied session, FubuKing starts that account over from a brief; when the limit record itself changes shape, the limit goes unnoticed and the run just ends.
+- The transcript layouts behind handoff are not documented by either CLI. They are tested with Claude Code 2.1.273 to 2.1.283 and Codex 0.147.0 to 0.157.1, in end-to-end tests that replay real records, and a CLI outside that range is announced once per version. When a CLI cannot find a copied session, FubuKing starts that account over from a brief. When a session ends on a limit in a form FubuKing does not read, or is saved where it does not look, nothing is handed off and FubuKing says so; `fubuking doctor` shows what it reads.
 - A limit on one model, which Claude answers with "switch to another model", leaves the CLI open: the same account can go on with another model. Exit the CLI to hand off anyway.
 - On Windows a running CLI is stopped with a console Ctrl-C, then ended with everything it started. A terminal that is not a Windows console, such as mintty, waits for the CLI to exit instead. An agent CLI that npm installed is a `.cmd` file, whose command line cannot hold a brief, so the brief goes into a temporary file the CLI is asked to read. CI compiles the Windows side and tests the process-tree kill; the console stop has not yet run on a real Windows console.
 - FubuKing adds no status line when your own arguments decide the settings (`--settings`, `--setting-sources`, `--restricted`) or the project sets a status line; that run's Claude quota goes unread.

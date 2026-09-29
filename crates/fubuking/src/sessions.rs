@@ -6,7 +6,9 @@
 //! Codex ends the turn with a `task_complete` event whose
 //! `error.codex_error_info` is `usage_limit_exceeded`. Neither format is a
 //! documented interface, so when one changes a limit goes unnoticed: the run
-//! simply ends, it never hands off by mistake.
+//! simply ends, it never hands off by mistake. What such a change looks like
+//! is reported instead: a session that ends on a limit in another form
+//! ([`Ending::Unread`]), or one saved where FubuKing does not look ([`stray`]).
 //!
 //! Resuming a copy works because each CLI looks a session up by id under its
 //! own home: `<CLAUDE_CONFIG_DIR>/projects/<encoded cwd>/<id>.jsonl` and
@@ -66,6 +68,14 @@ fn latest_claude(home: &Path, cwd: &Path, since: SystemTime) -> Option<Session> 
 }
 
 fn latest_codex(home: &Path, cwd: &Path, since: SystemTime) -> Option<Session> {
+    let path = codex_rollouts(home, since)
+        .into_iter()
+        .find(|path| codex_cwd(path).is_some_and(|recorded| same_dir(&recorded, cwd)))?;
+    session(Provider::Codex, home, path, codex_id)
+}
+
+/// The rollouts under `home` modified at or after `since`, newest first.
+fn codex_rollouts(home: &Path, since: SystemTime) -> Vec<PathBuf> {
     let mut candidates: Vec<(PathBuf, SystemTime)> = Vec::new();
     let mut dirs = vec![home.join("sessions")];
     while let Some(dir) = dirs.pop() {
@@ -80,16 +90,54 @@ fn latest_codex(home: &Path, cwd: &Path, since: SystemTime) -> Option<Session> {
         }
     }
     candidates.sort_by_key(|(_, modified)| std::cmp::Reverse(*modified));
-    let path = candidates
-        .into_iter()
-        .map(|(path, _)| path)
-        .find(|path| codex_cwd(path).is_some_and(|recorded| same_dir(&recorded, cwd)))?;
-    session(Provider::Codex, home, path, |path| {
-        // `rollout-2026-09-27T22-01-12-<uuid>`: the id is the last five groups.
-        let stem = path.file_stem()?.to_string_lossy().into_owned();
-        let parts: Vec<&str> = stem.rsplitn(6, '-').collect();
-        (parts.len() == 6).then(|| parts[..5].iter().rev().copied().collect::<Vec<_>>().join("-"))
-    })
+    candidates.into_iter().map(|(path, _)| path).collect()
+}
+
+/// `rollout-2026-09-27T22-01-12-<uuid>`: the id is the last five groups.
+fn codex_id(path: &Path) -> Option<String> {
+    let stem = path.file_stem()?.to_string_lossy().into_owned();
+    let parts: Vec<&str> = stem.rsplitn(6, '-').collect();
+    (parts.len() == 6).then(|| parts[..5].iter().rev().copied().collect::<Vec<_>>().join("-"))
+}
+
+/// A session `account`'s CLI saved since `since` that [`latest`] does not
+/// find for `cwd`: where one goes when the CLI's layout changes. For Claude,
+/// a transcript under another folder of `projects/` whose entries record
+/// `cwd`; for Codex, the newest rollout when FubuKing cannot read its header,
+/// or cannot name one it can read for `cwd`.
+pub fn stray(account: &Account, cwd: &Path, since: SystemTime) -> Option<PathBuf> {
+    let home = account.cli_home()?;
+    match account.provider {
+        Provider::Claude => {
+            let projects = home.join("projects");
+            let expected = projects.join(atlas_agent_transcript::encode_cwd(&cwd.to_string_lossy()));
+            std::fs::read_dir(&projects)
+                .ok()?
+                .filter_map(Result::ok)
+                .map(|entry| entry.path())
+                .filter(|dir| dir.is_dir() && *dir != expected)
+                .flat_map(|dir| jsonl_files(&dir).filter(|(_, modified)| *modified >= since).map(|(path, _)| path))
+                .find(|path| records_cwd(path, cwd))
+        }
+        Provider::Codex => {
+            let newest = codex_rollouts(&home, since).into_iter().next()?;
+            match codex_cwd(&newest) {
+                Some(recorded) if !same_dir(&recorded, cwd) => None,
+                _ => Some(newest),
+            }
+        }
+    }
+}
+
+/// Whether one of a Claude transcript's first entries records `cwd`.
+fn records_cwd(path: &Path, cwd: &Path) -> bool {
+    let Ok(file) = File::open(path) else { return false };
+    BufReader::new(file)
+        .lines()
+        .take(20)
+        .map_while(Result::ok)
+        .filter_map(|line| serde_json::from_str::<Value>(&line).ok())
+        .any(|entry| entry["cwd"].as_str().is_some_and(|recorded| same_dir(Path::new(recorded), cwd)))
 }
 
 fn session(
@@ -136,54 +184,105 @@ fn same_dir(a: &Path, b: &Path) -> bool {
     a == b || matches!((std::fs::canonicalize(a), std::fs::canonicalize(b)), (Ok(a), Ok(b)) if a == b)
 }
 
-/// The limit message the session stopped on, if it stopped on one at or after
-/// `since`. A limit written before the run started belongs to an earlier run
-/// of that session: the one a resumed copy carries over from the previous
-/// account, or one a later run touched the file after. The CLI stamps entries
-/// from the same clock, so no slack is needed.
-pub fn limit_message(session: &Session, since: SystemTime) -> Option<String> {
-    let tail = read_tail(&session.path, TAIL_BYTES).ok()?;
+/// How a session's last turn ended, read the way a handoff reads it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Ending {
+    /// A usage limit, in the CLI's words: the account's, or a model's (see
+    /// [`is_account_limit`]).
+    Limit(String),
+    /// A limit in a form FubuKing does not read as one: an error about a
+    /// limit other than the known one, or a limit's words outside an error.
+    /// What a changed transcript format looks like. What the CLI said.
+    Unread(String),
+    /// Anything else.
+    Other,
+}
+
+/// How `session` ended, if it ended at or after `since`. An ending written
+/// before the run started belongs to an earlier run of that session: the one
+/// a resumed copy carries over from the previous account, or one a later run
+/// touched the file after. The CLI stamps entries from the same clock, so no
+/// slack is needed.
+pub fn ending(session: &Session, since: SystemTime) -> Ending {
+    let Ok(tail) = read_tail(&session.path, TAIL_BYTES) else { return Ending::Other };
     let lines = tail.lines().filter_map(|line| serde_json::from_str::<Value>(line).ok());
-    let (entry, message) = match session.provider {
-        Provider::Claude => claude_limit(lines),
-        Provider::Codex => codex_limit(lines),
-    }?;
+    let found = match session.provider {
+        Provider::Claude => claude_ending(lines),
+        Provider::Codex => codex_ending(lines),
+    };
+    let Some((entry, ending)) = found else { return Ending::Other };
     let stamped = entry["timestamp"]
         .as_str()
         .and_then(|stamp| chrono::DateTime::parse_from_rfc3339(stamp).ok())
         .map(SystemTime::from);
     match stamped {
-        Some(at) if at < since => None,
-        _ => Some(message),
+        Some(at) if at < since => Ending::Other,
+        _ => ending,
+    }
+}
+
+/// The limit message the session stopped on, if it stopped on one at or after
+/// `since`.
+pub fn limit_message(session: &Session, since: SystemTime) -> Option<String> {
+    match ending(session, since) {
+        Ending::Limit(message) => Some(message),
+        _ => None,
     }
 }
 
 /// The last assistant entry decides: an error entry after a reset and a
 /// successful turn is history, not the current state.
-fn claude_limit(lines: impl Iterator<Item = Value>) -> Option<(Value, String)> {
+fn claude_ending(lines: impl Iterator<Item = Value>) -> Option<(Value, Ending)> {
     let last = lines.filter(|line| line["type"] == "assistant").last()?;
-    if last["isApiErrorMessage"] != true || last["error"] != "rate_limit" {
-        return None;
-    }
-    let text = last
-        .pointer("/message/content/0/text")
-        .and_then(Value::as_str)
-        .unwrap_or("usage limit reached")
-        .to_string();
-    Some((last, text))
+    let text = last.pointer("/message/content/0/text").and_then(Value::as_str);
+    let error = label(&last["error"]);
+    let ending = if last["isApiErrorMessage"] == true && error == "rate_limit" {
+        Ending::Limit(text.unwrap_or("usage limit reached").to_string())
+    } else if last["isApiErrorMessage"] == true && (error.contains("limit") || text.is_some_and(reads_like_limit)) {
+        Ending::Unread(format!("{error}: {}", text.unwrap_or_default()))
+    } else if text.is_some_and(reads_like_limit) {
+        Ending::Unread(text.unwrap_or_default().to_string())
+    } else {
+        Ending::Other
+    };
+    Some((last, ending))
 }
 
 /// The last finished turn decides, as for Claude.
-fn codex_limit(lines: impl Iterator<Item = Value>) -> Option<(Value, String)> {
+fn codex_ending(lines: impl Iterator<Item = Value>) -> Option<(Value, Ending)> {
     let last = lines
         .filter(|line| line["type"] == "event_msg" && line["payload"]["type"] == "task_complete")
         .last()?;
     let error = &last["payload"]["error"];
-    if error["codex_error_info"] != "usage_limit_exceeded" {
-        return None;
+    let message = error["message"].as_str();
+    let info = label(&error["codex_error_info"]);
+    let reply = last["payload"]["last_agent_message"].as_str();
+    let ending = if error.is_object() && info == "usage_limit_exceeded" {
+        Ending::Limit(message.unwrap_or("usage limit reached").to_string())
+    } else if error.is_object() && (info.contains("limit") || message.is_some_and(reads_like_limit)) {
+        Ending::Unread(format!("{info}: {}", message.unwrap_or_default()))
+    } else if reply.is_some_and(reads_like_limit) {
+        Ending::Unread(reply.unwrap_or_default().to_string())
+    } else {
+        Ending::Other
+    };
+    Some((last, ending))
+}
+
+/// An error kind as text: a string, or the JSON of anything else.
+fn label(value: &Value) -> String {
+    match value {
+        Value::String(text) => text.clone(),
+        Value::Null => "error".to_string(),
+        other => other.to_string(),
     }
-    let text = error["message"].as_str().unwrap_or("usage limit reached").to_string();
-    Some((last, text))
+}
+
+/// The words both CLIs use when an account runs out: "You've hit your session
+/// limit", "You've hit your usage limit".
+fn reads_like_limit(text: &str) -> bool {
+    let text = text.to_lowercase();
+    text.contains("limit") && (text.contains("hit your") || text.contains("reached your"))
 }
 
 /// The last `max` bytes of a file, from the first whole line on.
@@ -411,6 +510,14 @@ mod tests {
         Account { id: "p".into(), provider, label: "p".into(), home: Some(home.to_path_buf()) }
     }
 
+    fn claude_end(lines: Vec<Value>) -> Ending {
+        claude_ending(lines.into_iter()).map_or(Ending::Other, |(_, ending)| ending)
+    }
+
+    fn codex_end(lines: Vec<Value>) -> Ending {
+        codex_ending(lines.into_iter()).map_or(Ending::Other, |(_, ending)| ending)
+    }
+
     #[test]
     fn a_claude_session_that_ended_on_a_rate_limit_is_a_limit_hit() {
         let lines = vec![
@@ -418,18 +525,15 @@ mod tests {
             claude_error("rate_limit", "You've hit your session limit · resets 3:10am"),
             json!({ "type": "system" }),
         ];
-        assert_eq!(
-            claude_limit(lines.into_iter()).map(|(_, text)| text),
-            Some("You've hit your session limit · resets 3:10am".into())
-        );
+        assert_eq!(claude_end(lines), Ending::Limit("You've hit your session limit · resets 3:10am".into()));
     }
 
     #[test]
     fn a_later_reply_or_another_error_is_not_a_limit_hit() {
         let recovered = vec![claude_error("rate_limit", "limit"), claude_reply("done")];
-        assert_eq!(claude_limit(recovered.into_iter()), None);
+        assert_eq!(claude_end(recovered), Ending::Other);
         let offline = vec![claude_error("server_error", "API Error: 529 Overloaded")];
-        assert_eq!(claude_limit(offline.into_iter()), None);
+        assert_eq!(claude_end(offline), Ending::Other);
     }
 
     #[test]
@@ -437,11 +541,53 @@ mod tests {
         let hit = codex_turn(Some(json!({
             "message": "You've hit your usage limit.", "codex_error_info": "usage_limit_exceeded"
         })));
+        assert_eq!(codex_end(vec![codex_turn(None), hit.clone()]), Ending::Limit("You've hit your usage limit.".into()));
+        assert_eq!(codex_end(vec![hit, codex_turn(None)]), Ending::Other);
+    }
+
+    /// What a format change looks like: the limit is there, in another form.
+    #[test]
+    fn a_limit_in_another_form_is_reported_not_taken() {
         assert_eq!(
-            codex_limit(vec![codex_turn(None), hit.clone()].into_iter()).map(|(_, text)| text),
-            Some("You've hit your usage limit.".into())
+            claude_end(vec![claude_error("rate_limit_exceeded", "You've hit your weekly limit")]),
+            Ending::Unread("rate_limit_exceeded: You've hit your weekly limit".into())
         );
-        assert_eq!(codex_limit(vec![hit, codex_turn(None)].into_iter()), None);
+        assert_eq!(
+            claude_end(vec![claude_reply("You've hit your session limit · resets 3:10am")]),
+            Ending::Unread("You've hit your session limit · resets 3:10am".into())
+        );
+        let renamed = codex_turn(Some(json!({ "message": "You've hit your usage limit.", "codex_error_info": "quota_exceeded" })));
+        assert_eq!(codex_end(vec![renamed]), Ending::Unread("quota_exceeded: You've hit your usage limit.".into()));
+        let busy = codex_turn(Some(json!({ "message": "stream disconnected", "codex_error_info": { "response_stream_disconnected": {} } })));
+        assert_eq!(codex_end(vec![busy]), Ending::Other);
+    }
+
+    #[test]
+    fn a_claude_session_saved_under_another_folder_is_found_as_a_stray() {
+        let home = tempfile::tempdir().unwrap();
+        let cwd = Path::new("/work/my repo");
+        let since = SystemTime::now() - std::time::Duration::from_secs(5);
+        let theirs = home.path().join("projects/-work-other/a.jsonl");
+        write_lines(&theirs, &[json!({ "type": "user", "cwd": "/work/other" })]);
+        assert_eq!(stray(&account(Provider::Claude, home.path()), cwd, since), None);
+        let moved = home.path().join("projects/work_my_repo/b.jsonl");
+        write_lines(&moved, &[json!({ "type": "user", "cwd": "/work/my repo" })]);
+        assert_eq!(latest(&account(Provider::Claude, home.path()), cwd, since), None);
+        assert_eq!(stray(&account(Provider::Claude, home.path()), cwd, since), Some(moved));
+    }
+
+    #[test]
+    fn a_codex_rollout_with_a_header_fubuking_cannot_read_is_a_stray() {
+        let home = tempfile::tempdir().unwrap();
+        let since = SystemTime::now() - std::time::Duration::from_secs(5);
+        let other = home.path().join("sessions/2026/09/28/rollout-2026-09-28T01-00-00-aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee.jsonl");
+        write_lines(&other, &[json!({ "type": "session_meta", "payload": { "cwd": "/work/b" } })]);
+        assert_eq!(stray(&account(Provider::Codex, home.path()), Path::new("/work/a"), since), None);
+        let unreadable = home.path().join("sessions/2026/09/29/rollout-2026-09-29T01-00-00-aaaaaaaa-bbbb-cccc-dddd-ffffffffffff.jsonl");
+        write_lines(&unreadable, &[json!({ "type": "thread_meta", "thread": { "cwd": "/work/a" } })]);
+        let later = std::time::SystemTime::now() + std::time::Duration::from_secs(1);
+        std::fs::File::options().append(true).open(&unreadable).unwrap().set_modified(later).unwrap();
+        assert_eq!(stray(&account(Provider::Codex, home.path()), Path::new("/work/a"), since), Some(unreadable));
     }
 
     #[test]

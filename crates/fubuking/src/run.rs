@@ -59,6 +59,7 @@ pub async fn run(run: Run) -> anyhow::Result<i32> {
         None => pick(accounts.clone(), true).await.unwrap_or_else(|| Account::default_for(provider)),
     };
     let first = FirstRun::new(run.provider, run.args.clone());
+    crate::doctor::warn_if_untested(provider);
     let _interrupts = survive_interrupts();
     let mut launch_args = run.args;
     let mut tried: Vec<(Provider, String)> = Vec::new();
@@ -92,8 +93,28 @@ pub async fn run(run: Run) -> anyhow::Result<i32> {
             }
         }
 
-        let Some(session) = latest else { return Ok(code) };
-        let Some(message) = sessions::limit_message(&session, started) else { return Ok(code) };
+        let Some(session) = latest else {
+            if let Some(path) = sessions::stray(&account, &cwd, started) {
+                eprintln!(
+                    "fubuking: {} saved this session at {}, where FubuKing does not look for it, so a usage limit in it goes \
+                     unnoticed. `fubuking doctor` shows what FubuKing reads.",
+                    provider.name(),
+                    path.display()
+                );
+            }
+            return Ok(code);
+        };
+        let message = match sessions::ending(&session, started) {
+            sessions::Ending::Limit(message) => message,
+            sessions::Ending::Unread(said) => {
+                eprintln!(
+                    "fubuking: {account}'s session ended on a usage limit in a form FubuKing does not read, so it is not \
+                     handed off ({said}). `fubuking doctor` shows what FubuKing reads."
+                );
+                return Ok(code);
+            }
+            sessions::Ending::Other => return Ok(code),
+        };
         eprintln!("fubuking: {account} stopped on its usage limit: {message}");
 
         let untried = |list: &[Account], of: Provider| -> Vec<Account> {
@@ -122,6 +143,7 @@ pub async fn run(run: Run) -> anyhow::Result<i32> {
             )) {
                 return Ok(code);
             }
+            crate::doctor::warn_if_untested(other);
             let brief = sessions::brief(&session, &account).context("reading the session for a brief")?;
             let brief = brief_for(&crate::executable(other.program()), brief)?;
             warn_if_untrusted(&next, &cwd, first.mode());
@@ -474,6 +496,7 @@ fn status_line_args(account: &Account, cwd: &Path, args: &[OsString]) -> Vec<OsS
 /// nobody is at a terminal: a script's run must not turn into a session.
 fn confirm(question: &str) -> bool {
     if !std::io::stdin().is_terminal() {
+        eprintln!("fubuking: not handing off: there is no terminal to ask on.");
         return false;
     }
     eprint!("{question}");

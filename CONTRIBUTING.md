@@ -26,7 +26,7 @@ cargo test -p fubuking --test handoff                   # whole handoffs on a te
 cargo clippy --workspace --all-targets -- -D warnings
 ```
 
-CI runs every crate's tests and clippy on Linux, and the CLI's on Windows as well. The handoff tests replay records of real Claude Code and Codex sessions (`crates/fubuking/tests/fixtures/`); when a CLI release changes them, replace those with the new version's, keeping every field and replacing ids, paths and text, and the tests show whether handoff still follows. New behaviour needs a test, and a bug fix needs a test that fails without it. Tests live next to the code they cover.
+CI runs every crate's tests and clippy on Linux, and the CLI's on Windows as well. The handoff tests replay records of real Claude Code and Codex sessions (`crates/fubuking/tests/fixtures/`); when a CLI release changes them, replace those with the new version's, keeping every field and replacing ids, paths and text, and the tests show whether handoff still follows. Then move the newest tested version in `crates/fubuking/src/doctor.rs`, which users outside the tested range are told about. New behaviour needs a test, and a bug fix needs a test that fails without it. Tests live next to the code they cover.
 
 ## Fork rules
 
