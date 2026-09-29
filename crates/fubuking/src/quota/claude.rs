@@ -363,16 +363,28 @@ mod tests {
         let home = tempfile::tempdir().unwrap();
         install_statusline(home.path()).unwrap();
         let payload = status(json!({ "five_hour": { "used_percentage": 42, "resets_at": 1 } }));
-        let output = std::process::Command::new(script_path(home.path()))
-            .stdin(std::process::Stdio::piped())
-            .stdout(std::process::Stdio::piped())
-            .spawn()
-            .and_then(|mut child| {
-                use std::io::Write;
-                child.stdin.take().unwrap().write_all(payload.to_string().as_bytes())?;
-                child.wait_with_output()
-            })
-            .unwrap();
+        // A fork by another test can hold the new script open for writing
+        // until its child execs, and Linux refuses to run it meanwhile
+        // (ETXTBSY): try again once it has let go.
+        let mut attempts = 0;
+        let mut child = loop {
+            let started = std::process::Command::new(script_path(home.path()))
+                .stdin(std::process::Stdio::piped())
+                .stdout(std::process::Stdio::piped())
+                .spawn();
+            match started {
+                Err(error) if error.kind() == std::io::ErrorKind::ExecutableFileBusy && attempts < 50 => {
+                    attempts += 1;
+                    std::thread::sleep(std::time::Duration::from_millis(10));
+                }
+                started => break started.unwrap(),
+            }
+        };
+        {
+            use std::io::Write;
+            child.stdin.take().unwrap().write_all(payload.to_string().as_bytes()).unwrap();
+        }
+        let output = child.wait_with_output().unwrap();
         assert_eq!(String::from_utf8_lossy(&output.stdout), "FubuKing\n");
         let reading = read(home.path()).unwrap();
         assert_eq!(reading.windows[0].used_percent, 42.0);
