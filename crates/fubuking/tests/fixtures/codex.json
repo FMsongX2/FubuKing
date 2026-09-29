@@ -1,0 +1,147 @@
+{
+  "session_meta": {
+    "timestamp": "2026-09-28T00:00:00.000Z",
+    "ordinal": 0,
+    "type": "session_meta",
+    "payload": {
+      "creator_user_id": "user-00000000",
+      "creator_account_id": "account-00000000",
+      "session_id": "00000000-0000-4000-8000-000000000000",
+      "id": "00000000-0000-4000-8000-000000000000",
+      "timestamp": "2026-09-28T00:00:00.000Z",
+      "cwd": "/work/project",
+      "runtime_workspace_roots": [
+        "/work/project"
+      ],
+      "originator": "codex_exec",
+      "cli_version": "0.157.1",
+      "source": "exec",
+      "thread_source": "user",
+      "model_provider": "openai",
+      "base_instructions": "…",
+      "history_mode": "paginated",
+      "context_window": {
+        "window_id": "00000000-0000-4000-8000-000000000000"
+      },
+      "git": {}
+    }
+  },
+  "instructions": {
+    "timestamp": "2026-09-28T00:00:00.000Z",
+    "ordinal": 5,
+    "type": "response_item",
+    "payload": {
+      "type": "message",
+      "id": "msg_00000000-0000-4000-8000-000000000000",
+      "role": "user",
+      "content": [
+        {
+          "type": "input_text",
+          "text": "# AGENTS.md instructions\n\n<INSTRUCTIONS>\n…\n</INSTRUCTIONS>"
+        },
+        {
+          "type": "input_text",
+          "text": "<environment_context>\n  <cwd>/work/project</cwd>\n  <shell>zsh</shell>\n  <current_date>2026-09-28</current_date>\n  <timezone>UTC</timezone>\n</environment_context>"
+        }
+      ],
+      "internal_chat_message_metadata_passthrough": {
+        "turn_id": "00000000-0000-4000-8000-000000000000",
+        "create_time": 0,
+        "content_item_kinds": [
+          "agents_md.instructions",
+          "environments.environment_context"
+        ]
+      }
+    }
+  },
+  "request": {
+    "timestamp": "2026-09-28T00:00:00.000Z",
+    "ordinal": 8,
+    "type": "response_item",
+    "payload": {
+      "type": "message",
+      "id": "msg_00000000-0000-4000-8000-000000000000",
+      "role": "user",
+      "content": [
+        {
+          "type": "input_text",
+          "text": "…"
+        }
+      ],
+      "internal_chat_message_metadata_passthrough": {
+        "turn_id": "00000000-0000-4000-8000-000000000000",
+        "create_time": 0,
+        "content_item_kinds": [
+          "user.text"
+        ]
+      }
+    },
+    "metadata": {
+      "client_authored": false,
+      "user_input_order": 0,
+      "mcp_attribution": {
+        "status": "none"
+      }
+    }
+  },
+  "reply": {
+    "timestamp": "2026-09-28T00:00:00.000Z",
+    "ordinal": 24,
+    "type": "response_item",
+    "payload": {
+      "type": "message",
+      "id": "msg_00000000-0000-4000-8000-000000000000",
+      "role": "assistant",
+      "content": [
+        {
+          "type": "output_text",
+          "text": "…"
+        }
+      ],
+      "phase": "final_answer",
+      "internal_chat_message_metadata_passthrough": {
+        "turn_id": "00000000-0000-4000-8000-000000000000",
+        "create_time": 0,
+        "content_item_kinds": [
+          "unknown"
+        ]
+      }
+    },
+    "metadata": {
+      "client_authored": false,
+      "user_input_order": 1
+    }
+  },
+  "complete": {
+    "timestamp": "2026-09-28T00:00:00.000Z",
+    "ordinal": 27,
+    "type": "event_msg",
+    "payload": {
+      "type": "task_complete",
+      "turn_id": "00000000-0000-4000-8000-000000000000",
+      "last_agent_message": "…",
+      "started_at": 0,
+      "completed_at": 0,
+      "duration_ms": 26822,
+      "time_to_first_token_ms": 15779
+    }
+  },
+  "limit": {
+    "timestamp": "2026-09-28T00:00:00.000Z",
+    "ordinal": 0,
+    "type": "event_msg",
+    "payload": {
+      "type": "task_complete",
+      "turn_id": "00000000-0000-4000-8000-000000000000",
+      "last_agent_message": null,
+      "error": {
+        "message": "You've hit your usage limit. Visit https://chatgpt.com/codex/settings/usage to purchase more credits or try again at Sep 8th, 2026 11:41 PM.",
+        "codex_error_info": "usage_limit_exceeded"
+      },
+      "started_at": 0,
+      "completed_at": 0,
+      "duration_ms": 31328,
+      "time_to_first_token_ms": 6396
+    }
+  }
+}

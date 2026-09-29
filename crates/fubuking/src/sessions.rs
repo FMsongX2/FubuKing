@@ -12,6 +12,7 @@
 //! own home: `<CLAUDE_CONFIG_DIR>/projects/<encoded cwd>/<id>.jsonl` and
 //! `<CODEX_HOME>/sessions/<yyyy>/<mm>/<dd>/rollout-<time>-<id>.jsonl`. Checked
 //! against Claude Code 2.1.273 and Codex 0.147.0; neither documents it.
+//! `tests/handoff` replays real records of later versions against all of it.
 
 use std::collections::VecDeque;
 use std::fs::File;

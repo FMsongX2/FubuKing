@@ -35,6 +35,16 @@ windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_System_
 [dev-dependencies]
 tempfile = { workspace = true }
 
+[target.'cfg(unix)'.dev-dependencies]
+libc = "0.2"
+
+# The fake `claude` and `codex` are this test's own binary under those names,
+# so it has its own `main` (see tests/handoff/main.rs).
+[[test]]
+name = "handoff"
+path = "tests/handoff/main.rs"
+harness = false
+
 # The workspace lint table is only real for members that opt in.
 [lints]
 workspace = true

@@ -22,10 +22,11 @@ The first build takes a few minutes.
 ```bash
 cargo test --workspace                                  # every crate, and the licence notices
 cargo test -p <crate>                                   # one crate under crates/
+cargo test -p fubuking --test handoff                   # whole handoffs on a terminal, with fake CLIs (Unix)
 cargo clippy --workspace --all-targets -- -D warnings
 ```
 
-CI runs every crate's tests and clippy on Linux, and the CLI's on Windows as well. New behaviour needs a test, and a bug fix needs a test that fails without it. Tests live next to the code they cover.
+CI runs every crate's tests and clippy on Linux, and the CLI's on Windows as well. The handoff tests replay records of real Claude Code and Codex sessions (`crates/fubuking/tests/fixtures/`); when a CLI release changes them, replace those with the new version's, keeping every field and replacing ids, paths and text, and the tests show whether handoff still follows. New behaviour needs a test, and a bug fix needs a test that fails without it. Tests live next to the code they cover.
 
 ## Fork rules
 
