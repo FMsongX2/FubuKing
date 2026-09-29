@@ -42,8 +42,8 @@ jobs:
             os: macos-latest
           - target: x86_64-apple-darwin
             os: macos-latest
-          # 24.04: numkong, the C kernels under usearch, needs GCC 13; 22.04's
-          # GCC 11 cannot compile it.
+          # The Linux builds run in manylinux_2_28 (see the build step), so the
+          # runner only hosts the container.
           - target: x86_64-unknown-linux-gnu
             os: ubuntu-24.04
           - target: aarch64-unknown-linux-gnu
@@ -56,7 +56,32 @@ jobs:
         with:
           targets: ${{ matrix.target }}
       - name: Build
+        if: runner.os != 'Linux'
         run: cargo build --locked --release -p fubuking --target ${{ matrix.target }}
+      # AlmaLinux 8 with glibc 2.28 and GCC 14. GCC 13 or newer is what
+      # numkong, the C kernels under usearch, needs; the old glibc and the
+      # toolset's libstdc++, which links its newer parts statically, are what
+      # keep the binary running on glibc 2.28 systems. A build on the runner
+      # itself would need the runner's glibc.
+      - name: Build (manylinux_2_28)
+        if: runner.os == 'Linux'
+        run: |
+          docker run --rm -v "$PWD:/work" -w /work -e CARGO_INCREMENTAL \
+            "quay.io/pypa/manylinux_2_28_$(uname -m)" bash -euo pipefail -c '
+              curl -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain stable
+              . "$HOME/.cargo/env"
+              cargo build --locked --release -p fubuking --target ${{ matrix.target }}'
+      # The glibc a binary needs is the newest symbol version it imports, and a
+      # build environment with a newer glibc raises it without a word. Running
+      # it on Debian 10 checks glibc 2.28 and its libstdc++ together.
+      - name: Check it runs on glibc 2.28
+        if: runner.os == 'Linux'
+        run: |
+          bin="target/${{ matrix.target }}/release/fubuking"
+          newest() { objdump -T "$bin" | grep -o "$1_[0-9.]*" | sort -uV | tail -1; }
+          echo "imports up to $(newest GLIBC) and $(newest GLIBCXX)"
+          test "$(printf '%s\n' "$(newest GLIBC)" GLIBC_2.28 | sort -V | tail -1)" = GLIBC_2.28
+          docker run --rm -v "$PWD/target/${{ matrix.target }}/release:/bin-under-test:ro" debian:10-slim /bin-under-test/fubuking --version
       - name: Check the tag names the crate's version
         if: startsWith(github.ref, 'refs/tags/') && matrix.target == 'x86_64-unknown-linux-gnu'
         run: test "$(target/${{ matrix.target }}/release/fubuking --version)" = "fubuking ${GITHUB_REF_NAME#v}"
