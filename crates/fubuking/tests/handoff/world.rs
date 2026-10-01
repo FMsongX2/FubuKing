@@ -116,7 +116,7 @@ impl World {
 
     /// Nothing of this process's environment reaches `fubuking`: not the
     /// real CLIs, their homes or their variables.
-    fn command(&self, args: &[&str]) -> Command {
+    pub(super) fn command(&self, args: &[&str]) -> Command {
         let mut command = Command::new(env!("CARGO_BIN_EXE_fubuking"));
         command
             .args(args)

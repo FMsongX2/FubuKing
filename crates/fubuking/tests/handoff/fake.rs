@@ -13,7 +13,7 @@
 //! or the one in `<state>/<program>-version`.
 
 use std::fs::OpenOptions;
-use std::io::Write;
+use std::io::{BufRead, Write};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
@@ -122,7 +122,8 @@ pub fn codex() -> i32 {
     // FubuKing reads each account's room from the app server; with nothing
     // read, the room is unknown and the account still counts.
     if subcommand == Some("app-server") {
-        return 1;
+        let home = home_of("CODEX_HOME", ".codex");
+        return if plan(&home) == "quota" { quota_server() } else { 1 };
     }
     let home = home_of("CODEX_HOME", ".codex");
     record("codex", &home, &args);
@@ -158,6 +159,22 @@ pub fn codex() -> i32 {
     }
     session.write("reply", DONE);
     session.write("complete", "");
+    0
+}
+
+fn quota_server() -> i32 {
+    for line in std::io::stdin().lock().lines().map_while(Result::ok) {
+        let Ok(request) = serde_json::from_str::<Value>(&line) else { continue };
+        let Some(id) = request.get("id") else { continue };
+        let result = match request.get("method").and_then(Value::as_str) {
+            Some("account/read") => serde_json::json!({ "account": { "type": "chatgpt", "planType": "plus" } }),
+            Some("account/rateLimits/read") => serde_json::json!({
+                "rateLimits": { "primary": { "usedPercent": 20.0, "windowDurationMins": 300 } }
+            }),
+            _ => serde_json::json!({}),
+        };
+        println!("{}", serde_json::json!({ "id": id, "result": result }));
+    }
     0
 }
 

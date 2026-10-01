@@ -39,7 +39,8 @@ mod unix {
     use crate::world::World;
 
     const TASK: &str = "Fix the flaky retry test";
-    const TESTS: [(&str, fn()); 12] = [
+    const TESTS: [(&str, fn()); 13] = [
+        ("codex_quota_uses_the_inherited_profile_home", codex_quota_uses_the_inherited_profile_home),
         ("claude_moves_a_stopped_session_to_the_next_account", claude_moves_a_stopped_session_to_the_next_account),
         ("claude_print_mode_resumes_in_print_mode", claude_print_mode_resumes_in_print_mode),
         ("claude_with_no_account_left_goes_on_in_codex_from_a_brief", claude_with_no_account_left_goes_on_in_codex_from_a_brief),
@@ -53,6 +54,16 @@ mod unix {
         ("without_a_terminal_nothing_is_handed_off_and_it_says_why", without_a_terminal_nothing_is_handed_off_and_it_says_why),
         ("doctor_shows_the_clis_and_how_each_session_ended", doctor_shows_the_clis_and_how_each_session_ended),
     ];
+
+    fn codex_quota_uses_the_inherited_profile_home() {
+        let world = World::new();
+        let selected = world.home.join("selected-codex");
+        world.plan(&selected, "quota");
+        let output = world.command(&["quota"]).env("CODEX_HOME", &selected).output().expect("quota");
+        let screen = String::from_utf8_lossy(&output.stdout);
+        assert!(output.status.success(), "{screen}");
+        assert!(screen.contains("20%"), "quota did not read the selected Codex profile: {screen}");
+    }
 
     pub fn main() {
         let started_as = std::env::args_os()

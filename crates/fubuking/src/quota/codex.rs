@@ -44,7 +44,7 @@ pub enum CodexError {
 }
 
 /// Read one account's plan and windows. `profile_home` is `None` for the
-/// default login in `~/.codex`.
+/// default login: an inherited `CODEX_HOME`, else `~/.codex`.
 pub async fn read(profile_home: Option<&Path>) -> Result<CodexReading, CodexError> {
     let mut cmd = atlas_process::async_command(crate::executable("codex"));
     cmd.args(["app-server", "--stdio"])
@@ -52,10 +52,9 @@ pub async fn read(profile_home: Option<&Path>) -> Result<CodexReading, CodexErro
         .stdout(Stdio::piped())
         .stderr(Stdio::null())
         .kill_on_drop(true);
-    match profile_home {
-        Some(home) => cmd.env("CODEX_HOME", home),
-        None => cmd.env_remove("CODEX_HOME"),
-    };
+    if let Some(home) = profile_home {
+        cmd.env("CODEX_HOME", home);
+    }
     let mut child = cmd.spawn().map_err(|e| match e.kind() {
         std::io::ErrorKind::NotFound => CodexError::NotInstalled,
         _ => CodexError::Failed(format!("could not start the Codex CLI: {e}")),
